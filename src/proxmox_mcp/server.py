@@ -32,6 +32,7 @@ from .tools.node import NodeTools
 from .tools.vm import VMTools
 from .tools.storage import StorageTools
 from .tools.cluster import ClusterTools
+from .tools.containers import ContainerTools
 from .tools.definitions import (
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
@@ -44,6 +45,9 @@ from .tools.definitions import (
     RESET_VM_DESC,
     DELETE_VM_DESC,
     GET_CONTAINERS_DESC,
+    START_CONTAINER_DESC,
+    STOP_CONTAINER_DESC,
+    RESTART_CONTAINER_DESC,
     GET_STORAGE_DESC,
     GET_CLUSTER_STATUS_DESC
 )
@@ -52,10 +56,13 @@ class ProxmoxMCPServer:
     """Main server class for Proxmox MCP."""
 
     def __init__(self, config_path: Optional[str] = None):
-        """Initialize the server.
-
-        Args:
-            config_path: Path to configuration file
+        """
+        Create and configure a Proxmox MCP server instance.
+        
+        Loads configuration from the given path (or default), sets up logging, initializes the Proxmox API manager and API handle, constructs tool layers for nodes, VMs, storage, cluster, and containers, creates the MCP server instance named "ProxmoxMCP", and registers MCP tools.
+        
+        Parameters:
+            config_path (Optional[str]): Path to the configuration file. If None, a default config location is used.
         """
         self.config = load_config(config_path)
         self.logger = setup_logging(self.config.logging)
@@ -69,6 +76,8 @@ class ProxmoxMCPServer:
         self.vm_tools = VMTools(self.proxmox)
         self.storage_tools = StorageTools(self.proxmox)
         self.cluster_tools = ClusterTools(self.proxmox)
+        self.container_tools = ContainerTools(self.proxmox)
+
         
         # Initialize MCP server
         self.mcp = FastMCP("ProxmoxMCP")
@@ -169,17 +178,117 @@ class ProxmoxMCPServer:
         # Cluster tools
         @self.mcp.tool(description=GET_CLUSTER_STATUS_DESC)
         def get_cluster_status():
+            """
+            Return the current cluster status.
+            
+            Returns:
+                The cluster status information as provided by the ClusterTools layer (structure depends on ClusterTools.get_cluster_status).
+            """
             return self.cluster_tools.get_cluster_status()
 
+        # Containers (LXC)
+        @self.mcp.tool(description=GET_CONTAINERS_DESC)
+        def get_containers(
+            node: Annotated[Optional[str], Field(description="Optional node name (e.g. 'pve1')")] = None,
+            include_stats: Annotated[bool, Field(description="Include live stats and fallbacks", default=True)] = True,
+            include_raw: Annotated[bool, Field(description="Include raw status/config", default=False)] = False,
+            format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+        ):
+            """
+            Return information about LXC containers.
+            
+            Filters by optional node and can include live stats and/or raw status/config data. The output is formatted according to `format_style` ('pretty' or 'json').
+            
+            Parameters:
+                node: Optional node name to limit results (e.g. "pve1").
+                include_stats: If True, include live statistics with fallbacks.
+                include_raw: If True, include raw status/config fields in the output.
+                format_style: Output format, either "pretty" or "json".
+            
+            Returns:
+                Container information formatted according to `format_style`.
+            """
+            return self.container_tools.get_containers(
+                node=node, include_stats=include_stats, include_raw=include_raw, format_style=format_style
+            )
+
+        # Container controls
+        @self.mcp.tool(description=START_CONTAINER_DESC)
+        def start_container(
+            selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
+            format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+        ):
+            """
+            Start one or more LXC containers matching the given selector.
+            
+            Delegates to the ContainerTools implementation to start containers identified by
+            selector (allowed forms: "123", "pve1:123", "pve1/name", "name", or a comma-separated list).
+            The response is formatted according to format_style.
+            
+            Parameters:
+                selector (str): Container selector(s); supports node-qualified and comma-separated forms.
+                format_style (str): Output format, either "pretty" or "json" (default "pretty").
+            
+            Returns:
+                The result of the start operation formatted per `format_style` (a human-readable string for
+                "pretty" or a JSON-serializable object for "json").
+            """
+            return self.container_tools.start_container(selector=selector, format_style=format_style)
+
+        @self.mcp.tool(description=STOP_CONTAINER_DESC)
+        def stop_container(
+            selector: Annotated[str, Field(description="CT selector (see start_container)")],
+            graceful: Annotated[bool, Field(description="Graceful shutdown (True) or forced stop (False)", default=False)] = False,
+            timeout_seconds: Annotated[int, Field(description="Timeout for stop/shutdown", ge=1, le=600)] = 10,
+            format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+        ):
+            """
+            Stop one or more LXC containers matching the given selector.
+            
+            Stops containers either gracefully (attempt clean shutdown) or forcefully, with a configurable timeout. The selector accepts the same formats as `start_container` (e.g. "123", "pve1:123", "pve1/name", "name", or a comma-separated list).
+            
+            Parameters:
+                selector: Container selector string identifying one or more containers.
+                graceful: If True, attempt a graceful shutdown; if False, perform a forced stop.
+                timeout_seconds: Maximum seconds to wait for shutdown/restart (1–600).
+                format_style: Output format, either "pretty" or "json".
+            
+            Returns:
+                The stop operation result formatted according to `format_style`.
+            """
+            return self.container_tools.stop_container(
+               selector=selector, graceful=graceful, timeout_seconds=timeout_seconds, format_style=format_style
+            )
+
+        @self.mcp.tool(description=RESTART_CONTAINER_DESC)
+        def restart_container(
+            selector: Annotated[str, Field(description="CT selector (see start_container)")],
+            timeout_seconds: Annotated[int, Field(description="Timeout for reboot", ge=1, le=600)] = 10,
+            format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+        ):
+            """
+            Restart one or more LXC containers matching the given selector.
+            
+            Performs a container reboot (stop then start) using the ContainerTools layer and returns the result formatted according to format_style.
+            
+            Parameters:
+                selector (str): Container selector. Accepts numeric VMID, qualified forms like "node:vmid", "node/name", plain name, or a comma-separated list of selectors.
+                timeout_seconds (int): Maximum seconds to wait for the container to stop/reboot (1–600). Defaults to 10.
+                format_style (str): Output format, either "pretty" or "json". Defaults to "pretty".
+            
+            Returns:
+                The formatted result produced by ContainerTools.restart_container (structure depends on format_style).
+            """
+            return self.container_tools.restart_container(
+               selector=selector, timeout_seconds=timeout_seconds, format_style=format_style
+            )
+
+
     def start(self) -> None:
-        """Start the MCP server.
+        """
+        Start and run the MCP server, blocking until shutdown.
         
-        Initializes the server with:
-        - Signal handlers for graceful shutdown (SIGINT, SIGTERM)
-        - Async runtime for handling concurrent requests
-        - Error handling and logging
-        
-        The server runs until terminated by a signal or fatal error.
+        Runs the MCP main loop using anyio and installs handlers for SIGINT and SIGTERM to perform a graceful shutdown. Exits the process with a nonzero status on unexpected fatal errors.
         """
         import anyio
 
