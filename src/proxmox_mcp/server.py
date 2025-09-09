@@ -18,7 +18,7 @@ import logging
 import os
 import sys
 import signal
-from typing import Optional, List, Annotated
+from typing import Optional, List, Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.tools import Tool
