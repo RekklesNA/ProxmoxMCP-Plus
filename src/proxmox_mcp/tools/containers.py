@@ -238,6 +238,21 @@ class ContainerTools(ProxmoxTool):
                             cores = float(cfg_cpulimit)
                     except Exception:
                         cores = None
+                        
+                    # --- NEW: fallbacks for stopped / missing maxmem ---
+                    status_str = str(_get(raw_status, "status") or _get(ct, "status") or "").lower()
+                    
+                    if status_str == "stopped":
+                        try:
+                            mem_bytes = 0
+                        except Exception:
+                            mem_bytes = 0
+
+                    if (not maxmem_bytes or int(maxmem_bytes) == 0) and memory_mib and int(memory_mib) > 0:
+                        try:
+                            maxmem_bytes = int(memory_mib) * 1024 * 1024
+                        except Exception:
+                            maxmem_bytes = 0
 
                     # RRD fallback if zeros
                     if (mem_bytes == 0) or (maxmem_bytes == 0) or (cpu_pct == 0.0):
