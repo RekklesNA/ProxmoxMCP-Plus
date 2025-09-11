@@ -18,7 +18,9 @@ import logging
 import os
 import sys
 import signal
-from typing import Optional, List, Annotated
+from typing import Optional, List, Annotated, Literal
+from pydantic import BaseModel, Field
+from fastapi import Body
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.tools import Tool
@@ -178,16 +180,25 @@ class ProxmoxMCPServer:
             return self.cluster_tools.get_cluster_status()
 
         # Containers (LXC)
+        class GetContainersPayload(BaseModel):
+            node: Optional[str] = Field(None, description="Optional node name (e.g. 'pve1')")
+            include_stats: bool = Field(True, description="Include live stats and fallbacks")
+            include_raw: bool = Field(False, description="Include raw status/config")
+            format_style: Literal["pretty", "json"] = Field(
+                "pretty", description="'pretty' or 'json'"
+            )
+
         @self.mcp.tool(description=GET_CONTAINERS_DESC)
         def get_containers(
-            node: Annotated[Optional[str], Field(description="Optional node name (e.g. 'pve1')")] = None,
-            include_stats: Annotated[bool, Field(description="Include live stats and fallbacks", default=True)] = True,
-            include_raw: Annotated[bool, Field(description="Include raw status/config", default=False)] = False,
-            format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+            payload: GetContainersPayload = Body(..., embed=True, description="Container query options")
         ):
             return self.container_tools.get_containers(
-                node=node, include_stats=include_stats, include_raw=include_raw, format_style=format_style
+                node=payload.node,
+                include_stats=payload.include_stats,
+                include_raw=payload.include_raw,
+                format_style=payload.format_style,
             )
+
 
         # Container controls
         @self.mcp.tool(description=START_CONTAINER_DESC)
