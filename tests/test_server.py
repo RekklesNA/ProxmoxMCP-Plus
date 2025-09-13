@@ -60,6 +60,7 @@ async def test_list_tools(server):
     assert "get_vms" in tool_names
     assert "get_containers" in tool_names
     assert "execute_vm_command" in tool_names
+    assert "update_container_resources" in tool_names
 
 @pytest.mark.asyncio
 async def test_get_nodes(server, mock_proxmox):
@@ -123,6 +124,28 @@ async def test_get_containers(server, mock_proxmox):
     assert len(result) > 0
     assert result[0]["name"] == "container1"
     assert result[1]["name"] == "container2"
+
+@pytest.mark.asyncio
+async def test_update_container_resources(server, mock_proxmox):
+    """Test update_container_resources tool."""
+    mock_proxmox.return_value.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    mock_proxmox.return_value.nodes.return_value.lxc.get.return_value = [
+        {"vmid": "200", "name": "container1", "status": "running"}
+    ]
+
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.config.put.return_value = {}
+    ct_api.resize.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "update_container_resources",
+        {"selector": "node1:200", "cores": 2, "memory": 512, "swap": 256, "disk_gb": 1},
+    )
+    result = json.loads(response[0].text)
+
+    assert result[0]["ok"] is True
+    ct_api.config.put.assert_called_with(cores=2, memory=512, swap=256)
+    ct_api.resize.put.assert_called_with(disk="rootfs", size="+1G")
 
 @pytest.mark.asyncio
 async def test_get_storage(server, mock_proxmox):

@@ -27,6 +27,7 @@ This project is built upon the excellent open-source project [ProxmoxMCP](https:
   - `start_container` - Start LXC container
   - `stop_container` - Stop LXC container
   - `restart_container` - Restart LXC container (forcefully/gracefully)
+  - `update_container_resources` - Adjust container CPU, memory, swap, or extend disk
 
 - 📊 **Enhanced Monitoring and Display**
   - Improved storage pool status monitoring

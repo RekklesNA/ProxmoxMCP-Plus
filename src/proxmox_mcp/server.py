@@ -49,6 +49,7 @@ from .tools.definitions import (
     START_CONTAINER_DESC,
     STOP_CONTAINER_DESC,
     RESTART_CONTAINER_DESC,
+    UPDATE_CONTAINER_RESOURCES_DESC,
     GET_STORAGE_DESC,
     GET_CLUSTER_STATUS_DESC
 )
@@ -224,6 +225,26 @@ class ProxmoxMCPServer:
         ):
             return self.container_tools.restart_container(
                selector=selector, timeout_seconds=timeout_seconds, format_style=format_style
+            )
+
+        @self.mcp.tool(description=UPDATE_CONTAINER_RESOURCES_DESC)
+        def update_container_resources(
+            selector: Annotated[str, Field(description="CT selector (see start_container)")],
+            cores: Annotated[Optional[int], Field(description="New CPU core count", ge=1)] = None,
+            memory: Annotated[Optional[int], Field(description="New memory limit in MiB", ge=16)] = None,
+            swap: Annotated[Optional[int], Field(description="New swap limit in MiB", ge=0)] = None,
+            disk_gb: Annotated[Optional[int], Field(description="Additional disk size in GiB", ge=1)] = None,
+            disk: Annotated[str, Field(description="Disk to resize", default="rootfs")] = "rootfs",
+            format_style: Annotated[Literal["pretty","json"], Field(description="Output format")] = "pretty",
+        ):
+            return self.container_tools.update_container_resources(
+                selector=selector,
+                cores=cores,
+                memory=memory,
+                swap=swap,
+                disk_gb=disk_gb,
+                disk=disk,
+                format_style=format_style,
             )
 
 

@@ -133,6 +133,16 @@ RESTART_CONTAINER_DESC = """Restart LXC containers (reboot).
 selector: same grammar as start_container
 """
 
+UPDATE_CONTAINER_RESOURCES_DESC = """Update resources for one or more LXC containers.
+
+selector: same grammar as start_container
+cores: New CPU core count (optional)
+memory: New memory limit in MiB (optional)
+swap: New swap limit in MiB (optional)
+disk_gb: Additional disk size in GiB to add (optional)
+disk: Disk identifier to resize (default 'rootfs')
+"""
+
 # Storage tool descriptions
 GET_STORAGE_DESC = """List storage pools across the cluster with their usage and configuration.
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "proxmox-mcp"
 version = "0.1.0"
 description = "A Model Context Protocol server for interacting with Proxmox hypervisors"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [
     {name = "Kevin", email = "kevin@example.com"}
 ]
@@ -31,6 +31,9 @@ dependencies = [
     "proxmoxer>=2.0.1,<3.0.0",
     "requests>=2.31.0,<3.0.0",
     "pydantic>=2.0.0,<3.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "mcpo>=0.0.17",
 ]
 
 [project.optional-dependencies]

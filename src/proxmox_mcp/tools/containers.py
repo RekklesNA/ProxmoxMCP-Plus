@@ -451,3 +451,70 @@ class ContainerTools(ProxmoxTool):
 
         except Exception as e:
             return self._err("Failed to restart container(s)", e)
+
+    def update_container_resources(
+        self,
+        selector: str,
+        cores: Optional[int] = None,
+        memory: Optional[int] = None,
+        swap: Optional[int] = None,
+        disk_gb: Optional[int] = None,
+        disk: str = "rootfs",
+        format_style: str = "pretty",
+    ) -> List[Content]:
+        """Update container CPU/memory/swap limits and/or extend disk size.
+
+        Parameters:
+            selector: Container selector (same grammar as start_container)
+            cores: New CPU core count
+            memory: New memory limit in MiB
+            swap: New swap limit in MiB
+            disk_gb: Additional disk size to add in GiB
+            disk: Disk identifier to resize (default 'rootfs')
+            format_style: Output format ('pretty' or 'json')
+        """
+
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                rec: Dict[str, Any] = {"ok": True, "node": node, "vmid": vmid, "name": label}
+                changes: List[str] = []
+
+                try:
+                    update_params: Dict[str, Any] = {}
+                    if cores is not None:
+                        update_params["cores"] = cores
+                        changes.append(f"cores={cores}")
+                    if memory is not None:
+                        update_params["memory"] = memory
+                        changes.append(f"memory={memory}MiB")
+                    if swap is not None:
+                        update_params["swap"] = swap
+                        changes.append(f"swap={swap}MiB")
+
+                    if update_params:
+                        self.proxmox.nodes(node).lxc(vmid).config.put(**update_params)
+
+                    if disk_gb is not None:
+                        size_str = f"+{disk_gb}G"
+                        # Use PUT for disk resize - some Proxmox versions reject POST
+                        self.proxmox.nodes(node).lxc(vmid).resize.put(disk=disk, size=size_str)
+                        changes.append(f"{disk}+={disk_gb}G")
+
+                    rec["message"] = ", ".join(changes) if changes else "no changes"
+                except Exception as e:
+                    rec["ok"] = False
+                    rec["error"] = str(e)
+
+                results.append(rec)
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Update Container Resources", results)
+
+        except Exception as e:
+            return self._err("Failed to update container(s)", e)
