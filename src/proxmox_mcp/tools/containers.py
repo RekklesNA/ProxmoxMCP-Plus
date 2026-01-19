@@ -76,7 +76,14 @@ class ContainerTools(ProxmoxTool):
         """Yield (node_name, ct_dict). Coerce odd shapes into dicts with vmid."""
         out: List[Tuple[str, Dict]] = []
         if node:
-            raw = self.proxmox.nodes(node).lxc.get()
+            try:
+                raw = self.proxmox.nodes(node).lxc.get()
+            except Exception as e:
+                self.logger.warning(
+                    "Skipping node %s while listing containers: %s", node, e
+                )
+                return out
+
             for it in _as_list(raw):
                 if isinstance(it, dict):
                     out.append((node, it))
@@ -87,12 +94,23 @@ class ContainerTools(ProxmoxTool):
                     except Exception:
                         continue
         else:
-            nodes = _as_list(self.proxmox.nodes.get())
+            try:
+                nodes = _as_list(self.proxmox.nodes.get())
+            except Exception as e:
+                self._handle_error("list containers", e)
+
             for n in nodes:
                 nname = _get(n, "node")
                 if not nname:
                     continue
-                raw = self.proxmox.nodes(nname).lxc.get()
+                try:
+                    raw = self.proxmox.nodes(nname).lxc.get()
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Skipping node %s while listing containers: %s", nname, node_error
+                    )
+                    continue
+
                 for it in _as_list(raw):
                     if isinstance(it, dict):
                         out.append((nname, it))

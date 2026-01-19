@@ -78,7 +78,12 @@ class NodeTools(ProxmoxTool):
                             "total": status.get("memory", {}).get("total", 0)
                         }
                     })
-                except Exception:
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Using basic info for node %s due to status error: %s",
+                        node_name,
+                        node_error,
+                    )
                     # Fallback to basic info if detailed status fails
                     nodes.append({
                         "node": node_name,

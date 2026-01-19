@@ -77,7 +77,12 @@ class StorageTools(ProxmoxTool):
                         "total": status.get("total", 0),
                         "available": status.get("avail", 0)
                     })
-                except Exception:
+                except Exception as store_error:
+                    self.logger.warning(
+                        "Using basic info for storage %s due to status error: %s",
+                        store.get("storage"),
+                        store_error,
+                    )
                     # If detailed status fails, add basic info
                     storage.append({
                         "storage": store["storage"],
