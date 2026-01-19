@@ -83,45 +83,55 @@ class VMTools(ProxmoxTool):
             self._handle_error("get VMs", e)
 
         result = []
-        for node in nodes:
-            node_name = node["node"]
-            try:
-                vms = self.proxmox.nodes(node_name).qemu.get()
-            except Exception as node_error:
-                self.logger.warning(
-                    "Skipping node %s while gathering VM list: %s", node_name, node_error
-                )
-                continue
-
-            for vm in vms:
-                vmid = vm["vmid"]
-                # Get VM config for CPU cores
+        try:
+            for node in nodes:
+                node_name = node.get("node") if isinstance(node, dict) else None
+                if not node_name:
+                    self.logger.warning(
+                        "Skipping unexpected node entry while gathering VM list: %s",
+                        node,
+                    )
+                    continue
                 try:
-                    config = self.proxmox.nodes(node_name).qemu(vmid).config.get()
-                    result.append({
-                        "vmid": vmid,
-                        "name": vm["name"],
-                        "status": vm["status"],
-                        "node": node_name,
-                        "cpus": config.get("cores", "N/A"),
-                        "memory": {
-                            "used": vm.get("mem", 0),
-                            "total": vm.get("maxmem", 0)
-                        }
-                    })
-                except Exception:
-                    # Fallback if can't get config
-                    result.append({
-                        "vmid": vmid,
-                        "name": vm["name"],
-                        "status": vm["status"],
-                        "node": node_name,
-                        "cpus": "N/A",
-                        "memory": {
-                            "used": vm.get("mem", 0),
-                            "total": vm.get("maxmem", 0)
-                        }
-                    })
+                    vms = self.proxmox.nodes(node_name).qemu.get()
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Skipping node %s while gathering VM list: %s", node_name, node_error
+                    )
+                    continue
+
+                for vm in vms:
+                    vmid = vm["vmid"]
+                    # Get VM config for CPU cores
+                    try:
+                        config = self.proxmox.nodes(node_name).qemu(vmid).config.get()
+                        result.append({
+                            "vmid": vmid,
+                            "name": vm["name"],
+                            "status": vm["status"],
+                            "node": node_name,
+                            "cpus": config.get("cores", "N/A"),
+                            "memory": {
+                                "used": vm.get("mem", 0),
+                                "total": vm.get("maxmem", 0)
+                            }
+                        })
+                    except Exception:
+                        # Fallback if can't get config
+                        result.append({
+                            "vmid": vmid,
+                            "name": vm["name"],
+                            "status": vm["status"],
+                            "node": node_name,
+                            "cpus": "N/A",
+                            "memory": {
+                                "used": vm.get("mem", 0),
+                                "total": vm.get("maxmem", 0)
+                            }
+                        })
+        except Exception as e:
+            self._handle_error("get VMs", e)
+
         return self._format_response(result, "vms")
 
     def create_vm(self, node: str, vmid: str, name: str, cpus: int, memory: int, 
