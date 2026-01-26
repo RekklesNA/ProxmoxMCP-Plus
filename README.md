@@ -213,6 +213,64 @@ Once deployed, access your service at:
 - **🔧 OpenAPI Specification**: http://your-server:8811/openapi.json
 - **❤️ Health Check**: http://your-server:8811/health
 
+### Claude Desktop Integration
+
+For Claude Desktop users, add this configuration to your MCP settings file:
+
+**Configuration file location:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+**Quick Setup:**
+1. Copy the example configuration:
+   ```bash
+   # macOS
+   cp proxmox-config/claude_desktop_config.example.json ~/Library/Application\ Support/Claude/claude_desktop_config.json
+
+   # Linux
+   cp proxmox-config/claude_desktop_config.example.json ~/.config/Claude/claude_desktop_config.json
+
+   # Windows (PowerShell)
+   Copy-Item proxmox-config\claude_desktop_config.example.json $env:APPDATA\Claude\claude_desktop_config.json
+   ```
+
+2. Edit the file and replace the following values:
+   - `/absolute/path/to/ProxmoxMCP-Plus` - Full path to your installation
+   - `your-proxmox-host` - Your Proxmox server IP or hostname
+   - `username@pve` - Your Proxmox username
+   - `token-name` - Your API token name
+   - `token-value` - Your API token value
+
+**Configuration:**
+```json
+{
+    "mcpServers": {
+        "ProxmoxMCP-Plus": {
+            "command": "/absolute/path/to/ProxmoxMCP-Plus/.venv/bin/python",
+            "args": ["-m", "proxmox_mcp.server"],
+            "env": {
+                "PYTHONPATH": "/absolute/path/to/ProxmoxMCP-Plus/src",
+                "PROXMOX_MCP_CONFIG": "/absolute/path/to/ProxmoxMCP-Plus/proxmox-config/config.json",
+                "PROXMOX_HOST": "your-proxmox-host",
+                "PROXMOX_USER": "username@pve",
+                "PROXMOX_TOKEN_NAME": "token-name",
+                "PROXMOX_TOKEN_VALUE": "token-value",
+                "PROXMOX_PORT": "8006",
+                "PROXMOX_VERIFY_SSL": "false",
+                "PROXMOX_SERVICE": "PVE",
+                "LOG_LEVEL": "DEBUG"
+            }
+        }
+    }
+}
+```
+
+**After configuration:**
+1. Restart Claude Desktop
+2. The ProxmoxMCP-Plus tools will be available in your conversations
+3. You can now manage your Proxmox infrastructure through Claude Desktop!
+
 ### Cline Desktop Integration
 
 For Cline users, add this configuration to your MCP settings file (typically at `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`):

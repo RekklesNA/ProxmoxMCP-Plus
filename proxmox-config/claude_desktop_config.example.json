@@ -1,0 +1,20 @@
+{
+    "mcpServers": {
+        "ProxmoxMCP-Plus": {
+            "command": "/absolute/path/to/ProxmoxMCP-Plus/.venv/bin/python",
+            "args": ["-m", "proxmox_mcp.server"],
+            "env": {
+                "PYTHONPATH": "/absolute/path/to/ProxmoxMCP-Plus/src",
+                "PROXMOX_MCP_CONFIG": "/absolute/path/to/ProxmoxMCP-Plus/proxmox-config/config.json",
+                "PROXMOX_HOST": "your-proxmox-host",
+                "PROXMOX_USER": "username@pve",
+                "PROXMOX_TOKEN_NAME": "token-name",
+                "PROXMOX_TOKEN_VALUE": "token-value",
+                "PROXMOX_PORT": "8006",
+                "PROXMOX_VERIFY_SSL": "false",
+                "PROXMOX_SERVICE": "PVE",
+                "LOG_LEVEL": "DEBUG"
+            }
+        }
+    }
+}

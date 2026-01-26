@@ -452,6 +452,199 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("Failed to restart container(s)", e)
 
+    def create_container(
+        self,
+        node: str,
+        vmid: str,
+        ostemplate: str,
+        hostname: Optional[str] = None,
+        cores: int = 1,
+        memory: int = 512,
+        swap: int = 512,
+        disk_size: int = 8,
+        storage: Optional[str] = None,
+        password: Optional[str] = None,
+        ssh_public_keys: Optional[str] = None,
+        network_bridge: str = "vmbr0",
+        start_after_create: bool = False,
+        unprivileged: bool = True,
+    ) -> List[Content]:
+        """Create a new LXC container.
+
+        Parameters:
+            node: Host node name (e.g., 'pve')
+            vmid: Container ID number (e.g., '200')
+            ostemplate: OS template path (e.g., 'local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz')
+            hostname: Container hostname (defaults to 'ct-{vmid}')
+            cores: Number of CPU cores (default: 1)
+            memory: Memory size in MiB (default: 512)
+            swap: Swap size in MiB (default: 512)
+            disk_size: Root disk size in GB (default: 8)
+            storage: Storage pool for rootfs (auto-detect if not specified)
+            password: Root password (optional)
+            ssh_public_keys: SSH public keys for root (optional)
+            network_bridge: Network bridge (default: 'vmbr0')
+            start_after_create: Start container after creation (default: False)
+            unprivileged: Create unprivileged container (default: True)
+
+        Returns:
+            List[Content] with creation result
+        """
+        try:
+            # Validate vmid doesn't already exist
+            existing = self._list_ct_pairs(node=None)
+            for n, ct in existing:
+                if str(_get(ct, "vmid")) == str(vmid):
+                    return self._err(
+                        f"Container with ID {vmid} already exists on node {n}",
+                        ValueError(f"VMID {vmid} already in use")
+                    )
+
+            # Validate node exists
+            nodes = _as_list(self.proxmox.nodes.get())
+            node_names = [_get(n, "node") for n in nodes]
+            if node not in node_names:
+                return self._err(
+                    f"Node '{node}' not found",
+                    ValueError(f"Available nodes: {', '.join(node_names)}")
+                )
+
+            # Auto-detect storage if not specified
+            if not storage:
+                storage_list = _as_list(self.proxmox.storage.get())
+                # Prefer local-lvm, then any storage that supports rootdir/images
+                for s in storage_list:
+                    sname = _get(s, "storage")
+                    stype = _get(s, "type")
+                    content = _get(s, "content", "")
+                    if sname == "local-lvm":
+                        storage = sname
+                        break
+                    if "rootdir" in content or "images" in content:
+                        storage = sname
+                if not storage:
+                    # Fallback to first storage
+                    if storage_list:
+                        storage = _get(storage_list[0], "storage", "local")
+                    else:
+                        storage = "local"
+
+            # Set default hostname
+            if not hostname:
+                hostname = f"ct-{vmid}"
+
+            # Build container configuration
+            ct_config = {
+                "vmid": int(vmid),
+                "ostemplate": ostemplate,
+                "hostname": hostname,
+                "cores": cores,
+                "memory": memory,
+                "swap": swap,
+                "rootfs": f"{storage}:{disk_size}",
+                "net0": f"name=eth0,bridge={network_bridge},ip=dhcp",
+                "unprivileged": 1 if unprivileged else 0,
+                "start": 1 if start_after_create else 0,
+            }
+
+            # Add optional parameters
+            if password:
+                ct_config["password"] = password
+            if ssh_public_keys:
+                ct_config["ssh-public-keys"] = ssh_public_keys
+
+            # Create the container
+            result = self.proxmox.nodes(node).lxc.create(**ct_config)
+
+            # Format success response
+            lines = [
+                "📦 Container Created Successfully",
+                "",
+                f"  • VMID: {vmid}",
+                f"  • Hostname: {hostname}",
+                f"  • Node: {node}",
+                f"  • Template: {ostemplate}",
+                f"  • CPU Cores: {cores}",
+                f"  • Memory: {memory} MiB",
+                f"  • Swap: {swap} MiB",
+                f"  • Disk: {disk_size} GB on {storage}",
+                f"  • Network: {network_bridge} (DHCP)",
+                f"  • Unprivileged: {'Yes' if unprivileged else 'No'}",
+                f"  • Auto-start: {'Yes' if start_after_create else 'No'}",
+                "",
+                f"Task ID: {result}",
+                "",
+                "Next steps:",
+                f"  • Start container: start_container selector='{vmid}'",
+                f"  • Check status: get_containers",
+            ]
+            return [Content(type="text", text="\n".join(lines))]
+
+        except Exception as e:
+            return self._err(f"Failed to create container {vmid}", e)
+
+    def delete_container(
+        self,
+        selector: str,
+        force: bool = False,
+        format_style: str = "pretty",
+    ) -> List[Content]:
+        """Delete one or more LXC containers.
+
+        Parameters:
+            selector: Container selector (same grammar as start_container)
+            force: Force deletion even if container is running (default: False)
+            format_style: Output format ('pretty' or 'json')
+
+        Returns:
+            List[Content] with deletion results
+        """
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                rec: Dict[str, Any] = {"ok": True, "node": node, "vmid": vmid, "name": label}
+
+                try:
+                    # Check container status
+                    status_dict = _as_dict(
+                        self.proxmox.nodes(node).lxc(vmid).status.current.get()
+                    )
+                    current_status = _get(status_dict, "status", "").lower()
+
+                    # Handle running container
+                    if current_status == "running":
+                        if not force:
+                            rec["ok"] = False
+                            rec["error"] = "Container is running. Use force=True to stop and delete."
+                            results.append(rec)
+                            continue
+                        # Force stop the container first
+                        self.proxmox.nodes(node).lxc(vmid).status.stop.post()
+                        rec["message"] = "Stopped and deleted"
+                    else:
+                        rec["message"] = "Deleted"
+
+                    # Delete the container
+                    task_result = self.proxmox.nodes(node).lxc(vmid).delete()
+                    rec["task_id"] = str(task_result)
+
+                except Exception as e:
+                    rec["ok"] = False
+                    rec["error"] = str(e)
+
+                results.append(rec)
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Delete Containers", results)
+
+        except Exception as e:
+            return self._err("Failed to delete container(s)", e)
+
     def update_container_resources(
         self,
         selector: str,

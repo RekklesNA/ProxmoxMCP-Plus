@@ -34,6 +34,9 @@ from .tools.vm import VMTools
 from .tools.storage import StorageTools
 from .tools.cluster import ClusterTools
 from .tools.containers import ContainerTools
+from .tools.snapshots import SnapshotTools
+from .tools.iso import ISOTools
+from .tools.backup import BackupTools
 from .tools.definitions import (
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
@@ -50,8 +53,25 @@ from .tools.definitions import (
     STOP_CONTAINER_DESC,
     RESTART_CONTAINER_DESC,
     UPDATE_CONTAINER_RESOURCES_DESC,
+    CREATE_CONTAINER_DESC,
+    DELETE_CONTAINER_DESC,
     GET_STORAGE_DESC,
-    GET_CLUSTER_STATUS_DESC
+    GET_CLUSTER_STATUS_DESC,
+    # Snapshot tools
+    LIST_SNAPSHOTS_DESC,
+    CREATE_SNAPSHOT_DESC,
+    DELETE_SNAPSHOT_DESC,
+    ROLLBACK_SNAPSHOT_DESC,
+    # ISO tools
+    LIST_ISOS_DESC,
+    LIST_TEMPLATES_DESC,
+    DOWNLOAD_ISO_DESC,
+    DELETE_ISO_DESC,
+    # Backup tools
+    LIST_BACKUPS_DESC,
+    CREATE_BACKUP_DESC,
+    RESTORE_BACKUP_DESC,
+    DELETE_BACKUP_DESC,
 )
 
 class ProxmoxMCPServer:
@@ -76,21 +96,10 @@ class ProxmoxMCPServer:
         self.storage_tools = StorageTools(self.proxmox)
         self.cluster_tools = ClusterTools(self.proxmox)
         self.container_tools = ContainerTools(self.proxmox)
+        self.snapshot_tools = SnapshotTools(self.proxmox)
+        self.iso_tools = ISOTools(self.proxmox)
+        self.backup_tools = BackupTools(self.proxmox)
 
-        mcp_log_level = "INFO"
-
-        match self.config.logging.level.upper():
-            case "DEBUG":
-                mcp_log_level = "DEBUG"
-            case "INFO":
-                mcp_log_level = "INFO"
-            case "WARNING":
-                mcp_log_level = "WARNING"
-            case "ERROR":
-                mcp_log_level = "ERROR"
-            case "CRITICAL":
-                mcp_log_level = "CRITICAL"
-        
         # Initialize MCP server
         self.mcp = FastMCP("ProxmoxMCP",
                            host=self.config.mcp.host,
@@ -262,6 +271,167 @@ class ProxmoxMCPServer:
                 disk=disk,
                 format_style=format_style,
             )
+
+        @self.mcp.tool(description=CREATE_CONTAINER_DESC)
+        def create_container(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="Container ID number (e.g. '200')")],
+            ostemplate: Annotated[str, Field(description="OS template path (e.g. 'local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz')")],
+            hostname: Annotated[Optional[str], Field(description="Container hostname", default=None)] = None,
+            cores: Annotated[int, Field(description="Number of CPU cores", ge=1, default=1)] = 1,
+            memory: Annotated[int, Field(description="Memory size in MiB", ge=16, default=512)] = 512,
+            swap: Annotated[int, Field(description="Swap size in MiB", ge=0, default=512)] = 512,
+            disk_size: Annotated[int, Field(description="Root disk size in GB", ge=1, default=8)] = 8,
+            storage: Annotated[Optional[str], Field(description="Storage pool (auto-detect if not specified)", default=None)] = None,
+            password: Annotated[Optional[str], Field(description="Root password", default=None)] = None,
+            ssh_public_keys: Annotated[Optional[str], Field(description="SSH public keys for root", default=None)] = None,
+            network_bridge: Annotated[str, Field(description="Network bridge", default="vmbr0")] = "vmbr0",
+            start_after_create: Annotated[bool, Field(description="Start container after creation", default=False)] = False,
+            unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
+        ):
+            return self.container_tools.create_container(
+                node=node, vmid=vmid, ostemplate=ostemplate, hostname=hostname,
+                cores=cores, memory=memory, swap=swap, disk_size=disk_size,
+                storage=storage, password=password, ssh_public_keys=ssh_public_keys,
+                network_bridge=network_bridge, start_after_create=start_after_create,
+                unprivileged=unprivileged,
+            )
+
+        @self.mcp.tool(description=DELETE_CONTAINER_DESC)
+        def delete_container(
+            selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
+            force: Annotated[bool, Field(description="Force deletion even if running", default=False)] = False,
+            format_style: Annotated[Literal["pretty","json"], Field(description="Output format")] = "pretty",
+        ):
+            return self.container_tools.delete_container(
+                selector=selector, force=force, format_style=format_style
+            )
+
+        # Snapshot tools
+        @self.mcp.tool(description=LIST_SNAPSHOTS_DESC)
+        def list_snapshots(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM or container ID (e.g. '100')")],
+            vm_type: Annotated[str, Field(description="Type: 'qemu' for VMs, 'lxc' for containers", default="qemu")] = "qemu",
+        ):
+            return self.snapshot_tools.list_snapshots(node=node, vmid=vmid, vm_type=vm_type)
+
+        @self.mcp.tool(description=CREATE_SNAPSHOT_DESC)
+        def create_snapshot(
+            node: Annotated[str, Field(description="Host node name")],
+            vmid: Annotated[str, Field(description="VM or container ID")],
+            snapname: Annotated[str, Field(description="Snapshot name (no spaces)")],
+            description: Annotated[Optional[str], Field(description="Optional description", default=None)] = None,
+            vmstate: Annotated[bool, Field(description="Include memory state (VMs only)", default=False)] = False,
+            vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
+        ):
+            return self.snapshot_tools.create_snapshot(
+                node=node, vmid=vmid, snapname=snapname,
+                description=description, vmstate=vmstate, vm_type=vm_type
+            )
+
+        @self.mcp.tool(description=DELETE_SNAPSHOT_DESC)
+        def delete_snapshot(
+            node: Annotated[str, Field(description="Host node name")],
+            vmid: Annotated[str, Field(description="VM or container ID")],
+            snapname: Annotated[str, Field(description="Snapshot name to delete")],
+            vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
+        ):
+            return self.snapshot_tools.delete_snapshot(
+                node=node, vmid=vmid, snapname=snapname, vm_type=vm_type
+            )
+
+        @self.mcp.tool(description=ROLLBACK_SNAPSHOT_DESC)
+        def rollback_snapshot(
+            node: Annotated[str, Field(description="Host node name")],
+            vmid: Annotated[str, Field(description="VM or container ID")],
+            snapname: Annotated[str, Field(description="Snapshot name to restore")],
+            vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
+        ):
+            return self.snapshot_tools.rollback_snapshot(
+                node=node, vmid=vmid, snapname=snapname, vm_type=vm_type
+            )
+
+        # ISO and Template tools
+        @self.mcp.tool(description=LIST_ISOS_DESC)
+        def list_isos(
+            node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
+            storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
+        ):
+            return self.iso_tools.list_isos(node=node, storage=storage)
+
+        @self.mcp.tool(description=LIST_TEMPLATES_DESC)
+        def list_templates(
+            node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
+            storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
+        ):
+            return self.iso_tools.list_templates(node=node, storage=storage)
+
+        @self.mcp.tool(description=DOWNLOAD_ISO_DESC)
+        def download_iso(
+            node: Annotated[str, Field(description="Target node name")],
+            storage: Annotated[str, Field(description="Target storage pool")],
+            url: Annotated[str, Field(description="URL to download from")],
+            filename: Annotated[str, Field(description="Target filename (e.g. 'ubuntu-22.04.iso')")],
+            checksum: Annotated[Optional[str], Field(description="Optional checksum", default=None)] = None,
+            checksum_algorithm: Annotated[str, Field(description="Algorithm: sha256, sha512, md5", default="sha256")] = "sha256",
+        ):
+            return self.iso_tools.download_iso(
+                node=node, storage=storage, url=url, filename=filename,
+                checksum=checksum, checksum_algorithm=checksum_algorithm
+            )
+
+        @self.mcp.tool(description=DELETE_ISO_DESC)
+        def delete_iso(
+            node: Annotated[str, Field(description="Node name")],
+            storage: Annotated[str, Field(description="Storage pool name")],
+            filename: Annotated[str, Field(description="ISO/template filename to delete")],
+        ):
+            return self.iso_tools.delete_iso(node=node, storage=storage, filename=filename)
+
+        # Backup and Restore tools
+        @self.mcp.tool(description=LIST_BACKUPS_DESC)
+        def list_backups(
+            node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
+            storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
+            vmid: Annotated[Optional[str], Field(description="Filter by VM/container ID (optional)", default=None)] = None,
+        ):
+            return self.backup_tools.list_backups(node=node, storage=storage, vmid=vmid)
+
+        @self.mcp.tool(description=CREATE_BACKUP_DESC)
+        def create_backup(
+            node: Annotated[str, Field(description="Node where VM/container runs")],
+            vmid: Annotated[str, Field(description="VM or container ID to backup")],
+            storage: Annotated[str, Field(description="Target backup storage")],
+            compress: Annotated[str, Field(description="Compression: 0, gzip, lz4, zstd", default="zstd")] = "zstd",
+            mode: Annotated[str, Field(description="Mode: snapshot, suspend, stop", default="snapshot")] = "snapshot",
+            notes: Annotated[Optional[str], Field(description="Optional notes", default=None)] = None,
+        ):
+            return self.backup_tools.create_backup(
+                node=node, vmid=vmid, storage=storage,
+                compress=compress, mode=mode, notes=notes
+            )
+
+        @self.mcp.tool(description=RESTORE_BACKUP_DESC)
+        def restore_backup(
+            node: Annotated[str, Field(description="Target node for restore")],
+            archive: Annotated[str, Field(description="Backup volume ID from list_backups")],
+            vmid: Annotated[str, Field(description="New VM/container ID")],
+            storage: Annotated[Optional[str], Field(description="Target storage (optional)", default=None)] = None,
+            unique: Annotated[bool, Field(description="Generate unique MAC addresses", default=True)] = True,
+        ):
+            return self.backup_tools.restore_backup(
+                node=node, archive=archive, vmid=vmid,
+                storage=storage, unique=unique
+            )
+
+        @self.mcp.tool(description=DELETE_BACKUP_DESC)
+        def delete_backup(
+            node: Annotated[str, Field(description="Node name")],
+            storage: Annotated[str, Field(description="Storage pool name")],
+            volid: Annotated[str, Field(description="Backup volume ID to delete")],
+        ):
+            return self.backup_tools.delete_backup(node=node, storage=storage, volid=volid)
 
 
     def start(self) -> None:
