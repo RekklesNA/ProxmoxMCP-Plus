@@ -12,14 +12,33 @@ from mcp.server.fastmcp.exceptions import ToolError
 from proxmox_mcp.server import ProxmoxMCPServer
 
 @pytest.fixture
-def mock_env_vars():
+def mock_env_vars(tmp_path):
     """Fixture to set up test environment variables."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {
+            "host": "test.proxmox.com",
+            "port": 8006,
+            "verify_ssl": True,
+            "service": "PVE",
+        },
+        "auth": {
+            "user": "test@pve",
+            "token_name": "test_token",
+            "token_value": "test_value",
+        },
+        "logging": {
+            "level": "DEBUG",
+        },
+    }))
+
     env_vars = {
+        "PROXMOX_MCP_CONFIG": str(config_path),
         "PROXMOX_HOST": "test.proxmox.com",
         "PROXMOX_USER": "test@pve",
         "PROXMOX_TOKEN_NAME": "test_token",
         "PROXMOX_TOKEN_VALUE": "test_value",
-        "LOG_LEVEL": "DEBUG"
+        "LOG_LEVEL": "DEBUG",
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars
@@ -37,7 +56,7 @@ def mock_proxmox():
 @pytest.fixture
 def server(mock_env_vars, mock_proxmox):
     """Fixture to create a ProxmoxMCPServer instance."""
-    return ProxmoxMCPServer()
+    return ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
 
 def test_server_initialization(server, mock_proxmox):
     """Test server initialization with environment variables."""
@@ -96,6 +115,20 @@ async def test_get_node_status(server, mock_proxmox):
     assert result["uptime"] == 123456
 
 @pytest.mark.asyncio
+async def test_get_node_status_offline_fallback(server, mock_proxmox):
+    """Test get_node_status returns offline fallback when node is unreachable."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.return_value.status.get.side_effect = Exception("No route to host")
+    proxmox.nodes.get.return_value = [
+        {"node": "maserati", "status": "offline", "mem": 0, "maxmem": 0},
+    ]
+
+    response = await server.mcp.call_tool("get_node_status", {"node": "maserati"})
+    text = response[0].text
+    assert "Node: maserati" in text
+    assert "Status: OFFLINE" in text
+
+@pytest.mark.asyncio
 async def test_get_vms(server, mock_proxmox):
     """Test get_vms tool."""
     mock_proxmox.return_value.nodes.get.return_value = [{"node": "node1", "status": "online"}]
@@ -111,6 +144,39 @@ async def test_get_vms(server, mock_proxmox):
     assert result[1]["name"] == "vm2"
 
 @pytest.mark.asyncio
+async def test_get_vms_skips_offline_node(server, mock_proxmox):
+    """Test get_vms tool skips nodes that error."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [
+        {"node": "node1", "status": "online"},
+        {"node": "node2", "status": "offline"},
+    ]
+
+    node1_api = Mock()
+    node1_api.qemu.get.return_value = [
+        {"vmid": "100", "name": "vm1", "status": "running"},
+    ]
+    node1_api.qemu.return_value.config.get.return_value = {"cores": 2}
+
+    node2_api = Mock()
+    node2_api.qemu.get.side_effect = Exception("offline")
+
+    def nodes_side_effect(node_name=None):
+        if node_name == "node1":
+            return node1_api
+        if node_name == "node2":
+            return node2_api
+        return Mock()
+
+    proxmox.nodes.side_effect = nodes_side_effect
+
+    response = await server.mcp.call_tool("get_vms", {})
+    text = response[0].text
+    assert "vm1" in text
+    assert "node1" in text
+    assert "node2" not in text
+
+@pytest.mark.asyncio
 async def test_get_containers(server, mock_proxmox):
     """Test get_containers tool."""
     mock_proxmox.return_value.nodes.get.return_value = [{"node": "node1", "status": "online"}]
@@ -124,6 +190,38 @@ async def test_get_containers(server, mock_proxmox):
     assert len(result) > 0
     assert result[0]["name"] == "container1"
     assert result[1]["name"] == "container2"
+
+@pytest.mark.asyncio
+async def test_get_containers_skips_offline_node(server, mock_proxmox):
+    """Test get_containers tool skips nodes that error."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [
+        {"node": "node1", "status": "online"},
+        {"node": "node2", "status": "offline"},
+    ]
+
+    node1_api = Mock()
+    node1_api.lxc.get.return_value = [
+        {"vmid": "200", "name": "container1", "status": "running"},
+    ]
+
+    node2_api = Mock()
+    node2_api.lxc.get.side_effect = Exception("offline")
+
+    def nodes_side_effect(node_name=None):
+        if node_name == "node1":
+            return node1_api
+        if node_name == "node2":
+            return node2_api
+        return Mock()
+
+    proxmox.nodes.side_effect = nodes_side_effect
+
+    response = await server.mcp.call_tool("get_containers", {})
+    text = response[0].text
+    assert "container1" in text
+    assert "node1" in text
+    assert "node2" not in text
 
 @pytest.mark.asyncio
 async def test_update_container_resources(server, mock_proxmox):
@@ -160,6 +258,76 @@ async def test_get_storage(server, mock_proxmox):
     assert len(result) == 2
     assert result[0]["storage"] == "local"
     assert result[1]["storage"] == "ceph"
+
+@pytest.mark.asyncio
+async def test_list_isos_skips_offline_node(server, mock_proxmox):
+    """Test list_isos skips nodes that error."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [
+        {"node": "node1", "status": "online"},
+        {"node": "node2", "status": "offline"},
+    ]
+
+    node1_api = Mock()
+    node1_api.storage.get.return_value = [
+        {"storage": "local", "content": "iso"},
+    ]
+    node1_api.storage.return_value.content.get.return_value = [
+        {"volid": "local:iso/test.iso", "size": 1024},
+    ]
+
+    node2_api = Mock()
+    node2_api.storage.get.side_effect = Exception("offline")
+
+    def nodes_side_effect(node_name=None):
+        if node_name == "node1":
+            return node1_api
+        if node_name == "node2":
+            return node2_api
+        return Mock()
+
+    proxmox.nodes.side_effect = nodes_side_effect
+
+    response = await server.mcp.call_tool("list_isos", {})
+    text = response[0].text
+    assert "test.iso" in text
+    assert "node1" in text
+    assert "node2" not in text
+
+@pytest.mark.asyncio
+async def test_list_backups_skips_offline_node(server, mock_proxmox):
+    """Test list_backups skips nodes that error."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [
+        {"node": "node1", "status": "online"},
+        {"node": "node2", "status": "offline"},
+    ]
+
+    node1_api = Mock()
+    node1_api.storage.get.return_value = [
+        {"storage": "local", "content": "backup"},
+    ]
+    node1_api.storage.return_value.content.get.return_value = [
+        {"volid": "local:backup/vm-100.vma", "size": 2048, "ctime": 0, "vmid": 100},
+    ]
+
+    node2_api = Mock()
+    node2_api.storage.get.side_effect = Exception("offline")
+
+    def nodes_side_effect(node_name=None):
+        if node_name == "node1":
+            return node1_api
+        if node_name == "node2":
+            return node2_api
+        return Mock()
+
+    proxmox.nodes.side_effect = nodes_side_effect
+
+    response = await server.mcp.call_tool("list_backups", {})
+    text = response[0].text
+    assert "vm-100.vma" in text
+    assert "node1" in text
+    assert "node2" not in text
 
 @pytest.mark.asyncio
 async def test_get_cluster_status(server, mock_proxmox):

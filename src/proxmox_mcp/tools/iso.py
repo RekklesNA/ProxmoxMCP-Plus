@@ -55,7 +55,12 @@ class ISOTools(ProxmoxTool):
     ) -> List[Dict]:
         """Get storage content filtered by type across nodes/storages."""
         results = []
-        nodes = _as_list(self.proxmox.nodes.get())
+        try:
+            nodes = _as_list(self.proxmox.nodes.get())
+        except Exception as e:
+            if hasattr(self, "_handle_error"):
+                self._handle_error("list nodes", e)
+            return results
 
         for n in nodes:
             node_name = _get(n, "node")
@@ -64,7 +69,15 @@ class ISOTools(ProxmoxTool):
             if node and node_name != node:
                 continue
 
-            storages = _as_list(self.proxmox.nodes(node_name).storage.get())
+            try:
+                storages = _as_list(self.proxmox.nodes(node_name).storage.get())
+            except Exception as node_error:
+                self.logger.warning(
+                    "Skipping node %s while listing storage content: %s",
+                    node_name,
+                    node_error,
+                )
+                continue
             for s in storages:
                 storage_name = _get(s, "storage")
                 if not storage_name:

@@ -78,10 +78,28 @@ class VMTools(ProxmoxTool):
             RuntimeError: If the cluster-wide VM query fails
         """
         try:
-            result = []
-            for node in self.proxmox.nodes.get():
-                node_name = node["node"]
-                vms = self.proxmox.nodes(node_name).qemu.get()
+            nodes = self.proxmox.nodes.get()
+        except Exception as e:
+            self._handle_error("get VMs", e)
+
+        result = []
+        try:
+            for node in nodes:
+                node_name = node.get("node") if isinstance(node, dict) else None
+                if not node_name:
+                    self.logger.warning(
+                        "Skipping unexpected node entry while gathering VM list: %s",
+                        node,
+                    )
+                    continue
+                try:
+                    vms = self.proxmox.nodes(node_name).qemu.get()
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Skipping node %s while gathering VM list: %s", node_name, node_error
+                    )
+                    continue
+
                 for vm in vms:
                     vmid = vm["vmid"]
                     # Get VM config for CPU cores
@@ -111,9 +129,10 @@ class VMTools(ProxmoxTool):
                                 "total": vm.get("maxmem", 0)
                             }
                         })
-            return self._format_response(result, "vms")
         except Exception as e:
             self._handle_error("get VMs", e)
+
+        return self._format_response(result, "vms")
 
     def create_vm(self, node: str, vmid: str, name: str, cpus: int, memory: int, 
                   disk_size: int, storage: Optional[str] = None, ostype: Optional[str] = None) -> List[Content]:

@@ -78,7 +78,12 @@ class NodeTools(ProxmoxTool):
                             "total": status.get("memory", {}).get("total", 0)
                         }
                     })
-                except Exception:
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Using basic info for node %s due to status error: %s",
+                        node_name,
+                        node_error,
+                    )
                     # Fallback to basic info if detailed status fails
                     nodes.append({
                         "node": node_name,
@@ -137,4 +142,30 @@ class NodeTools(ProxmoxTool):
             result = self.proxmox.nodes(node).status.get()
             return self._format_response((node, result), "node_status")
         except Exception as e:
+            try:
+                nodes = self.proxmox.nodes.get()
+            except Exception:
+                self._handle_error(f"get status for node {node}", e)
+
+            for entry in nodes:
+                if entry.get("node") != node:
+                    continue
+                if entry.get("status") == "offline":
+                    self.logger.warning(
+                        "Using offline status for node %s due to status error: %s",
+                        node,
+                        e,
+                    )
+                    fallback = {
+                        "status": "offline",
+                        "uptime": 0,
+                        "maxcpu": "N/A",
+                        "memory": {
+                            "used": entry.get("mem", 0),
+                            "total": entry.get("maxmem", 0),
+                        },
+                    }
+                    return self._format_response((node, fallback), "node_status")
+                break
+
             self._handle_error(f"get status for node {node}", e)

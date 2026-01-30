@@ -69,7 +69,10 @@ class BackupTools(ProxmoxTool):
         """
         try:
             results = []
-            nodes = _as_list(self.proxmox.nodes.get())
+            try:
+                nodes = _as_list(self.proxmox.nodes.get())
+            except Exception as e:
+                self._handle_error("list nodes", e)
 
             for n in nodes:
                 node_name = _get(n, "node")
@@ -78,7 +81,15 @@ class BackupTools(ProxmoxTool):
                 if node and node_name != node:
                     continue
 
-                storages = _as_list(self.proxmox.nodes(node_name).storage.get())
+                try:
+                    storages = _as_list(self.proxmox.nodes(node_name).storage.get())
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Skipping node %s while listing backups: %s",
+                        node_name,
+                        node_error,
+                    )
+                    continue
                 for s in storages:
                     storage_name = _get(s, "storage")
                     if not storage_name:
