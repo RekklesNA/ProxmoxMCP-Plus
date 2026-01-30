@@ -13,8 +13,8 @@ The models provide:
 - Field descriptions
 - Required vs optional field handling
 """
-from typing import Optional, Annotated
-from pydantic import BaseModel, Field
+from typing import Optional, Annotated, Literal
+from pydantic import BaseModel, Field, field_validator
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -68,6 +68,27 @@ class LoggingConfig(BaseModel):
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Optional: Log format
     file: Optional[str] = None  # Optional: Log file path (default: None for console logging)
 
+class MCPConfig(BaseModel):
+    """Model for MCP server configuration.
+
+    Defines transport-specific settings for running the MCP server.
+    """
+    host: str = "127.0.0.1"
+    port: int = 8000
+    transport: Literal["STDIO", "SSE", "STREAMABLE"] = "STDIO"
+
+    @field_validator("transport", mode="before")
+    @classmethod
+    def normalize_transport(cls, value: object) -> object:
+        if value is None:
+            return "STDIO"
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if normalized == "STREAMABLE_HTTP":
+                return "STREAMABLE"
+            return normalized
+        return value
+
 class Config(BaseModel):
     """Root configuration model.
     
@@ -78,3 +99,4 @@ class Config(BaseModel):
     proxmox: ProxmoxConfig  # Required: Proxmox connection settings
     auth: AuthConfig  # Required: Authentication credentials
     logging: LoggingConfig  # Required: Logging configuration
+    mcp: MCPConfig = Field(default_factory=MCPConfig)

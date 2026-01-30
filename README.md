@@ -128,6 +128,11 @@ Before starting, ensure you have:
            "level": "INFO",               # Optional: DEBUG for more detail
            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
            "file": "proxmox_mcp.log"      # Optional: Log to file
+       },
+       "mcp": {
+           "host": "127.0.0.1",           # Optional: Host for SSE/STREAMABLE transports
+           "port": 8000,                  # Optional: Port for SSE/STREAMABLE transports
+           "transport": "STDIO"           # Optional: STDIO, SSE, or STREAMABLE
        }
    }
    ```
@@ -177,6 +182,15 @@ source .venv/bin/activate  # Linux/macOS
 # Run the server
 python -m proxmox_mcp.server
 ```
+
+### MCP Transport Configuration
+
+The MCP server supports multiple transport modes. Configure these in the `mcp` section of
+your `proxmox-config/config.json`:
+
+- `STDIO`: Default. Run over stdio for MCP clients like Claude Desktop/Cline.
+- `SSE`: Serve MCP over Server-Sent Events (SSE).
+- `STREAMABLE`: Serve MCP over streamable HTTP.
 
 ### OpenAPI Deployment (Production Ready)
 

@@ -101,7 +101,12 @@ class ProxmoxMCPServer:
         self.backup_tools = BackupTools(self.proxmox)
 
         # Initialize MCP server
-        self.mcp = FastMCP("ProxmoxMCP")
+        self.mcp = FastMCP(
+            "ProxmoxMCP",
+            host=self.config.mcp.host,
+            port=self.config.mcp.port,
+            log_level=self.config.logging.level,
+        )
         self._setup_tools()
 
     def _setup_tools(self) -> None:
@@ -452,8 +457,16 @@ class ProxmoxMCPServer:
         signal.signal(signal.SIGTERM, signal_handler)
 
         try:
-            self.logger.info("Starting MCP server...")
-            anyio.run(self.mcp.run_stdio_async)
+            transport = self.config.mcp.transport
+            self.logger.info("Starting MCP server with transport: %s", transport)
+            if transport == "STDIO":
+                anyio.run(self.mcp.run_stdio_async)
+            elif transport == "SSE":
+                anyio.run(self.mcp.run_sse_async)
+            elif transport == "STREAMABLE":
+                anyio.run(self.mcp.run_streamable_http_async)
+            else:
+                raise ValueError(f"Unsupported transport: {transport}")
         except Exception as e:
             self.logger.error(f"Server error: {e}")
             sys.exit(1)
