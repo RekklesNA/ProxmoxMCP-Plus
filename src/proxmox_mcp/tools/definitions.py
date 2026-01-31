@@ -33,6 +33,7 @@ memory* - Memory size in MB (e.g. 2048 for 2GB, 4096 for 4GB)
 disk_size* - Disk size in GB (e.g. 10, 20, 50)
 storage - Storage name (optional, will auto-detect if not specified)
 ostype - OS type (optional, default: 'l26' for Linux)
+network_bridge - Network bridge name (optional, default: 'vmbr0')
 
 Examples:
 - Create VM with 1 CPU, 2GB RAM, 10GB disk: node='pve', vmid='200', name='test-vm', cpus=1, memory=2048, disk_size=10

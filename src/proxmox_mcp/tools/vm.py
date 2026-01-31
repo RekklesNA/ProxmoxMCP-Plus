@@ -134,8 +134,18 @@ class VMTools(ProxmoxTool):
 
         return self._format_response(result, "vms")
 
-    def create_vm(self, node: str, vmid: str, name: str, cpus: int, memory: int, 
-                  disk_size: int, storage: Optional[str] = None, ostype: Optional[str] = None) -> List[Content]:
+    def create_vm(
+        self,
+        node: str,
+        vmid: str,
+        name: str,
+        cpus: int,
+        memory: int,
+        disk_size: int,
+        storage: Optional[str] = None,
+        ostype: Optional[str] = None,
+        network_bridge: Optional[str] = None,
+    ) -> List[Content]:
         """Create a new virtual machine with specified configuration.
         
         Args:
@@ -147,6 +157,7 @@ class VMTools(ProxmoxTool):
             disk_size: Disk size in GB (e.g., 10, 20, 50)
             storage: Storage name (e.g., 'local-lvm', 'vm-storage'). If None, will auto-detect
             ostype: OS type (e.g., 'l26' for Linux, 'win10' for Windows). Default: 'l26'
+            network_bridge: Network bridge name (e.g., 'vmbr0'). If None, defaults to 'vmbr0'
             
         Returns:
             List of Content objects containing creation result
@@ -225,6 +236,9 @@ class VMTools(ProxmoxTool):
             # Set default OS type
             if ostype is None:
                 ostype = "l26"  # Linux 2.6+ kernel
+
+            if not network_bridge:
+                network_bridge = "vmbr0"
             
             # Prepare VM configuration
             vm_config = {
@@ -237,7 +251,7 @@ class VMTools(ProxmoxTool):
                 "boot": "order=scsi0",
                 "agent": "1",  # Enable QEMU guest agent
                 "vga": "std",
-                "net0": "virtio,bridge=vmbr0",
+                "net0": f"virtio,bridge={network_bridge}",
             }
             
             # Add storage configuration
@@ -261,7 +275,7 @@ class VMTools(ProxmoxTool):
   • Disk: {disk_size} GB ({storage}, {disk_format} format)
   • Storage Type: {storage_type}
   • OS Type: {ostype}
-  • Network: virtio (bridge=vmbr0)
+  • Network: virtio (bridge={network_bridge})
   • QEMU Agent: Enabled{cloudinit_note}
 
 🔧 Task ID: {task_result}
