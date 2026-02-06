@@ -1,72 +1,50 @@
-# ProxmoxMCP-Plus - Enhanced Proxmox MCP Server
+# ProxmoxMCP-Plus
 
-
-An enhanced Python-based Model Context Protocol (MCP) server for interacting with Proxmox virtualization platforms. This project is built upon **[canvrno/ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP)** with numerous new features and improvements, providing complete OpenAPI integration and more powerful virtualization management capabilities.
+An enhanced Python-based Model Context Protocol (MCP) server for interacting with Proxmox virtualization platforms. This project extends [canvrno/ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP) with additional features including complete OpenAPI integration and expanded virtualization management capabilities.
 
 ## Acknowledgments
 
-This project is built upon the excellent open-source project [ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP) by [@canvrno](https://github.com/canvrno). Thanks to the original author for providing the foundational framework and creative inspiration!
+This project is built upon the open-source project [ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP) by [@canvrno](https://github.com/canvrno).
 
-## 🆕 New Features and Improvements
+## New Features and Improvements
 
-### Major enhancements compared to the original version:
+### Major Enhancements
 
-- ✨ **Complete VM Lifecycle Management**
-  - Brand new `create_vm` tool - Support for creating virtual machines with custom configurations
-  - New `delete_vm` tool - Safe VM deletion (with force deletion option)
-  - Enhanced intelligent storage type detection (LVM/file-based)
-
-- 🔧 **Extended Power Management Features**
-  - `start_vm` - Start virtual machines
-  - `stop_vm` - Force stop virtual machines
-  - `shutdown_vm` - Graceful shutdown
-  - `reset_vm` - Restart virtual machines
-
-- 🐳 **New Container Support**
-  - `get_containers` - List all LXC containers and their status
-  - `start_container` - Start LXC container
-  - `stop_container` - Stop LXC container
-  - `restart_container` - Restart LXC container (forcefully/gracefully)
-  - `update_container_resources` - Adjust container CPU, memory, swap, or extend disk
-
-- 📊 **Enhanced Monitoring and Display**
-  - Improved storage pool status monitoring
-  - More detailed cluster health status checks
-  - Rich output formatting and themes
-
-- 🌐 **Complete OpenAPI Integration**
-  - 11 complete REST API endpoints
-  - Production-ready Docker deployment
-  - Perfect Open WebUI integration
-  - Natural language VM creation support
-
-- 🛡️ **Production-grade Security and Stability**
-  - Enhanced error handling mechanisms
-  - Comprehensive parameter validation
-  - Production-level logging
-  - Complete unit test coverage
+| Feature Category | Description | Tools |
+|-----------------|-------------|-------|
+| **VM Lifecycle Management** | Complete virtual machine creation, management, and deletion | `create_vm`, `delete_vm` |
+| **Power Management** | Control VM power states | `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm` |
+| **Container Support** | Full LXC container lifecycle management | `get_containers`, `create_container`, `delete_container`, `start_container`, `stop_container`, `restart_container`, `update_container_resources` |
+| **Snapshot Management** | Create and manage VM/container snapshots | `list_snapshots`, `create_snapshot`, `delete_snapshot`, `rollback_snapshot` |
+| **Backup and Restore** | Backup and restore VMs and containers | `list_backups`, `create_backup`, `restore_backup`, `delete_backup` |
+| **ISO and Template Management** | Manage installation media and templates | `list_isos`, `list_templates`, `download_iso`, `delete_iso` |
+| **Monitoring** | Cluster and resource monitoring | `get_nodes`, `get_node_status`, `get_vms`, `get_storage`, `get_cluster_status` |
+| **OpenAPI Integration** | REST API endpoints for external integration | 20+ API endpoints |
+| **Security and Stability** | Production-grade error handling and validation | Token-based authentication, comprehensive logging |
 
 ## Built With
 
-- [Cline](https://github.com/cline/cline) - Autonomous coding agent - Go faster with Cline
 - [Proxmoxer](https://github.com/proxmoxer/proxmoxer) - Python wrapper for Proxmox API
 - [MCP SDK](https://github.com/modelcontextprotocol/sdk) - Model Context Protocol SDK
 - [Pydantic](https://docs.pydantic.dev/) - Data validation using Python type annotations
 
 ## Features
 
-- 🤖 Full integration with Cline and Open WebUI
-- 🛠️ Built with the official MCP SDK
-- 🔒 Secure token-based authentication with Proxmox
-- 🖥️ Complete VM lifecycle management (create, start, stop, reset, shutdown, delete)
-- 💻 VM console command execution
-- 🐳 LXC container management support
-- 🗃️ Intelligent storage type detection (LVM/file-based)
-- 📝 Configurable logging system
-- ✅ Type-safe implementation with Pydantic
-- 🎨 Rich output formatting with customizable themes
-- 🌐 OpenAPI REST endpoints for integration
-- 📡 11 fully functional API endpoints
+- Full integration with Cline and Open WebUI
+- Built with the official MCP SDK
+- Secure token-based authentication with Proxmox
+- Complete VM lifecycle management (create, start, stop, reset, shutdown, delete)
+- VM console command execution
+- LXC container management support
+- Intelligent storage type detection (LVM/file-based)
+- Configurable logging system
+- Type-safe implementation with Pydantic
+- Rich output formatting with customizable themes
+- OpenAPI REST endpoints for integration
+- 20+ fully functional API endpoints
+- Complete snapshot management (create, delete, rollback)
+- Backup and restore capabilities
+- ISO and template management
 
 
 ## Installation
@@ -218,9 +196,9 @@ docker-compose up -d
 
 #### Access OpenAPI Service
 Once deployed, access your service at:
-- **📖 API Documentation**: http://your-server:8811/docs
-- **🔧 OpenAPI Specification**: http://your-server:8811/openapi.json
-- **❤️ Health Check**: http://your-server:8811/health
+- **API Documentation**: http://your-server:8811/docs
+- **OpenAPI Specification**: http://your-server:8811/openapi.json
+- **Health Check**: http://your-server:8811/health
 
 ### Claude Desktop Integration
 
@@ -312,7 +290,7 @@ For Cline users, add this configuration to your MCP settings file (typically at 
 
 ## Available Tools & API Endpoints
 
-The server provides 11 comprehensive MCP tools and corresponding REST API endpoints:
+The server provides comprehensive MCP tools and corresponding REST API endpoints:
 
 ### VM Management Tools
 
@@ -346,23 +324,23 @@ Content-Type: application/json
 
 **Example Response:**
 ```
-🎉 VM 200 created successfully!
+VM 200 created successfully.
 
-📋 VM Configuration:
-  • Name: my-vm
-  • Node: pve
-  • VM ID: 200
-  • CPU Cores: 1
-  • Memory: 2048 MB (2.0 GB)
-  • Disk: 10 GB (local-lvm, raw format)
-  • Storage Type: lvmthin
-  • Network: virtio (bridge=vmbr0)
-  • QEMU Agent: Enabled
+VM Configuration:
+  - Name: my-vm
+  - Node: pve
+  - VM ID: 200
+  - CPU Cores: 1
+  - Memory: 2048 MB (2.0 GB)
+  - Disk: 10 GB (local-lvm, raw format)
+  - Storage Type: lvmthin
+  - Network: virtio (bridge=vmbr0)
+  - QEMU Agent: Enabled
 
-🔧 Task ID: UPID:pve:001AB729:0442E853:682FF380:qmcreate:200:root@pam!mcp
+Task ID: UPID:pve:001AB729:0442E853:682FF380:qmcreate:200:root@pam!mcp
 ```
 
-#### VM Power Management 🆕
+#### VM Power Management
 
 **start_vm**: Start a virtual machine
 ```http
@@ -388,28 +366,312 @@ POST /reset_vm
 {"node": "pve", "vmid": "200"}
 ```
 
-**delete_vm** 🆕: Completely delete a virtual machine
+**delete_vm**: Completely delete a virtual machine
 ```http
 POST /delete_vm
 {"node": "pve", "vmid": "200", "force": false}
 ```
 
-### 🆕 Container Management Tools
+### Snapshot Management Tools
 
-#### get_containers 🆕
+#### list_snapshots
+List all snapshots for a VM or container.
+
+**Parameters:**
+- `node` (string, required): Host node name (e.g. 'pve')
+- `vmid` (string, required): VM or container ID (e.g. '100')
+- `vm_type` (string, optional): Type - 'qemu' for VMs, 'lxc' for containers (default: 'qemu')
+
+**API Endpoint:** `POST /list_snapshots`
+
+**Example:**
+```http
+POST /list_snapshots
+{"node": "pve", "vmid": "100", "vm_type": "qemu"}
+```
+
+#### create_snapshot
+Create a snapshot of a VM or container.
+
+**Parameters:**
+- `node` (string, required): Host node name
+- `vmid` (string, required): VM or container ID
+- `snapname` (string, required): Snapshot name (no spaces, e.g. 'before-update')
+- `description` (string, optional): Description for the snapshot
+- `vmstate` (boolean, optional): Include memory state (VMs only, default: false)
+- `vm_type` (string, optional): Type - 'qemu' or 'lxc' (default: 'qemu')
+
+**API Endpoint:**
+```http
+POST /create_snapshot
+Content-Type: application/json
+
+{
+    "node": "pve",
+    "vmid": "100",
+    "snapname": "pre-upgrade",
+    "description": "Before system upgrade",
+    "vmstate": true
+}
+```
+
+#### delete_snapshot
+Delete a snapshot.
+
+**Parameters:**
+- `node` (string, required): Host node name
+- `vmid` (string, required): VM or container ID
+- `snapname` (string, required): Snapshot name to delete
+- `vm_type` (string, optional): Type - 'qemu' or 'lxc' (default: 'qemu')
+
+**API Endpoint:**
+```http
+POST /delete_snapshot
+{"node": "pve", "vmid": "100", "snapname": "old-snapshot"}
+```
+
+#### rollback_snapshot
+Rollback VM/container to a previous snapshot.
+
+**WARNING:** This will stop the VM/container and restore to the snapshot state!
+
+**Parameters:**
+- `node` (string, required): Host node name
+- `vmid` (string, required): VM or container ID
+- `snapname` (string, required): Snapshot name to restore
+- `vm_type` (string, optional): Type - 'qemu' or 'lxc' (default: 'qemu')
+
+**API Endpoint:**
+```http
+POST /rollback_snapshot
+{"node": "pve", "vmid": "100", "snapname": "before-update"}
+```
+
+### Container Management Tools
+
+#### get_containers
 List all LXC containers across the cluster.
 
 **API Endpoint:** `POST /get_containers`
 
 **Example Response:**
 ```
-🐳 Containers
+Containers
 
-🐳 nginx-server (ID: 200)
-  • Status: RUNNING
-  • Node: pve
-  • CPU Cores: 2
-  • Memory: 1.5 GB / 2.0 GB (75.0%)
+nginx-server (ID: 200)
+  - Status: RUNNING
+  - Node: pve
+  - CPU Cores: 2
+  - Memory: 1.5 GB / 2.0 GB (75.0%)
+```
+
+#### create_container
+Create a new LXC container with specified configuration.
+
+**Parameters:**
+- `node` (string, required): Host node name (e.g. 'pve')
+- `vmid` (string, required): Container ID number (e.g. '200')
+- `ostemplate` (string, required): OS template path (e.g. 'local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz')
+- `hostname` (string, optional): Container hostname (defaults to 'ct-{vmid}')
+- `cores` (integer, optional): Number of CPU cores (default: 1)
+- `memory` (integer, optional): Memory size in MiB (default: 512)
+- `swap` (integer, optional): Swap size in MiB (default: 512)
+- `disk_size` (integer, optional): Root disk size in GB (default: 8)
+- `storage` (string, optional): Storage pool for rootfs (auto-detects if not specified)
+- `password` (string, optional): Root password
+- `ssh_public_keys` (string, optional): SSH public keys for root user
+- `network_bridge` (string, optional): Network bridge name (default: 'vmbr0')
+- `start_after_create` (boolean, optional): Start container after creation (default: false)
+- `unprivileged` (boolean, optional): Create unprivileged container (default: true)
+
+**API Endpoint:**
+```http
+POST /create_container
+Content-Type: application/json
+
+{
+    "node": "pve",
+    "vmid": "200",
+    "ostemplate": "local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz",
+    "hostname": "my-container",
+    "cores": 2,
+    "memory": 1024,
+    "disk_size": 10
+}
+```
+
+#### delete_container
+Delete/remove an LXC container completely.
+
+**WARNING:** This operation permanently deletes the container and all its data!
+
+**Parameters:**
+- `selector` (string, required): Container selector - '123' | 'pve1:123' | 'pve1/name' | 'name'
+- `force` (boolean, optional): Force deletion even if container is running (default: false)
+
+**API Endpoint:**
+```http
+POST /delete_container
+Content-Type: application/json
+
+{
+    "selector": "200",
+    "force": false
+}
+```
+
+### Backup and Restore Tools
+
+#### list_backups
+List available backups across the cluster.
+
+**Parameters:**
+- `node` (string, optional): Filter by node
+- `storage` (string, optional): Filter by storage pool
+- `vmid` (string, optional): Filter by VM/container ID
+
+**API Endpoint:** `POST /list_backups`
+
+**Example:**
+```http
+POST /list_backups
+{"node": "pve", "storage": "backup-storage"}
+```
+
+#### create_backup
+Create a backup of a VM or container.
+
+**Parameters:**
+- `node` (string, required): Node where VM/container runs
+- `vmid` (string, required): VM or container ID to backup
+- `storage` (string, required): Target backup storage
+- `compress` (string, optional): Compression - '0', 'gzip', 'lz4', 'zstd' (default: 'zstd')
+- `mode` (string, optional): Backup mode - 'snapshot', 'suspend', 'stop' (default: 'snapshot')
+- `notes` (string, optional): Notes/description for the backup
+
+**API Endpoint:**
+```http
+POST /create_backup
+Content-Type: application/json
+
+{
+    "node": "pve",
+    "vmid": "100",
+    "storage": "backup-storage",
+    "compress": "zstd",
+    "mode": "snapshot",
+    "notes": "Weekly backup"
+}
+```
+
+#### restore_backup
+Restore a VM or container from a backup.
+
+**Parameters:**
+- `node` (string, required): Target node for restore
+- `archive` (string, required): Backup volume ID (from list_backups output)
+- `vmid` (string, required): New VM/container ID for the restored machine
+- `storage` (string, optional): Target storage for disks (uses original if not specified)
+- `unique` (boolean, optional): Generate unique MAC addresses (default: true)
+
+**API Endpoint:**
+```http
+POST /restore_backup
+Content-Type: application/json
+
+{
+    "node": "pve",
+    "archive": "backup:backup/vzdump-qemu-100-2024_01_15.vma.zst",
+    "vmid": "200",
+    "unique": true
+}
+```
+
+#### delete_backup
+Delete a backup file from storage.
+
+**WARNING:** This permanently deletes the backup!
+
+**Parameters:**
+- `node` (string, required): Node name
+- `storage` (string, required): Storage pool name
+- `volid` (string, required): Backup volume ID to delete
+
+**API Endpoint:**
+```http
+POST /delete_backup
+{
+    "node": "pve",
+    "storage": "backup-storage",
+    "volid": "backup:backup/vzdump-qemu-100-2024_01_15.vma.zst"
+}
+```
+
+### ISO and Template Management Tools
+
+#### list_isos
+List available ISO images across the cluster.
+
+**Parameters:**
+- `node` (string, optional): Filter by node
+- `storage` (string, optional): Filter by storage pool
+
+**API Endpoint:** `POST /list_isos`
+
+**Returns:** List of ISOs with filename, size, and storage location.
+
+#### list_templates
+List available OS templates for container creation.
+
+**Parameters:**
+- `node` (string, optional): Filter by node
+- `storage` (string, optional): Filter by storage pool
+
+**API Endpoint:** `POST /list_templates`
+
+**Returns:** List of templates (vztmpl) with name, size, and storage. Use the returned Volume ID with create_container's ostemplate parameter.
+
+#### download_iso
+Download an ISO image from a URL to Proxmox storage.
+
+**Parameters:**
+- `node` (string, required): Target node name
+- `storage` (string, required): Target storage pool (must support ISO content)
+- `url` (string, required): URL to download from
+- `filename` (string, required): Target filename (e.g. 'ubuntu-22.04-live-server-amd64.iso')
+- `checksum` (string, optional): Checksum for verification
+- `checksum_algorithm` (string, optional): Algorithm - 'sha256', 'sha512', 'md5' (default: 'sha256')
+
+**API Endpoint:**
+```http
+POST /download_iso
+Content-Type: application/json
+
+{
+    "node": "pve",
+    "storage": "local",
+    "url": "https://releases.ubuntu.com/22.04/ubuntu-22.04-live-server-amd64.iso",
+    "filename": "ubuntu-22.04-live-server-amd64.iso",
+    "checksum": "a1b2c3..."
+}
+```
+
+#### delete_iso
+Delete an ISO or template from storage.
+
+**Parameters:**
+- `node` (string, required): Node name
+- `storage` (string, required): Storage pool name
+- `filename` (string, required): ISO/template filename to delete
+
+**API Endpoint:**
+```http
+POST /delete_iso
+{
+    "node": "pve",
+    "storage": "local",
+    "filename": "old-distro.iso"
+}
 ```
 
 ### Monitoring Tools
@@ -421,13 +683,13 @@ Lists all nodes in the Proxmox cluster.
 
 **Example Response:**
 ```
-🖥️ Proxmox Nodes
+Proxmox Nodes
 
-🖥️ pve-compute-01
-  • Status: ONLINE
-  • Uptime: ⏳ 156d 12h
-  • CPU Cores: 64
-  • Memory: 186.5 GB / 512.0 GB (36.4%)
+pve-compute-01
+  - Status: ONLINE
+  - Uptime: 156d 12h
+  - CPU Cores: 64
+  - Memory: 186.5 GB / 512.0 GB (36.4%)
 ```
 
 #### get_node_status
@@ -486,11 +748,11 @@ Execute a command in a VM's console using QEMU Guest Agent.
 
 ### Natural Language VM Creation
 
-Users can now request VMs using natural language:
+The system supports natural language VM creation requests through AI assistants. Example requests:
 
-- **"Can you create a VM with 1 cpu core and 2 GB ram with 10GB of storage disk"**
-- **"Create a new VM for testing with minimal resources"**
-- **"I need a development server with 4 cores and 8GB RAM"**
+- "Can you create a VM with 1 cpu core and 2 GB ram with 10GB of storage disk"
+- "Create a new VM for testing with minimal resources"
+- "I need a development server with 4 cores and 8GB RAM"
 
 The AI assistant will automatically call the appropriate APIs and provide detailed feedback.
 
@@ -501,57 +763,57 @@ The AI assistant will automatically call the appropriate APIs and provide detail
 ProxmoxMCP Plus automatically detects storage types and selects appropriate disk formats:
 
 #### LVM Storage (local-lvm, vm-storage)
-- ✅ Format: `raw`
-- ✅ High performance
-- ⚠️ No cloud-init image support
+- Format: `raw`
+- High performance
+- Note: No cloud-init image support
 
 #### File-based Storage (local, NFS, CIFS)
-- ✅ Format: `qcow2`
-- ✅ Cloud-init support
-- ✅ Flexible snapshot capabilities
+- Format: `qcow2`
+- Cloud-init support
+- Flexible snapshot capabilities
 
 ## Project Structure
 
 ```
 ProxmoxMCP-Plus/
-├── 📁 src/                          # Source code
+├── src/                          # Source code
 │   └── proxmox_mcp/
-│       ├── server.py                # Main MCP server implementation
-│       ├── config/                  # Configuration handling
-│       ├── core/                    # Core functionality
-│       ├── formatting/              # Output formatting and themes
-│       ├── tools/                   # Tool implementations
-│       │   ├── vm.py               # VM management (create/power) 🆕
-│       │   ├── container.py        # Container management 🆕
-│       │   └── console/            # VM console operations
-│       └── utils/                   # Utilities (auth, logging)
+│       ├── server.py             # Main MCP server implementation
+│       ├── config/               # Configuration handling
+│       ├── core/                 # Core functionality
+│       ├── formatting/           # Output formatting and themes
+│       ├── tools/                # Tool implementations
+│       │   ├── vm.py             # VM management
+│       │   ├── container.py      # Container management
+│       │   └── console/          # VM console operations
+│       └── utils/                # Utilities (auth, logging)
 │
-├── 📁 tests/                       # Unit test suite
-├── 📁 test_scripts/                # Integration tests & demos
-│   ├── README.md                   # Test documentation
-│   ├── test_vm_power.py           # VM power management tests 🆕
-│   ├── test_vm_start.py           # VM startup tests
-│   ├── test_create_vm.py          # VM creation tests 🆕
-│   └── test_openapi.py            # OpenAPI service tests
+├── tests/                        # Unit test suite
+├── test_scripts/                 # Integration tests & demos
+│   ├── README.md                 # Test documentation
+│   ├── test_vm_power.py          # VM power management tests
+│   ├── test_vm_start.py          # VM startup tests
+│   ├── test_create_vm.py         # VM creation tests
+│   └── test_openapi.py           # OpenAPI service tests
 │
-├── 📁 proxmox-config/              # Configuration files
-│   └── config.json                # Server configuration
+├── proxmox-config/               # Configuration files
+│   └── config.json               # Server configuration
 │
-├── 📄 Configuration Files
-│   ├── pyproject.toml             # Project metadata
-│   ├── docker-compose.yml         # Docker orchestration
-│   ├── Dockerfile                 # Docker image definition
-│   └── requirements.in            # Dependencies
+├── Configuration Files
+│   ├── pyproject.toml            # Project metadata
+│   ├── docker-compose.yml        # Docker orchestration
+│   ├── Dockerfile                # Docker image definition
+│   └── requirements.in           # Dependencies
 │
-├── 📄 Scripts
-│   ├── start_server.sh            # MCP server launcher
-│   └── start_openapi.sh           # OpenAPI service launcher
+├── Scripts
+│   ├── start_server.sh           # MCP server launcher
+│   └── start_openapi.sh          # OpenAPI service launcher
 │
-└── 📄 Documentation
-    ├── README.md                  # This file
-    ├── VM_CREATION_GUIDE.md       # VM creation guide
-    ├── OPENAPI_DEPLOYMENT.md      # OpenAPI deployment
-    └── LICENSE                    # MIT License
+└── Documentation
+    ├── README.md                 # This file
+    ├── VM_CREATION_GUIDE.md      # VM creation guide
+    ├── OPENAPI_DEPLOYMENT.md     # OpenAPI deployment
+    └── LICENSE                   # MIT License
 ```
 
 ## Testing
@@ -655,29 +917,31 @@ docker logs proxmox-mcp-api -f
 
 ## Deployment Status
 
-### ✅ Feature Completion: 100%
+### Feature Completion Status
 
-- [x] VM Creation (user requirement: 1 CPU + 2GB RAM + 10GB storage) 🆕
-- [x] VM Power Management (start VPN-Server ID:101) 🆕
-- [x] VM Deletion Feature 🆕
-- [x] Container Management (LXC) 🆕
+- [x] VM Creation (user requirement: 1 CPU + 2GB RAM + 10GB storage)
+- [x] VM Power Management (start VPN-Server ID:101)
+- [x] VM Deletion Feature
+- [x] Container Management (LXC)
+- [x] Container Creation and Deletion
+- [x] Snapshot Management (create, delete, rollback)
+- [x] Backup and Restore
+- [x] ISO and Template Management
 - [x] Storage Compatibility (LVM/file-based)
 - [x] OpenAPI Integration (port 8811)
 - [x] Open WebUI Integration
 - [x] Error Handling & Validation
 - [x] Complete Documentation & Testing
 
-### Production Ready!
+### Production Readiness
 
-**ProxmoxMCP Plus is now fully ready for production use!**
+ProxmoxMCP Plus is ready for production deployment. The system supports natural language VM creation requests through AI assistants. When a user requests VM creation (e.g., "create a VM with 1 cpu core and 2 GB ram with 10GB of storage disk"), the system will:
 
-When users say **"Can you create a VM with 1 cpu core and 2 GB ram with 10GB of storage disk"**, the AI assistant can:
-
-1. 📞 Call the `create_vm` API
-2. 🔧 Automatically select appropriate storage and format
-3. 🎯 Create VMs that match requirements
-4. 📊 Return detailed configuration information
-5. 💡 Provide next-step recommendations
+1. Call the `create_vm` API endpoint
+2. Automatically select appropriate storage and format
+3. Create VMs matching the specified requirements
+4. Return detailed configuration information
+5. Provide next-step recommendations
 
 ## Development
 
@@ -694,10 +958,10 @@ MIT License
 
 ## Special Thanks
 
-- Thanks to [@canvrno](https://github.com/canvrno) for the excellent foundational project [ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP)
+- [@canvrno](https://github.com/canvrno) for the foundational project [ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP)
 - Thanks to the Proxmox community for providing the powerful virtualization platform
 - Thanks to all contributors and users for their support
 
 ---
 
-**Ready to Deploy!** 🎉 Your enhanced Proxmox MCP service with OpenAPI integration is ready for production use.
+ProxmoxMCP Plus with OpenAPI integration is ready for production deployment.
