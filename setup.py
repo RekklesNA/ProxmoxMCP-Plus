@@ -39,7 +39,7 @@ setup(
     author="Kevin",
     author_email="kevin@example.com",
     description="A Model Context Protocol server for interacting with Proxmox hypervisors",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     license="MIT",
     keywords=["proxmox", "mcp", "virtualization", "cline", "qemu", "lxc"],
