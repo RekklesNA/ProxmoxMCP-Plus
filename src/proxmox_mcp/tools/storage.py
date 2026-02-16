@@ -14,8 +14,8 @@ detailed storage information might be temporarily unavailable.
 """
 from typing import List
 from mcp.types import TextContent as Content
-from .base import ProxmoxTool
-from .definitions import GET_STORAGE_DESC
+from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.definitions import GET_STORAGE_DESC
 
 class StorageTools(ProxmoxTool):
     """Tools for managing Proxmox storage.

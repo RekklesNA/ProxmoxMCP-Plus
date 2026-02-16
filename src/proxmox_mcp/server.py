@@ -26,18 +26,18 @@ from mcp.types import TextContent as Content
 from pydantic import Field, BaseModel
 from fastapi import Body
 
-from .config.loader import load_config
-from .core.logging import setup_logging
-from .core.proxmox import ProxmoxManager
-from .tools.node import NodeTools
-from .tools.vm import VMTools
-from .tools.storage import StorageTools
-from .tools.cluster import ClusterTools
-from .tools.containers import ContainerTools
-from .tools.snapshots import SnapshotTools
-from .tools.iso import ISOTools
-from .tools.backup import BackupTools
-from .tools.definitions import (
+from proxmox_mcp.config.loader import load_config
+from proxmox_mcp.core.logging import setup_logging
+from proxmox_mcp.core.proxmox import ProxmoxManager
+from proxmox_mcp.tools.node import NodeTools
+from proxmox_mcp.tools.vm import VMTools
+from proxmox_mcp.tools.storage import StorageTools
+from proxmox_mcp.tools.cluster import ClusterTools
+from proxmox_mcp.tools.containers import ContainerTools
+from proxmox_mcp.tools.snapshots import SnapshotTools
+from proxmox_mcp.tools.iso import ISOTools
+from proxmox_mcp.tools.backup import BackupTools
+from proxmox_mcp.tools.definitions import (
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
     GET_VMS_DESC,
@@ -101,12 +101,7 @@ class ProxmoxMCPServer:
         self.backup_tools = BackupTools(self.proxmox)
 
         # Initialize MCP server
-        self.mcp = FastMCP(
-            "ProxmoxMCP",
-            host=self.config.mcp.host,
-            port=self.config.mcp.port,
-            log_level=self.config.logging.level,
-        )
+        self.mcp = FastMCP("ProxmoxMCP")
         self._setup_tools()
 
     def _setup_tools(self) -> None:
@@ -461,24 +456,29 @@ class ProxmoxMCPServer:
 
         try:
             transport = self.config.mcp.transport
-            self.logger.info("Starting MCP server with transport: %s", transport)
+            self.logger.info("Starting Proxmox MCP Server with transport: %s", transport)
+            
             if transport == "STDIO":
                 anyio.run(self.mcp.run_stdio_async)
             elif transport == "SSE":
                 anyio.run(self.mcp.run_sse_async)
             elif transport == "STREAMABLE":
-                anyio.run(self.mcp.run_streamable_http_async)
+                # Handle potential naming variations
+                try:
+                    anyio.run(self.mcp.run_streamable_http_async)
+                except AttributeError:
+                    # Fallback for different SDK versions
+                    anyio.run(self.mcp.run_sse_async) 
             else:
-                raise ValueError(f"Unsupported transport: {transport}")
+                anyio.run(self.mcp.run_stdio_async)
         except Exception as e:
-            self.logger.error(f"Server error: {e}")
+            self.logger.error(f"Server execution failed: {e}")
             sys.exit(1)
 
 if __name__ == "__main__":
+    print("MCP Server: Process starting...", file=sys.stderr)
+    sys.stderr.flush()
     config_path = os.getenv("PROXMOX_MCP_CONFIG")
-    if not config_path:
-        print("PROXMOX_MCP_CONFIG environment variable must be set", file=sys.stderr)
-        sys.exit(1)
     
     try:
         server = ProxmoxMCPServer(config_path)
@@ -487,5 +487,9 @@ if __name__ == "__main__":
         print("\nShutting down gracefully...", file=sys.stderr)
         sys.exit(0)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        print(f"Server initialization failed: {e}", file=sys.stderr)
+        sys.stderr.flush()
         sys.exit(1)

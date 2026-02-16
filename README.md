@@ -122,12 +122,30 @@ Before starting, ensure you have:
    python -c "import proxmox_mcp; print('Installation OK')"
    ```
 
-2. Run the tests:
-   ```bash
-   pytest
-   ```
+### Option 3: MCP Bundle (.mcpb) - Recommended for MCP Hubs
 
-3. Verify configuration:
+This project supports the `.mcpb` (MCP Bundle) format for easy, one-click distribution and installation on compatibles hubs (like the [MCP Hub](https://github.com/mcp-hub/mcp-hub)).
+
+1. **Download**: Download the `ProxmoxMCP-Plus.mcpb` file from the releases page (once available).
+2. **Upload**: Upload the file directly to your MCP Hub.
+3. **Configure**: Set the following environment variables in your Hub's UI:
+   - `PROXMOX_HOST`: Proxmox server IP/Hostname (Required)
+   - `PROXMOX_USER`: Username (e.g., `root@pam`) (Required)
+   - `PROXMOX_TOKEN_NAME`: API Token Name (Required)
+   - `PROXMOX_TOKEN_VALUE`: API Token Value (Required)
+   - `PROXMOX_PORT`: API Port (Default: `8006`)
+   - `PROXMOX_VERIFY_SSL`: Set to `true` or `false` (Default: `false`)
+   - `PROXMOX_SERVICE`: Service type (Default: `PVE`)
+   - `LOG_LEVEL`: Set to `INFO` or `DEBUG` (Default: `INFO`)
+4. **Execution Settings**:
+   - **Command**: `python3`
+   - **Arguments**: `${__dirname}/main.py`
+
+The bundle is self-bootstrapping and will automatically install required dependencies on its first run.
+
+### Verifying Installation
+
+1. Check Python environment:
    ```bash
    # Linux/macOS
    PROXMOX_MCP_CONFIG="proxmox-config/config.json" python -m proxmox_mcp.server
@@ -136,9 +154,8 @@ Before starting, ensure you have:
    $env:PROXMOX_MCP_CONFIG="proxmox-config\config.json"; python -m proxmox_mcp.server
    ```
 
-## Configuration
 
-### Proxmox API Token Setup
+## Proxmox API Token Setup
 1. Log into your Proxmox web interface
 2. Navigate to Datacenter -> Permissions -> API Tokens
 3. Create a new API token:
