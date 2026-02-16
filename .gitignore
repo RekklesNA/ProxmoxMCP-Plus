@@ -62,3 +62,10 @@ coverage.xml
 config/config.json
 proxmox-config/config.json
 **/config.json
+
+# MCP Bundle artifacts
+*.mcpb
+
+# Build/Lock files
+uv.lock
+.agent/

@@ -1,0 +1,233 @@
+{
+    "manifest_version": "0.4",
+    "name": "proxmox-mcp-plus",
+    "display_name": "ProxmoxMCP-Plus",
+    "version": "0.1.0",
+    "description": "An enhanced MCP server for managing Proxmox virtualization platforms.",
+    "long_description": "ProxmoxMCP-Plus is an enhanced Model Context Protocol (MCP) server that provides comprehensive tools for managing Proxmox virtualization environments, including VM lifecycle, container management, snapshot operations, and backup/restore capabilities.",
+    "author": {
+        "name": "Kevin",
+        "email": "kevin@example.com"
+    },
+    "server": {
+        "type": "python",
+        "entry_point": "main.py",
+        "mcp_config": {
+            "command": "python3",
+            "args": [
+                "${__dirname}/main.py"
+            ],
+            "env": {
+                "PYTHONPATH": "${__dirname}/src",
+                "PROXMOX_HOST": "${user_config.proxmox_host}",
+                "PROXMOX_USER": "${user_config.proxmox_user}",
+                "PROXMOX_TOKEN_NAME": "${user_config.proxmox_token_name}",
+                "PROXMOX_TOKEN_VALUE": "${user_config.proxmox_token_value}",
+                "PROXMOX_PORT": "${user_config.proxmox_port}",
+                "PROXMOX_VERIFY_SSL": "${user_config.proxmox_verify_ssl}",
+                "PROXMOX_SERVICE": "${user_config.proxmox_service}",
+                "LOG_LEVEL": "${user_config.log_level}"
+            }
+        }
+    },
+    "user_config": {
+        "proxmox_host": {
+            "type": "string",
+            "title": "Proxmox Host",
+            "description": "The IP address or hostname of your Proxmox server",
+            "required": true
+        },
+        "proxmox_user": {
+            "type": "string",
+            "title": "Proxmox User",
+            "description": "Username (e.g. root@pam)",
+            "required": true
+        },
+        "proxmox_token_name": {
+            "type": "string",
+            "title": "Token Name",
+            "description": "API token ID",
+            "required": true
+        },
+        "proxmox_token_value": {
+            "type": "string",
+            "title": "Token Value",
+            "description": "API token secret value",
+            "required": true,
+            "sensitive": true
+        },
+        "proxmox_port": {
+            "type": "string",
+            "title": "Proxmox Port",
+            "description": "PVE API port",
+            "default": "8006",
+            "required": false
+        },
+        "proxmox_verify_ssl": {
+            "type": "string",
+            "title": "Verify SSL",
+            "description": "Set to 'true' or 'false'",
+            "default": "false",
+            "required": false
+        },
+        "proxmox_service": {
+            "type": "string",
+            "title": "Proxmox Service",
+            "description": "Service type (default: PVE)",
+            "default": "PVE",
+            "required": false
+        },
+        "log_level": {
+            "type": "string",
+            "title": "Log Level",
+            "description": "Logging level (DEBUG, INFO, WARNING, ERROR)",
+            "default": "INFO",
+            "required": false
+        }
+    },
+    "tools": [
+        {
+            "name": "get_nodes",
+            "description": "List all nodes in the Proxmox cluster"
+        },
+        {
+            "name": "get_node_status",
+            "description": "Get detailed status of a specific node"
+        },
+        {
+            "name": "get_vms",
+            "description": "List all virtual machines across the cluster"
+        },
+        {
+            "name": "create_vm",
+            "description": "Create a new virtual machine with specified resources"
+        },
+        {
+            "name": "execute_vm_command",
+            "description": "Execute a shell command in a VM using QEMU Guest Agent"
+        },
+        {
+            "name": "start_vm",
+            "description": "Start a virtual machine"
+        },
+        {
+            "name": "stop_vm",
+            "description": "Force stop a virtual machine"
+        },
+        {
+            "name": "shutdown_vm",
+            "description": "Gracefully shutdown a virtual machine"
+        },
+        {
+            "name": "reset_vm",
+            "description": "Reset (restart) a virtual machine"
+        },
+        {
+            "name": "delete_vm",
+            "description": "Completely delete a virtual machine"
+        },
+        {
+            "name": "get_storage",
+            "description": "List available storage pools"
+        },
+        {
+            "name": "get_cluster_status",
+            "description": "Get overall cluster status and health"
+        },
+        {
+            "name": "get_containers",
+            "description": "List all LXC containers"
+        },
+        {
+            "name": "start_container",
+            "description": "Start LXC containers"
+        },
+        {
+            "name": "stop_container",
+            "description": "Stop LXC containers"
+        },
+        {
+            "name": "restart_container",
+            "description": "Restart LXC containers"
+        },
+        {
+            "name": "update_container_resources",
+            "description": "Update CPU/Memory/Disk for an LXC container"
+        },
+        {
+            "name": "create_container",
+            "description": "Create a new LXC container"
+        },
+        {
+            "name": "delete_container",
+            "description": "Delete LXC containers"
+        },
+        {
+            "name": "list_snapshots",
+            "description": "List all snapshots for a VM or container"
+        },
+        {
+            "name": "create_snapshot",
+            "description": "Create a new snapshot"
+        },
+        {
+            "name": "delete_snapshot",
+            "description": "Delete a specific snapshot"
+        },
+        {
+            "name": "rollback_snapshot",
+            "description": "Rollback to a specific snapshot"
+        },
+        {
+            "name": "list_isos",
+            "description": "List available ISO images"
+        },
+        {
+            "name": "list_templates",
+            "description": "List available LXC templates"
+        },
+        {
+            "name": "download_iso",
+            "description": "Download an ISO image"
+        },
+        {
+            "name": "delete_iso",
+            "description": "Delete an ISO or template"
+        },
+        {
+            "name": "list_backups",
+            "description": "List available backups"
+        },
+        {
+            "name": "create_backup",
+            "description": "Create a backup of a VM or container"
+        },
+        {
+            "name": "restore_backup",
+            "description": "Restore from a backup"
+        },
+        {
+            "name": "delete_backup",
+            "description": "Delete a specific backup"
+        }
+    ],
+    "keywords": [
+        "proxmox",
+        "mcp",
+        "virtualization",
+        "vm",
+        "lxc",
+        "hypervisor"
+    ],
+    "license": "MIT",
+    "compatibility": {
+        "platforms": [
+            "darwin",
+            "win32",
+            "linux"
+        ],
+        "runtimes": {
+            "python": ">=3.11"
+        }
+    }
+}

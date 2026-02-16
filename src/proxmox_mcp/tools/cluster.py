@@ -12,8 +12,8 @@ cluster health and ensuring proper operation.
 """
 from typing import List
 from mcp.types import TextContent as Content
-from .base import ProxmoxTool
-from .definitions import GET_CLUSTER_STATUS_DESC
+from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.definitions import GET_CLUSTER_STATUS_DESC
 
 class ClusterTools(ProxmoxTool):
     """Tools for managing Proxmox cluster.

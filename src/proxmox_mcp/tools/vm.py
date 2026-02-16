@@ -17,9 +17,9 @@ detailed VM information might be temporarily unavailable.
 """
 from typing import List, Optional
 from mcp.types import TextContent as Content
-from .base import ProxmoxTool
-from .definitions import GET_VMS_DESC, EXECUTE_VM_COMMAND_DESC
-from .console.manager import VMConsoleManager
+from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.definitions import GET_VMS_DESC, EXECUTE_VM_COMMAND_DESC
+from proxmox_mcp.tools.console.manager import VMConsoleManager
 
 class VMTools(ProxmoxTool):
     """Tools for managing Proxmox VMs.
@@ -453,7 +453,7 @@ class VMTools(ProxmoxTool):
         try:
             result = await self.console_manager.execute_command(node, vmid, command)
             # Use the command output formatter from ProxmoxFormatters
-            from ..formatting import ProxmoxFormatters
+            from proxmox_mcp.formatting import ProxmoxFormatters
             formatted = ProxmoxFormatters.format_command_output(
                 success=result["success"],
                 command=command,
