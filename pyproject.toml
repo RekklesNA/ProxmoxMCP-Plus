@@ -34,6 +34,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "mcpo>=0.0.17",
+    "paramiko>=3.0.0,<4.0.0",
 ]
 
 [project.optional-dependencies]

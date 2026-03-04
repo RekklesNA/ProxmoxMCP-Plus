@@ -55,6 +55,7 @@ from .tools.definitions import (
     UPDATE_CONTAINER_RESOURCES_DESC,
     CREATE_CONTAINER_DESC,
     DELETE_CONTAINER_DESC,
+    EXECUTE_CONTAINER_COMMAND_DESC,
     GET_STORAGE_DESC,
     GET_CLUSTER_STATUS_DESC,
     # Snapshot tools
@@ -95,7 +96,7 @@ class ProxmoxMCPServer:
         self.vm_tools = VMTools(self.proxmox)
         self.storage_tools = StorageTools(self.proxmox)
         self.cluster_tools = ClusterTools(self.proxmox)
-        self.container_tools = ContainerTools(self.proxmox)
+        self.container_tools = ContainerTools(self.proxmox, self.config.ssh)
         self.snapshot_tools = SnapshotTools(self.proxmox)
         self.iso_tools = ISOTools(self.proxmox)
         self.backup_tools = BackupTools(self.proxmox)
@@ -311,6 +312,13 @@ class ProxmoxMCPServer:
             return self.container_tools.delete_container(
                 selector=selector, force=force, format_style=format_style
             )
+
+        @self.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
+        def execute_container_command(
+            selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
+            command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
+        ):
+            return self.container_tools.execute_command(selector=selector, command=command)
 
         # Snapshot tools
         @self.mcp.tool(description=LIST_SNAPSHOTS_DESC)

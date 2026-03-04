@@ -13,7 +13,7 @@ The models provide:
 - Field descriptions
 - Required vs optional field handling
 """
-from typing import Optional, Annotated, Literal
+from typing import Optional, Annotated, Literal, Dict
 from pydantic import BaseModel, Field, field_validator
 
 class NodeStatus(BaseModel):
@@ -68,6 +68,18 @@ class LoggingConfig(BaseModel):
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Optional: Log format
     file: Optional[str] = None  # Optional: Log file path (default: None for console logging)
 
+class SSHConfig(BaseModel):
+    """Model for SSH configuration used to connect to Proxmox nodes.
+
+    Required for container command execution via `pct exec`.
+    """
+    user: str = "root"
+    port: int = 22
+    key_file: Optional[str] = None   # path to private key file
+    password: Optional[str] = None   # fallback if no key_file
+    host_overrides: Dict[str, str] = Field(default_factory=dict)
+    use_sudo: bool = False  # prefix pct with sudo (for non-root SSH users)
+
 class MCPConfig(BaseModel):
     """Model for MCP server configuration.
 
@@ -100,3 +112,4 @@ class Config(BaseModel):
     auth: AuthConfig  # Required: Authentication credentials
     logging: LoggingConfig  # Required: Logging configuration
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    ssh: SSHConfig = Field(default_factory=SSHConfig)
