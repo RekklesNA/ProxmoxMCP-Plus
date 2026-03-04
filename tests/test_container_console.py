@@ -79,7 +79,7 @@ def test_execute_command_success(MockSSHClient, manager):
     # Verify pct exec was called with quoted vmid and command
     call_args = mock_client.exec_command.call_args
     cmd = call_args[0][0]
-    assert "pct exec" in cmd
+    assert "/usr/sbin/pct exec" in cmd
     assert "101" in cmd
     assert "uname -a" in cmd
 
@@ -141,7 +141,7 @@ def test_use_sudo_prefix(MockSSHClient, manager, ssh_cfg):
     manager.execute_command("pve1", "101", "whoami")
 
     cmd = mock_client.exec_command.call_args[0][0]
-    assert cmd.startswith("sudo pct exec")
+    assert cmd.startswith("sudo /usr/sbin/pct exec")
 
 
 @patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")

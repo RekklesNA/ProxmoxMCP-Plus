@@ -47,7 +47,7 @@ class ContainerConsoleManager:
 
         # 2. Build pct exec command
         prefix = "sudo " if self.ssh_cfg.use_sudo else ""
-        cmd = f"{prefix}pct exec {shlex.quote(str(vmid))} -- sh -c {shlex.quote(command)}"
+        cmd = f"{prefix}/usr/sbin/pct exec {shlex.quote(str(vmid))} -- sh -c {shlex.quote(command)}"
         self.logger.info("Executing on CT %s@%s: %s", vmid, node, command)
 
         # 3. SSH to node and run command
