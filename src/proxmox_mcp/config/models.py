@@ -112,4 +112,4 @@ class Config(BaseModel):
     auth: AuthConfig  # Required: Authentication credentials
     logging: LoggingConfig  # Required: Logging configuration
     mcp: MCPConfig = Field(default_factory=MCPConfig)
-    ssh: SSHConfig = Field(default_factory=SSHConfig)
+    ssh: Optional[SSHConfig] = None

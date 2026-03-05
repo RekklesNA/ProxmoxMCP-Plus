@@ -489,8 +489,8 @@ required inside the container.
 
 **Requirements:**
 - Container must be running
-- An `ssh` section must be present in the MCP config (the tool is opt-in and returns a clear error
-  if SSH is not configured)
+- An `ssh` section must be present in the MCP config — without it the tool is not registered and
+  will not appear in the tool list
 
 **Security:** This feature uses SSH to reach the Proxmox node. The recommended setup creates a
 dedicated `mcp-agent` user with passwordless sudo scoped exclusively to `pct exec`, limiting what

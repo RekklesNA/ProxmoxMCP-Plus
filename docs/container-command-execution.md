@@ -7,8 +7,8 @@ commands inside a running LXC container. Under the hood it uses `pct exec`, the 
 CLI tool for this purpose.
 
 This feature requires a one-time SSH setup on your Proxmox nodes. It is **entirely opt-in** — if
-you do not add an `ssh` section to your MCP config, the tool is present but returns a clear error
-message explaining what is missing, and everything else continues to work normally.
+you do not add an `ssh` section to your MCP config, the tool is not registered and will not appear
+in the MCP tool list at all. Everything else continues to work normally.
 
 ---
 
@@ -39,15 +39,11 @@ is always targeted automatically, regardless of cluster topology.
 
 ### The feature is opt-in
 
-`execute_container_command` is a registered MCP tool regardless of configuration, but it checks
-for a valid `ssh` config at call time. Without the `ssh` section in your config, calling the tool
-returns an error like:
+`execute_container_command` is only registered when an `ssh` section is present in the config.
+Without it, the tool does not appear in the MCP tool list at all — an absent tool is a clearer
+signal to AI agents than a tool that returns an error at call time.
 
-```
-SSH is not configured. Add an [ssh] section to your MCP config to enable container command execution.
-```
-
-No SSH credentials, no SSH connection, no access.
+No `ssh` section → no tool registration → no SSH connection, no access.
 
 ### Recommended setup: dedicated `mcp-agent` user with scoped sudo
 

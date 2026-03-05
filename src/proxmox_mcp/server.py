@@ -313,12 +313,20 @@ class ProxmoxMCPServer:
                 selector=selector, force=force, format_style=format_style
             )
 
-        @self.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
-        def execute_container_command(
-            selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
-            command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
-        ):
-            return self.container_tools.execute_command(selector=selector, command=command)
+        if self.config.ssh is not None:
+            self.logger.info(
+                "Container command execution enabled (SSH configured for user '%s')",
+                self.config.ssh.user,
+            )
+
+            @self.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
+            def execute_container_command(
+                selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
+                command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
+            ):
+                return self.container_tools.execute_command(selector=selector, command=command)
+        else:
+            self.logger.info("Container command execution disabled (no [ssh] section in config)")
 
         # Snapshot tools
         @self.mcp.tool(description=LIST_SNAPSHOTS_DESC)

@@ -70,7 +70,7 @@ def test_server_initialization(server, mock_proxmox):
 
 @pytest.mark.asyncio
 async def test_list_tools(server):
-    """Test listing available tools."""
+    """Test listing available tools. Config has no ssh section, so execute_container_command must be absent."""
     tools = await server.mcp.list_tools()
 
     assert len(tools) > 0
@@ -80,6 +80,26 @@ async def test_list_tools(server):
     assert "get_containers" in tool_names
     assert "execute_vm_command" in tool_names
     assert "update_container_resources" in tool_names
+    assert "execute_container_command" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_list_tools_with_ssh_config(mock_proxmox, tmp_path):
+    """execute_container_command is registered only when an ssh section is present."""
+    config_path = tmp_path / "config_ssh.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "ssh": {"user": "mcp-agent", "key_file": "/home/user/.ssh/proxmox_key"},
+    }))
+
+    with patch.dict(os.environ, {"PROXMOX_MCP_CONFIG": str(config_path)}):
+        ssh_server = ProxmoxMCPServer(str(config_path))
+
+    tools = await ssh_server.mcp.list_tools()
+    tool_names = [tool.name for tool in tools]
+    assert "execute_container_command" in tool_names
 
 @pytest.mark.asyncio
 async def test_get_nodes(server, mock_proxmox):
