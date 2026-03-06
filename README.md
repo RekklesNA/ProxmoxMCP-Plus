@@ -915,6 +915,27 @@ tail -f proxmox_mcp.log
 docker logs proxmox-mcp-api -f
 ```
 
+### Docker Healthcheck and `/health` Endpoint
+
+When running `ProxmoxMCP-Plus` via Docker Compose, the HTTP service exposed on port `8811` provides explicit health and root endpoints:
+
+- `GET /health` returns a JSON health payload and is used by Docker healthchecks.
+- `GET /` returns basic service metadata and links to docs/spec.
+
+- Recommended healthcheck command:
+
+  ```bash
+  curl -f http://localhost:8811/health
+  ```
+
+- To inspect and test the API interactively in a browser, use:
+
+  ```text
+  http://<host>:8811/docs
+  ```
+
+  This opens the automatically generated Swagger UI for all MCP-powered endpoints.
+
 ## Deployment Status
 
 ### Feature Completion Status

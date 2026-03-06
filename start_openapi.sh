@@ -48,5 +48,6 @@ echo ""
 # Set environment variables
 export PROXMOX_MCP_CONFIG="$(pwd)/proxmox-config/config.json"
 
-# Start mcpo proxy server, bind to all interfaces on specified port
-mcpo --host 0.0.0.0 --port ${PORT} -- bash -c "cd $(pwd) && source .venv/bin/activate && python -m proxmox_mcp.server" 
+# Start OpenAPI proxy server, bind to all interfaces on specified port
+python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port ${PORT} -- \
+  /bin/bash -c "cd $(pwd) && source .venv/bin/activate && python -c 'from proxmox_mcp.server import main; main()'"

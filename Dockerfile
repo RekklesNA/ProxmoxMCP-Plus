@@ -30,5 +30,5 @@ ENV API_HOST="0.0.0.0"
 ENV API_PORT="8811"
 
 # Startup command
-CMD ["mcpo", "--host", "0.0.0.0", "--port", "8811", "--", \
-     "/bin/bash", "-c", "cd /app && source .venv/bin/activate && python -m proxmox_mcp.server"]
+CMD ["/app/.venv/bin/python", "-m", "proxmox_mcp.openapi_proxy", "--host", "0.0.0.0", "--port", "8811", "--", \
+     "/bin/bash", "-c", "cd /app && source .venv/bin/activate && python -c 'from proxmox_mcp.server import main; main()'"]
