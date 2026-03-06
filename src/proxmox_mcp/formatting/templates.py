@@ -2,10 +2,10 @@
 Output templates for Proxmox MCP resource types.
 """
 from typing import Dict, List, Any
-from .formatters import ProxmoxFormatters
-from .theme import ProxmoxTheme
-from .colors import ProxmoxColors
-from .components import ProxmoxComponents
+from proxmox_mcp.formatting.formatters import ProxmoxFormatters
+from proxmox_mcp.formatting.theme import ProxmoxTheme
+from proxmox_mcp.formatting.colors import ProxmoxColors
+from proxmox_mcp.formatting.components import ProxmoxComponents
 
 class ProxmoxTemplates:
     """Output templates for different Proxmox resource types."""

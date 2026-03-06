@@ -14,7 +14,7 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
-from ..formatting import ProxmoxTemplates
+from proxmox_mcp.formatting import ProxmoxTemplates
 
 class ProxmoxTool:
     """Base class for Proxmox MCP tools.
