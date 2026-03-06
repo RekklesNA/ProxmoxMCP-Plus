@@ -915,6 +915,34 @@ tail -f proxmox_mcp.log
 docker logs proxmox-mcp-api -f
 ```
 
+### Docker Healthcheck and `/health` Endpoint
+
+When running `ProxmoxMCP-Plus` via Docker Compose, the HTTP service exposed on port `8811` is provided by the `mcpo` OpenAPI proxy. This proxy automatically generates REST endpoints from the MCP tool schemas but **does not define a `/health` route**.
+
+- Accessing `http://<host>:8811/health` will return:
+
+  ```json
+  {"detail": "Not Found"}
+  ```
+
+  This is the expected FastAPI 404 response and **does not** indicate that the service failed to start.
+
+- The recommended healthcheck endpoint for Docker is:
+
+  ```bash
+  curl -f http://localhost:8811/openapi.json
+  ```
+
+  This path is always available when `mcpo` is running and confirms that the OpenAPI proxy is healthy.
+
+- To inspect and test the API interactively in a browser, use:
+
+  ```text
+  http://<host>:8811/docs
+  ```
+
+  This opens the automatically generated Swagger UI for all MCP-powered endpoints.
+
 ## Deployment Status
 
 ### Feature Completion Status
