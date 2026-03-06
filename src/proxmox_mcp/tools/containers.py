@@ -2,6 +2,7 @@ from typing import List, Dict, Optional, Tuple, Any, Union
 import json
 from mcp.types import TextContent as Content
 from .base import ProxmoxTool
+from .console.container_manager import ContainerConsoleManager
 
 
 def _b2h(n: Union[int, float, str]) -> str:
@@ -58,6 +59,12 @@ class ContainerTools(ProxmoxTool):
     - RRD fallback when live returns zeros
     - Pretty output rendered here; JSON path is raw & sanitized
     """
+
+    def __init__(self, proxmox_api: Any, ssh_config: Any = None) -> None:
+        super().__init__(proxmox_api)
+        self.console_manager: Optional[ContainerConsoleManager] = (
+            ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
+        )
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -662,6 +669,43 @@ class ContainerTools(ProxmoxTool):
 
         except Exception as e:
             return self._err("Failed to delete container(s)", e)
+
+    def execute_command(self, selector: str, command: str) -> List[Content]:
+        """Execute a shell command inside a running LXC container via SSH + pct exec.
+
+        Parameters:
+            selector: Container selector (single target only — e.g. '101', 'pve1:101', 'name')
+            command:  Shell command to run inside the container
+
+        Returns:
+            List[Content] with {"success", "output", "error", "exit_code"}
+        """
+        if self.console_manager is None:
+            return self._err(
+                "execute_command",
+                RuntimeError(
+                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    "with user/key_file credentials for the Proxmox nodes."
+                ),
+            )
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("execute_command", ValueError(f"No container matched selector: {selector}"))
+            if len(targets) > 1:
+                return self._err(
+                    "execute_command",
+                    ValueError(
+                        f"Selector '{selector}' matched {len(targets)} containers; "
+                        "execute_command requires a single-target selector."
+                    ),
+                )
+            node, vmid, _label = targets[0]
+            result = self.console_manager.execute_command(node, str(vmid), command)
+            import json as _json
+            return [Content(type="text", text=_json.dumps(result, indent=2))]
+        except Exception as e:
+            return self._err("execute_command", e)
 
     def update_container_resources(
         self,

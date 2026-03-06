@@ -187,6 +187,22 @@ Examples:
 - Force delete running container: selector='pve:201', force=True
 """
 
+EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
+
+No guest agent required — connects to the Proxmox node via SSH and uses `pct exec`.
+
+Parameters:
+selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name'
+command*  - Shell command to run (e.g. 'uname -a', 'df -h')
+
+Example:
+{"success": true, "output": "Linux ct-101 6.1.0", "exit_code": 0}
+
+Requirements:
+- Container must be running
+- MCP config must include valid [ssh] credentials for the Proxmox nodes
+"""
+
 # Storage tool descriptions
 GET_STORAGE_DESC = """List storage pools across the cluster with their usage and configuration.
 

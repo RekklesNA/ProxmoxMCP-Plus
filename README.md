@@ -6,6 +6,13 @@ An enhanced Python-based Model Context Protocol (MCP) server for interacting wit
 
 This project is built upon the open-source project [ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP) by [@canvrno](https://github.com/canvrno).
 
+- 🐳 **New Container Support**
+  - `get_containers` - List all LXC containers and their status
+  - `start_container` - Start LXC container
+  - `stop_container` - Stop LXC container
+  - `restart_container` - Restart LXC container (forcefully/gracefully)
+  - `update_container_resources` - Adjust container CPU, memory, swap, or extend disk
+  - `execute_container_command` - Run shell commands inside a running LXC container via SSH + `pct exec` (no guest agent required; [see setup guide](docs/container-command-execution.md))
 ## New Features and Improvements
 
 ### Major Enhancements
@@ -36,6 +43,7 @@ This project is built upon the open-source project [ProxmoxMCP](https://github.c
 - Complete VM lifecycle management (create, start, stop, reset, shutdown, delete)
 - VM console command execution
 - LXC container management support
+- LXC container command execution through SSH (optional)
 - Intelligent storage type detection (LVM/file-based)
 - Configurable logging system
 - Type-safe implementation with Pydantic
@@ -729,6 +737,36 @@ Execute a command in a VM's console using QEMU Guest Agent.
 - VM must be running
 - QEMU Guest Agent must be installed and running in the VM
 
+#### execute_container_command 🆕
+Execute a shell command inside a running LXC container.
+
+Unlike VMs, LXC containers have no QEMU guest agent equivalent — `pct exec` is the only official
+mechanism, and it is a CLI tool that must be run directly on the Proxmox host. This tool SSHes to
+the appropriate Proxmox node and invokes `pct exec` there, so no guest agent installation is
+required inside the container.
+
+**Parameters:**
+- `selector` (string, required): Container selector — `123`, `pve1:123`, `pve1/name`, or `name`
+- `command` (string, required): Shell command to run inside the container
+
+**API Endpoint:** `POST /execute_container_command`
+
+**Example Response:**
+```json
+{"success": true, "output": "Linux ct-101 6.1.0-31-amd64", "error": "", "exit_code": 0}
+```
+
+**Requirements:**
+- Container must be running
+- An `ssh` section must be present in the MCP config — without it the tool is not registered and
+  will not appear in the tool list
+
+**Security:** This feature uses SSH to reach the Proxmox node. The recommended setup creates a
+dedicated `mcp-agent` user with passwordless sudo scoped exclusively to `pct exec`, limiting what
+a compromised MCP server could do on the host. See the
+[Container Command Execution guide](docs/container-command-execution.md) for the full security
+model and step-by-step setup instructions.
+
 ## Open WebUI Integration
 
 ### Configure Open WebUI
@@ -813,7 +851,8 @@ ProxmoxMCP-Plus/
     ├── README.md                 # This file
     ├── VM_CREATION_GUIDE.md      # VM creation guide
     ├── OPENAPI_DEPLOYMENT.md     # OpenAPI deployment
-    └── LICENSE                   # MIT License
+    ├── LICENSE                   # MIT License
+    └── docs/container-command-execution.md  # Container exec: security model & SSH setup
 ```
 
 ## Testing
@@ -945,6 +984,7 @@ When running `ProxmoxMCP-Plus` via Docker Compose, the HTTP service exposed on p
 - [x] VM Deletion Feature
 - [x] Container Management (LXC)
 - [x] Container Creation and Deletion
+- [x] Container Command Execution via SSH + `pct exec` (opt-in, scoped sudo)
 - [x] Snapshot Management (create, delete, rollback)
 - [x] Backup and Restore
 - [x] ISO and Template Management
