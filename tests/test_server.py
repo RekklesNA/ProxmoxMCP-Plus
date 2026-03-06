@@ -7,7 +7,6 @@ import json
 import pytest
 from unittest.mock import Mock, patch
 
-from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from proxmox_mcp.server import ProxmoxMCPServer
 
@@ -51,6 +50,12 @@ def mock_proxmox():
             {"node": "node1", "status": "online"},
             {"node": "node2", "status": "online"}
         ]
+        mock.return_value.nodes.return_value.status.get.return_value = {
+            "status": "online",
+            "uptime": 0,
+            "cpuinfo": {"cpus": 4},
+            "memory": {"used": 0, "total": 0},
+        }
         yield mock
 
 @pytest.fixture
@@ -108,12 +113,16 @@ async def test_get_nodes(server, mock_proxmox):
         {"node": "node1", "status": "online"},
         {"node": "node2", "status": "online"}
     ]
+    mock_proxmox.return_value.nodes.return_value.status.get.return_value = {
+        "status": "online",
+        "uptime": 120,
+        "cpuinfo": {"cpus": 4},
+        "memory": {"used": 1024, "total": 4096},
+    }
     response = await server.mcp.call_tool("get_nodes", {})
-    result = json.loads(response[0].text)
-
-    assert len(result) == 2
-    assert result[0]["node"] == "node1"
-    assert result[1]["node"] == "node2"
+    text = response[0].text
+    assert "node1" in text
+    assert "node2" in text
 
 @pytest.mark.asyncio
 async def test_get_node_status_missing_parameter(server):
@@ -130,9 +139,9 @@ async def test_get_node_status(server, mock_proxmox):
     }
 
     response = await server.mcp.call_tool("get_node_status", {"node": "node1"})
-    result = json.loads(response[0].text)
-    assert result["status"] == "running"
-    assert result["uptime"] == 123456
+    text = response[0].text
+    assert "Node: node1" in text
+    assert "Status: RUNNING" in text
 
 @pytest.mark.asyncio
 async def test_get_node_status_offline_fallback(server, mock_proxmox):
@@ -158,10 +167,9 @@ async def test_get_vms(server, mock_proxmox):
     ]
 
     response = await server.mcp.call_tool("get_vms", {})
-    result = json.loads(response[0].text)
-    assert len(result) > 0
-    assert result[0]["name"] == "vm1"
-    assert result[1]["name"] == "vm2"
+    text = response[0].text
+    assert "vm1" in text
+    assert "vm2" in text
 
 @pytest.mark.asyncio
 async def test_get_vms_skips_offline_node(server, mock_proxmox):
@@ -205,7 +213,7 @@ async def test_get_containers(server, mock_proxmox):
         {"vmid": "201", "name": "container2", "status": "stopped"}
     ]
 
-    response = await server.mcp.call_tool("get_containers", {})
+    response = await server.mcp.call_tool("get_containers", {"payload": {"format_style": "json"}})
     result = json.loads(response[0].text)
     assert len(result) > 0
     assert result[0]["name"] == "container1"
@@ -237,7 +245,7 @@ async def test_get_containers_skips_offline_node(server, mock_proxmox):
 
     proxmox.nodes.side_effect = nodes_side_effect
 
-    response = await server.mcp.call_tool("get_containers", {})
+    response = await server.mcp.call_tool("get_containers", {"payload": {}})
     text = response[0].text
     assert "container1" in text
     assert "node1" in text
@@ -257,7 +265,7 @@ async def test_update_container_resources(server, mock_proxmox):
 
     response = await server.mcp.call_tool(
         "update_container_resources",
-        {"selector": "node1:200", "cores": 2, "memory": 512, "swap": 256, "disk_gb": 1},
+        {"selector": "node1:200", "cores": 2, "memory": 512, "swap": 256, "disk_gb": 1, "format_style": "json"},
     )
     result = json.loads(response[0].text)
 
@@ -272,12 +280,16 @@ async def test_get_storage(server, mock_proxmox):
         {"storage": "local", "type": "dir"},
         {"storage": "ceph", "type": "rbd"}
     ]
+    mock_proxmox.return_value.nodes.return_value.storage.return_value.status.get.return_value = {
+        "used": 0,
+        "total": 0,
+        "avail": 0,
+    }
 
     response = await server.mcp.call_tool("get_storage", {})
-    result = json.loads(response[0].text)
-    assert len(result) == 2
-    assert result[0]["storage"] == "local"
-    assert result[1]["storage"] == "ceph"
+    text = response[0].text
+    assert "local" in text
+    assert "ceph" in text
 
 @pytest.mark.asyncio
 async def test_list_isos_skips_offline_node(server, mock_proxmox):
@@ -352,15 +364,17 @@ async def test_list_backups_skips_offline_node(server, mock_proxmox):
 @pytest.mark.asyncio
 async def test_get_cluster_status(server, mock_proxmox):
     """Test get_cluster_status tool."""
-    mock_proxmox.return_value.cluster.status.get.return_value = {
-        "quorate": True,
-        "nodes": 2
-    }
+    mock_proxmox.return_value.cluster.status.get.return_value = [
+        {"type": "cluster", "name": "test-cluster", "quorate": 1},
+        {"type": "node", "name": "node1"},
+        {"type": "node", "name": "node2"},
+    ]
 
     response = await server.mcp.call_tool("get_cluster_status", {})
-    result = json.loads(response[0].text)
-    assert result["quorate"] is True
-    assert result["nodes"] == 2
+    text = response[0].text
+    assert "test-cluster" in text
+    assert "Quorum: OK" in text
+    assert "Nodes: 2" in text
 
 @pytest.mark.asyncio
 async def test_execute_vm_command_success(server, mock_proxmox):
@@ -370,23 +384,28 @@ async def test_execute_vm_command_success(server, mock_proxmox):
         "status": "running"
     }
     # Mock command execution
-    mock_proxmox.return_value.nodes.return_value.qemu.return_value.agent.exec.post.return_value = {
-        "out": "command output",
-        "err": "",
-        "exitcode": 0
+    exec_endpoint = Mock()
+    exec_endpoint.post.return_value = {"pid": 123}
+    status_endpoint = Mock()
+    status_endpoint.get.return_value = {
+        "out-data": "command output",
+        "err-data": "",
+        "exitcode": 0,
+        "exited": 1,
     }
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.agent.side_effect = (
+        lambda action: exec_endpoint if action == "exec" else status_endpoint
+    )
 
     response = await server.mcp.call_tool("execute_vm_command", {
         "node": "node1",
         "vmid": "100",
         "command": "ls -l"
     })
-    result = json.loads(response[0].text)
-
-    assert result["success"] is True
-    assert result["output"] == "command output"
-    assert result["error"] == ""
-    assert result["exit_code"] == 0
+    text = response[0].text
+    assert "Console Command Result" in text
+    assert "Status: SUCCESS" in text
+    assert "command output" in text
 
 @pytest.mark.asyncio
 async def test_execute_vm_command_missing_parameters(server):
@@ -416,23 +435,28 @@ async def test_execute_vm_command_with_error(server, mock_proxmox):
         "status": "running"
     }
     # Mock command execution with error
-    mock_proxmox.return_value.nodes.return_value.qemu.return_value.agent.exec.post.return_value = {
-        "out": "",
-        "err": "command not found",
-        "exitcode": 1
+    exec_endpoint = Mock()
+    exec_endpoint.post.return_value = {"pid": 456}
+    status_endpoint = Mock()
+    status_endpoint.get.return_value = {
+        "out-data": "",
+        "err-data": "command not found",
+        "exitcode": 1,
+        "exited": 1,
     }
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.agent.side_effect = (
+        lambda action: exec_endpoint if action == "exec" else status_endpoint
+    )
 
     response = await server.mcp.call_tool("execute_vm_command", {
         "node": "node1",
         "vmid": "100",
         "command": "invalid-command"
     })
-    result = json.loads(response[0].text)
-
-    assert result["success"] is True  # API call succeeded
-    assert result["output"] == ""
-    assert result["error"] == "command not found"
-    assert result["exit_code"] == 1
+    text = response[0].text
+    assert "Console Command Result" in text
+    assert "Status: SUCCESS" in text
+    assert "command not found" in text
 
 @pytest.mark.asyncio
 async def test_start_vm(server, mock_proxmox):

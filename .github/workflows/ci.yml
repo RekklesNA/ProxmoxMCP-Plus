@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install .
+
+    - name: Smoke Test (Import Server)
+      run: |
+        python -c "from proxmox_mcp.server import ProxmoxMCPServer; print('Successfully imported ProxmoxMCPServer')"
+
+    - name: Validate Manifest JSON
+      run: |
+        if ! command -v jq &> /dev/null; then sudo apt-get install jq; fi
+        jq empty manifest.json

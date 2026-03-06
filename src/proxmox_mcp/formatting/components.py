@@ -2,8 +2,8 @@
 Reusable UI components for Proxmox MCP output.
 """
 from typing import List, Optional
-from .colors import ProxmoxColors
-from .theme import ProxmoxTheme
+from proxmox_mcp.formatting.colors import ProxmoxColors
+from proxmox_mcp.formatting.theme import ProxmoxTheme
 
 class ProxmoxComponents:
     """Reusable UI components for formatted output."""
@@ -113,7 +113,7 @@ class ProxmoxComponents:
         Returns:
             Formatted resource usage string
         """
-        from .formatters import ProxmoxFormatters
+        from proxmox_mcp.formatting.formatters import ProxmoxFormatters
         percentage = (used / total * 100) if total > 0 else 0
         progress = ProxmoxComponents.create_progress_bar(used, total)
         

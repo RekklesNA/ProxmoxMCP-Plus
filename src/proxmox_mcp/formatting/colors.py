@@ -2,7 +2,7 @@
 Color utilities for Proxmox MCP output styling.
 """
 from typing import Optional
-from .theme import ProxmoxTheme
+from proxmox_mcp.formatting.theme import ProxmoxTheme
 
 class ProxmoxColors:
     """ANSI color definitions and utilities for terminal output."""

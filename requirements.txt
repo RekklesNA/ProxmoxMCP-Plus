@@ -1,0 +1,7 @@
+mcp>=1.2.0
+proxmoxer>=2.0.1
+requests>=2.31.0
+pydantic>=2.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+anyio>=4.0.0

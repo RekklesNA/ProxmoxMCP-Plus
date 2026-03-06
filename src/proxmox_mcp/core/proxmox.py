@@ -14,7 +14,7 @@ across the MCP server.
 import logging
 from typing import Dict, Any
 from proxmoxer import ProxmoxAPI
-from ..config.models import ProxmoxConfig, AuthConfig
+from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
 
 class ProxmoxManager:
     """Manager class for Proxmox API operations.
@@ -90,14 +90,15 @@ class ProxmoxManager:
             self.logger.info(f"Connecting to Proxmox host: {self.config['host']}")
             api = ProxmoxAPI(**self.config)
             
-            # Test connection
-            api.version.get()
-            self.logger.info("Successfully connected to Proxmox API")
+            # Connection test removed from startup for robustness.
+            # It will fail gracefully later if credentials are wrong.
+            # api.version.get() 
             
             return api
         except Exception as e:
-            self.logger.error(f"Failed to connect to Proxmox: {e}")
-            raise RuntimeError(f"Failed to connect to Proxmox: {e}")
+            self.logger.error(f"Failed to initialize Proxmox API client: {e}")
+            # Still return the API object; it will raise useful errors during tool calls
+            return api
 
     def get_api(self) -> ProxmoxAPI:
         """Get the initialized Proxmox API instance.

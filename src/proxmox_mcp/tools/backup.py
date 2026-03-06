@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Any
 import json
 from datetime import datetime
 from mcp.types import TextContent as Content
-from .base import ProxmoxTool
+from proxmox_mcp.tools.base import ProxmoxTool
 
 
 def _as_list(maybe: Any) -> List:
