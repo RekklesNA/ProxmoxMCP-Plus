@@ -852,7 +852,7 @@ ProxmoxMCP-Plus/
     ├── VM_CREATION_GUIDE.md      # VM creation guide
     ├── OPENAPI_DEPLOYMENT.md     # OpenAPI deployment
     ├── LICENSE                   # MIT License
-    └── container-command-execution.md  # Container exec: security model & SSH setup
+    └── docs/container-command-execution.md  # Container exec: security model & SSH setup
 ```
 
 ## Testing
