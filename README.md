@@ -8,11 +8,14 @@ This project is built upon the open-source project [ProxmoxMCP](https://github.c
 
 - 🐳 **New Container Support**
   - `get_containers` - List all LXC containers and their status
+  - `get_container_config` - Get full configuration of an LXC container
+  - `get_container_ip` - Get current IP address(es) of a running LXC container
   - `start_container` - Start LXC container
   - `stop_container` - Stop LXC container
   - `restart_container` - Restart LXC container (forcefully/gracefully)
   - `update_container_resources` - Adjust container CPU, memory, swap, or extend disk
   - `execute_container_command` - Run shell commands inside a running LXC container via SSH + `pct exec` (no guest agent required; [see setup guide](docs/container-command-execution.md))
+  - `update_container_ssh_keys` - Inject or replace SSH authorized_keys for root in an LXC container (requires SSH; [see setup guide](docs/container-command-execution.md))
 ## New Features and Improvements
 
 ### Major Enhancements
@@ -21,7 +24,7 @@ This project is built upon the open-source project [ProxmoxMCP](https://github.c
 |-----------------|-------------|-------|
 | **VM Lifecycle Management** | Complete virtual machine creation, management, and deletion | `create_vm`, `delete_vm` |
 | **Power Management** | Control VM power states | `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm` |
-| **Container Support** | Full LXC container lifecycle management | `get_containers`, `create_container`, `delete_container`, `start_container`, `stop_container`, `restart_container`, `update_container_resources` |
+| **Container Support** | Full LXC container lifecycle management | `get_containers`, `get_container_config`, `get_container_ip`, `create_container`, `delete_container`, `start_container`, `stop_container`, `restart_container`, `update_container_resources`, `execute_container_command`, `update_container_ssh_keys` |
 | **Snapshot Management** | Create and manage VM/container snapshots | `list_snapshots`, `create_snapshot`, `delete_snapshot`, `rollback_snapshot` |
 | **Backup and Restore** | Backup and restore VMs and containers | `list_backups`, `create_backup`, `restore_backup`, `delete_backup` |
 | **ISO and Template Management** | Manage installation media and templates | `list_isos`, `list_templates`, `download_iso`, `delete_iso` |
@@ -544,6 +547,39 @@ Content-Type: application/json
     "force": false
 }
 ```
+
+#### get_container_config
+Get the full configuration of an LXC container.
+
+**Parameters:**
+- `node` (string, required): Proxmox node name (e.g. 'pve')
+- `vmid` (string, required): Container ID (e.g. '101')
+
+**API Endpoint:** `POST /get_container_config`
+
+#### get_container_ip
+Get the current IP address(es) of a running LXC container.
+
+**Parameters:**
+- `node` (string, required): Proxmox node name (e.g. 'pve')
+- `vmid` (string, required): Container ID (e.g. '101')
+
+**API Endpoint:** `POST /get_container_ip`
+
+#### update_container_ssh_keys 🆕
+Inject or replace SSH authorized_keys for root in an LXC container.
+
+**Parameters:**
+- `node` (string, required): Proxmox node name (e.g. 'pve')
+- `vmid` (string, required): Container ID (e.g. '101')
+- `public_keys` (string, required): Newline-separated SSH public key(s) to authorize
+- `mode` (string, optional): 'append' (default) or 'replace'
+
+**API Endpoint:** `POST /update_container_ssh_keys`
+
+**Requirements:**
+- Container must be running
+- An `ssh` section must be present in the MCP config ([see setup guide](docs/container-command-execution.md))
 
 ### Backup and Restore Tools
 

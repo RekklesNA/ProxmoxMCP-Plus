@@ -707,6 +707,129 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("execute_command", e)
 
+    def get_container_config(self, node: str, vmid: str) -> List[Content]:
+        """Return the full configuration of an LXC container.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+        """
+        try:
+            config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+            config.setdefault("vmid", vmid)
+            return self._json_fmt(config)
+        except Exception as e:
+            return self._err("get_container_config", e)
+
+    def get_container_ip(self, node: str, vmid: str) -> List[Content]:
+        """Return the current IP address(es) of a running LXC container.
+
+        Uses GET /nodes/{node}/lxc/{vmid}/interfaces.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+        """
+        try:
+            interfaces_raw = _as_list(
+                self.proxmox.nodes(node).lxc(vmid).interfaces.get()
+            )
+            config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+            name = config.get("hostname") or f"ct-{vmid}"
+
+            interfaces: List[Dict] = []
+            primary_ip: Optional[str] = None
+            for iface in interfaces_raw:
+                iface_name = iface.get("name") or iface.get("iface")
+                if iface_name == "lo":
+                    continue
+                entry: Dict[str, Any] = {"name": iface_name}
+                inet = iface.get("inet")
+                inet6 = iface.get("inet6")
+                if inet:
+                    entry["inet"] = inet
+                    if primary_ip is None:
+                        primary_ip = inet.split("/")[0]
+                if inet6:
+                    entry["inet6"] = inet6
+                interfaces.append(entry)
+
+            result = {
+                "vmid": vmid,
+                "name": name,
+                "interfaces": interfaces,
+                "primary_ip": primary_ip,
+            }
+            return self._json_fmt(result)
+        except Exception as e:
+            return self._err("get_container_ip", e)
+
+    def update_container_ssh_keys(
+        self,
+        node: str,
+        vmid: str,
+        public_keys: str,
+        mode: str = "append",
+    ) -> List[Content]:
+        """Inject or replace SSH authorized_keys for root in an LXC container.
+
+        Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+
+        Parameters:
+            node:        Proxmox node name.
+            vmid:        Container ID as a string.
+            public_keys: Newline-separated public key(s) to authorize.
+            mode:        'append' (default) or 'replace'.
+        """
+        if self.console_manager is None:
+            return self._err(
+                "update_container_ssh_keys",
+                RuntimeError(
+                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    "with user/key_file credentials for the Proxmox nodes."
+                ),
+            )
+        try:
+            keys = [k.strip() for k in public_keys.strip().splitlines() if k.strip()]
+            if not keys:
+                return self._err(
+                    "update_container_ssh_keys",
+                    ValueError("public_keys must contain at least one key"),
+                )
+
+            # Ensure .ssh directory exists with correct permissions
+            mkdir_data = self.console_manager.execute_command(
+                node, vmid, "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
+            )
+            if not mkdir_data.get("success"):
+                return self._err(
+                    "update_container_ssh_keys",
+                    RuntimeError(f"mkdir /root/.ssh failed: {mkdir_data.get('output')}"),
+                )
+
+            # Write keys — use a Python-safe delimiter to avoid shell quoting issues
+            joined = "\n".join(keys)
+            # Build a here-doc-style printf command; escape single quotes in keys
+            escaped = joined.replace("'", "'\\''")
+            redirect = ">" if mode == "replace" else ">>"
+            cmd = (
+                f"printf '%s\\n' '{escaped}' {redirect} /root/.ssh/authorized_keys"
+                " && chmod 600 /root/.ssh/authorized_keys"
+            )
+
+            write_data = self.console_manager.execute_command(node, vmid, cmd)
+            if not write_data.get("success"):
+                return self._err(
+                    "update_container_ssh_keys",
+                    RuntimeError(f"Key write failed: {write_data.get('output')}"),
+                )
+
+            result = {"success": True, "keys_added": len(keys)}
+            return [Content(type="text", text=json.dumps(result, indent=2))]
+
+        except Exception as e:
+            return self._err("update_container_ssh_keys", e)
+
     def update_container_resources(
         self,
         selector: str,
