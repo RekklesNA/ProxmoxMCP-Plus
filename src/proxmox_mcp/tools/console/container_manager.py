@@ -7,6 +7,7 @@ SSHes to the appropriate node and runs:
     pct exec <vmid> -- sh -c '<cmd>'
 """
 
+import os
 import shlex
 import logging
 from typing import Dict, Any
@@ -61,7 +62,7 @@ class ContainerConsoleManager:
             timeout=10,
         )
         if self.ssh_cfg.key_file:
-            connect_kwargs["key_filename"] = self.ssh_cfg.key_file
+            connect_kwargs["key_filename"] = os.path.expanduser(self.ssh_cfg.key_file)
         elif self.ssh_cfg.password:
             connect_kwargs["password"] = self.ssh_cfg.password
 

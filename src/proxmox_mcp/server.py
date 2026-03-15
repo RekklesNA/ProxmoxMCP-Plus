@@ -73,6 +73,10 @@ from proxmox_mcp.tools.definitions import (
     CREATE_BACKUP_DESC,
     RESTORE_BACKUP_DESC,
     DELETE_BACKUP_DESC,
+    # LXC config tools
+    GET_CONTAINER_CONFIG_DESC,
+    GET_CONTAINER_IP_DESC,
+    UPDATE_CONTAINER_SSH_KEYS_DESC,
 )
 
 class ProxmoxMCPServer:
@@ -320,8 +324,34 @@ class ProxmoxMCPServer:
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
             ):
                 return self.container_tools.execute_command(selector=selector, command=command)
+
+            @self.mcp.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
+            def update_container_ssh_keys(
+                node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
+                vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+                public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
+                mode: Annotated[str, Field(description="'append' (default) or 'replace'", pattern="^(append|replace)$", default="append")] = "append",
+            ):
+                return self.container_tools.update_container_ssh_keys(
+                    node=node, vmid=vmid, public_keys=public_keys, mode=mode
+                )
         else:
             self.logger.info("Container command execution disabled (no [ssh] section in config)")
+
+        # LXC config tools (no SSH required)
+        @self.mcp.tool(description=GET_CONTAINER_CONFIG_DESC)
+        def get_container_config(
+            node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+        ):
+            return self.container_tools.get_container_config(node=node, vmid=vmid)
+
+        @self.mcp.tool(description=GET_CONTAINER_IP_DESC)
+        def get_container_ip(
+            node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+        ):
+            return self.container_tools.get_container_ip(node=node, vmid=vmid)
 
         # Snapshot tools
         @self.mcp.tool(description=LIST_SNAPSHOTS_DESC)
