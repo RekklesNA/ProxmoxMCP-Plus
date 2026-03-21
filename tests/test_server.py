@@ -86,6 +86,10 @@ async def test_list_tools(server):
     assert "execute_vm_command" in tool_names
     assert "update_container_resources" in tool_names
     assert "execute_container_command" not in tool_names
+    assert "update_container_ssh_keys" not in tool_names
+    # LXC config tools (no SSH required)
+    assert "get_container_config" in tool_names
+    assert "get_container_ip" in tool_names
 
 
 @pytest.mark.asyncio
@@ -105,6 +109,7 @@ async def test_list_tools_with_ssh_config(mock_proxmox, tmp_path):
     tools = await ssh_server.mcp.list_tools()
     tool_names = [tool.name for tool in tools]
     assert "execute_container_command" in tool_names
+    assert "update_container_ssh_keys" in tool_names
 
 @pytest.mark.asyncio
 async def test_get_nodes(server, mock_proxmox):
@@ -468,3 +473,171 @@ async def test_start_vm(server, mock_proxmox):
 
     response = await server.mcp.call_tool("start_vm", {"node": "node1", "vmid": "100"})
     assert "start initiated successfully" in response[0].text
+
+
+
+
+# ---------------------------------------------------------------------------
+# get_container_config
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_container_config(server, mock_proxmox):
+    """get_container_config returns full config JSON including vmid."""
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.config.get.return_value = {
+        "hostname": "valkey",
+        "cores": 1,
+        "memory": 1024,
+        "net0": "name=eth0,bridge=vmbr0,ip=dhcp",
+        "features": "nesting=1",
+        "onboot": 1,
+        "rootfs": "local-zfs:vm-101-disk-0,size=8G",
+    }
+
+    response = await server.mcp.call_tool(
+        "get_container_config", {"node": "node1", "vmid": "101"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["hostname"] == "valkey"
+    assert result["cores"] == 1
+    assert result["memory"] == 1024
+    assert result["vmid"] == "101"
+    assert "net0" in result
+
+
+@pytest.mark.asyncio
+async def test_get_container_config_missing_parameters(server):
+    """get_container_config raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_container_config", {})
+
+
+# ---------------------------------------------------------------------------
+# get_container_ip
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_container_ip(server, mock_proxmox):
+    """get_container_ip returns interfaces and extracts primary_ip."""
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.interfaces.get.return_value = [
+        {"name": "lo", "inet": "127.0.0.1/8", "inet6": "::1/128"},
+        {"name": "eth0", "inet": "10.1.0.101/16", "inet6": "fe80::1/64"},
+    ]
+    ct_api.config.get.return_value = {"hostname": "valkey"}
+
+    response = await server.mcp.call_tool(
+        "get_container_ip", {"node": "node1", "vmid": "101"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "101"
+    assert result["name"] == "valkey"
+    assert result["primary_ip"] == "10.1.0.101"
+    # loopback must be excluded
+    iface_names = [i["name"] for i in result["interfaces"]]
+    assert "lo" not in iface_names
+    assert "eth0" in iface_names
+
+
+@pytest.mark.asyncio
+async def test_get_container_ip_no_inet(server, mock_proxmox):
+    """get_container_ip returns primary_ip=None when no IPv4 address is present."""
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.interfaces.get.return_value = [
+        {"name": "eth0", "inet6": "fe80::1/64"},
+    ]
+    ct_api.config.get.return_value = {"hostname": "ct-101"}
+
+    response = await server.mcp.call_tool(
+        "get_container_ip", {"node": "node1", "vmid": "101"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["primary_ip"] is None
+    assert result["interfaces"][0]["name"] == "eth0"
+
+
+@pytest.mark.asyncio
+async def test_get_container_ip_missing_parameters(server):
+    """get_container_ip raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_container_ip", {})
+
+
+# ---------------------------------------------------------------------------
+# update_container_ssh_keys
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ssh_server(mock_proxmox, tmp_path):
+    """Server fixture with SSH config enabled (required by update_container_ssh_keys)."""
+    config_path = tmp_path / "config_ssh.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "ssh": {"user": "mcp-agent", "key_file": "/fake/key"},
+    }))
+    with patch.dict(os.environ, {"PROXMOX_MCP_CONFIG": str(config_path)}):
+        return ProxmoxMCPServer(str(config_path))
+
+
+def _mock_console_execute(ssh_server, *, success=True, output=""):
+    """Replace console_manager.execute_command with a Mock returning a dict."""
+    ssh_server.container_tools.console_manager.execute_command = Mock(
+        return_value={"success": success, "output": output, "error": "", "exit_code": 0 if success else 1}
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_container_ssh_keys_append(ssh_server):
+    """update_container_ssh_keys appends a key and reports keys_added."""
+    _mock_console_execute(ssh_server)
+    public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@host"
+
+    response = await ssh_server.mcp.call_tool(
+        "update_container_ssh_keys",
+        {"node": "node1", "vmid": "101", "public_keys": public_key},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["success"] is True
+    assert result["keys_added"] == 1
+
+
+@pytest.mark.asyncio
+async def test_update_container_ssh_keys_replace(ssh_server):
+    """update_container_ssh_keys with mode='replace' succeeds and reports key count."""
+    _mock_console_execute(ssh_server)
+    keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA key1\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA key2"
+
+    response = await ssh_server.mcp.call_tool(
+        "update_container_ssh_keys",
+        {"node": "node1", "vmid": "101", "public_keys": keys, "mode": "replace"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["success"] is True
+    assert result["keys_added"] == 2
+
+
+@pytest.mark.asyncio
+async def test_update_container_ssh_keys_empty_keys(ssh_server):
+    """update_container_ssh_keys raises ToolError when public_keys is blank."""
+    _mock_console_execute(ssh_server)
+
+    with pytest.raises(ToolError):
+        await ssh_server.mcp.call_tool(
+            "update_container_ssh_keys",
+            {"node": "node1", "vmid": "101", "public_keys": "   "},
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_container_ssh_keys_missing_parameters(ssh_server):
+    """update_container_ssh_keys raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await ssh_server.mcp.call_tool("update_container_ssh_keys", {})
