@@ -105,8 +105,13 @@ class ProxmoxMCPServer:
         self.iso_tools = ISOTools(self.proxmox)
         self.backup_tools = BackupTools(self.proxmox)
 
-        # Initialize MCP server
-        self.mcp = FastMCP("ProxmoxMCP")
+        # Initialize MCP server with configured network settings for HTTP transports
+        self.mcp = FastMCP(
+            "ProxmoxMCP",
+            host=self.config.mcp.host,
+            port=self.config.mcp.port,
+            log_level=self.config.logging.level.upper(),
+        )
         self._setup_tools()
 
     def _setup_tools(self) -> None:

@@ -73,6 +73,23 @@ def test_server_initialization(server, mock_proxmox):
 
     mock_proxmox.assert_called_once()
 
+
+def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):
+    """Test FastMCP receives configured host/port for HTTP transports."""
+    config_path = tmp_path / "config_http.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {"host": "0.0.0.0", "port": 9000, "transport": "SSE"},
+    }))
+
+    http_server = ProxmoxMCPServer(str(config_path))
+
+    assert http_server.mcp.settings.host == "0.0.0.0"
+    assert http_server.mcp.settings.port == 9000
+
+
 @pytest.mark.asyncio
 async def test_list_tools(server):
     """Test listing available tools. Config has no ssh section, so execute_container_command must be absent."""
