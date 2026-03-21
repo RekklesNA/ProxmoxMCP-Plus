@@ -1,14 +1,19 @@
-# Container Command Execution via `pct exec`
+# Container Command Execution and SSH Management
 
 ## Overview
 
-ProxmoxMCP-Plus includes an `execute_container_command` tool that lets you run arbitrary shell
-commands inside a running LXC container. Under the hood it uses `pct exec`, the official Proxmox
-CLI tool for this purpose.
+ProxmoxMCP-Plus includes tools that require direct CLI access to the Proxmox host via SSH to interact
+with LXC containers:
+
+1.  **`execute_container_command`**: Run arbitrary shell commands inside a running LXC container.
+2.  **`update_container_ssh_keys`**: Inject or replace SSH authorized_keys for the `root` user inside a container.
+
+Under the hood, both tools use `pct exec`, the official Proxmox CLI tool for executing commands
+within container namespaces.
 
 This feature requires a one-time SSH setup on your Proxmox nodes. It is **entirely opt-in** — if
-you do not add an `ssh` section to your MCP config, the tool is not registered and will not appear
-in the MCP tool list at all. Everything else continues to work normally.
+you do not add an `ssh` section to your MCP config, these tools are not registered and will not
+appear in the MCP tool list at all. Everything else continues to work normally.
 
 ---
 
@@ -264,6 +269,8 @@ that is how the MCP server identifies which node to SSH into for a given contain
 
 ## How it Works at Runtime
 
+### `execute_container_command`
+
 When `execute_container_command` is called with a selector like `101`:
 
 1. The MCP server queries the Proxmox API to find which node container `101` lives on (e.g.
@@ -274,7 +281,24 @@ When `execute_container_command` is called with a selector like `101`:
 4. `sudo` checks the sudoers rule, confirms `pct exec` is allowed, and runs it as root.
 5. `pct exec` calls `lxc-attach` to enter container `101`'s namespaces and executes the
    command inside it.
-6. stdout, stderr, and the exit code are captured over SSH and returned as JSON:
+6. stdout, stderr, and the exit code are captured over SSH and returned as JSON.
+
+### `update_container_ssh_keys`
+
+When `update_container_ssh_keys` is called:
+
+1. The server identifies the target node and verifies the container is running.
+2. It SSHes to the Proxmox host.
+3. It executes a series of commands via `sudo pct exec` to:
+   - Create `/root/.ssh` if it doesn't exist.
+   - Set directory permissions to `700`.
+   - Append or replace keys in `/root/.ssh/authorized_keys` using `printf`.
+   - Set file permissions to `600`.
+4. The result is returned as a success/failure JSON payload.
+
+---
+
+## Troubleshooting
    ```json
    {"success": true, "output": "...", "error": "", "exit_code": 0}
    ```

@@ -364,3 +364,42 @@ volid* - Backup volume ID to delete
 Example:
 delete_backup node='pve' storage='backup-storage' volid='backup:backup/vzdump-qemu-100-2024_01_15.vma.zst'
 """
+
+# LXC config tools (no SSH required)
+GET_CONTAINER_CONFIG_DESC = """Get the full configuration of an LXC container.
+
+Returns network interfaces, mounts, features, CPU/memory limits, startup options and more.
+
+Parameters:
+node* - Proxmox node name (e.g. 'pve')
+vmid* - Container ID (e.g. '101')
+
+Example:
+{"vmid": "101", "hostname": "valkey", "cores": 1, "memory": 1024, "net0": "name=eth0,..."}
+"""
+
+GET_CONTAINER_IP_DESC = """Get the current IP address(es) of a running LXC container.
+
+Queries /nodes/{node}/lxc/{vmid}/interfaces — works with DHCP (no static IP needed).
+
+Parameters:
+node* - Proxmox node name (e.g. 'pve')
+vmid* - Container ID (e.g. '101')
+
+Returns:
+{"vmid": "101", "name": "valkey", "interfaces": [...], "primary_ip": "10.1.0.101"}
+"""
+
+UPDATE_CONTAINER_SSH_KEYS_DESC = """Inject or replace SSH authorized_keys for root in an LXC container.
+
+Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+
+Parameters:
+node*        - Proxmox node name (e.g. 'pve')
+vmid*        - Container ID (e.g. '101')
+public_keys* - Newline-separated public key(s) to authorize
+mode         - 'append' (default) or 'replace'
+
+Returns:
+{"success": true, "keys_added": 1}
+"""
