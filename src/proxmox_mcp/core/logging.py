@@ -54,10 +54,14 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
             "file": "/path/to/log/file.log"  # Optional
         }
     """
-    # Convert relative path to absolute
+    # Convert relative path to absolute, anchored to the package root
     log_file = config.file
     if log_file and not os.path.isabs(log_file):
-        log_file = os.path.join(os.getcwd(), log_file)
+        # Use the package directory (src/proxmox_mcp/) as the anchor so logs
+        # always land in the MCP server folder regardless of the working
+        # directory from which the server was launched.
+        package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_file = os.path.join(package_root, log_file)
         
     # Create handlers
     handlers = []
