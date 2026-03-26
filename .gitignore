@@ -19,53 +19,27 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+uv.lock
 
-# Virtual Environment
-.env
-.venv
-env/
+# Virtual environments
+.venv/
 venv/
 ENV/
+env/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-.project
-.pydevproject
-.settings/
+*~
+.claude/
 
-# Logs
+# OS
+.DS_Store
+Thumbs.db
+
+# Proxmox skill specific
 *.log
-logs/
-
-# Test coverage
-.coverage
-htmlcov/
-.tox/
-.nox/
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# UV
-.uv/
-
-
-# Local configuration
-config/config.json
-proxmox-config/config.json
-**/config.json
-
-# MCP Bundle artifacts
-*.mcpb
-
-# Build/Lock files
-uv.lock
-.agent/
+.ruff_cache/
+config.json

@@ -1,24 +1,45 @@
-[project]
-name = "proxmox-mcp-plus"
-version = "0.1.0"
-description = "Enhanced Proxmox MCP Server"
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "mcp>=1.2.0",
-    "proxmoxer>=2.0.1",
-    "requests>=2.31.0",
-    "pydantic>=2.0.0",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
-    "mcpo>=0.0.17",
-    "paramiko>=3.0.0,<4.0.0",
-    "anyio>=4.0.0",
-]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project]
+name = "proxmox-skill"
+version = "2.0.0"
+description = "Monolithic Proxmox scripting helper — single file, zero setup"
+requires-python = ">=3.11"
+dependencies = [
+    "proxmoxer>=2.0.1",
+    "requests>=2.31.0",
+    "paramiko>=3.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.1a6",
+    "ruff>=0.9.0",
+]
+
+[project.scripts]
+pxas = "pxas:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/proxmox_mcp"]
+include = [
+    "pxas.py",
+    "config.json",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "config.json",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ty.environment]
+python-version = "3.11"
