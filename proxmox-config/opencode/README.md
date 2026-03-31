@@ -39,7 +39,7 @@ export LOG_LEVEL=INFO
 The MCP command in `opencode.jsonc` sources the environment file automatically:
 
 ```json
-"command": ["sh", "-c", ". ./proxmox-mcp.env && uvx --from git+https://github.com/NewsRx/ProxmoxMCP-Plus.git proxmox-mcp"]
+"command": ["sh", "-c", ". ./proxmox-mcp.env && uvx --from git+https://github.com/RekklesNA/ProxmoxMCP-Plus.git proxmox-mcp"]
 ```
 
 **No manual sourcing needed** - OpenCode runs the MCP, and the MCP command sources `proxmox-mcp.env` before starting.
