@@ -16,6 +16,9 @@ dependencies = [
     "anyio>=4.0.0",
 ]
 
+[project.scripts]
+proxmox-mcp = "proxmox_mcp.server:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

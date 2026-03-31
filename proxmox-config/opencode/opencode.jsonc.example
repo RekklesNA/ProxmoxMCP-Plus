@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md",
+    ".opencode/guidelines/*.md"
+  ],
+  "mcp": {
+    "proxmox-mcp-plus": {
+      "type": "local",
+      "command": ["sh", "-c", ". ./proxmox-mcp.env && uvx --from git+https://github.com/RekklesNA/ProxmoxMCP-Plus.git proxmox-mcp"],
+      "enabled": true
+    }
+  }
+}
