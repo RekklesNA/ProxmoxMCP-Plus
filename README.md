@@ -105,7 +105,7 @@ Before starting, ensure you have:
        "proxmox": {
            "host": "PROXMOX_HOST",        # Required: Your Proxmox server address
            "port": 8006,                  # Optional: Default is 8006
-           "verify_ssl": false,           # Optional: Set false for self-signed certs
+           "verify_ssl": true,            # Required in production; only disable with security.dev_mode=true
            "service": "PVE"               # Optional: Default is PVE
        },
        "auth": {
@@ -122,6 +122,14 @@ Before starting, ensure you have:
            "host": "127.0.0.1",           # Optional: Host for SSE/STREAMABLE transports
            "port": 8000,                  # Optional: Port for SSE/STREAMABLE transports
            "transport": "STDIO"           # Optional: STDIO, SSE, or STREAMABLE
+       },
+       "security": {
+           "dev_mode": false              # Optional: true allows insecure TLS for local development only
+       },
+       "command_policy": {
+           "mode": "deny_all",            # deny_all | allowlist | audit_only
+           "allow_patterns": [],          # e.g. ["^uname\\s+-a$"]
+           "require_approval_token": false
        }
    }
    ```
@@ -145,7 +153,7 @@ This project supports the `.mcpb` (MCP Bundle) format for easy, one-click distri
    - `PROXMOX_TOKEN_NAME`: API Token Name (Required)
    - `PROXMOX_TOKEN_VALUE`: API Token Value (Required)
    - `PROXMOX_PORT`: API Port (Default: `8006`)
-   - `PROXMOX_VERIFY_SSL`: Set to `true` or `false` (Default: `false`)
+   - `PROXMOX_VERIFY_SSL`: Set to `true` or `false` (Default: `true`; `false` requires `PROXMOX_DEV_MODE=true`)
    - `PROXMOX_SERVICE`: Service type (Default: `PVE`)
    - `LOG_LEVEL`: Set to `INFO` or `DEBUG` (Default: `INFO`)
 4. **Execution Settings**:

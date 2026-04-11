@@ -89,10 +89,10 @@ which is the same surface that already exists if an attacker compromises a conta
 
 ### SSH host key checking
 
-The implementation uses `paramiko.AutoAddPolicy`, which accepts host keys on first connect
-(trust-on-first-use). This is appropriate for use within a private cluster network. If your
-security requirements demand strict host key pinning, you can pre-populate `~/.ssh/known_hosts`
-on the MCP VM for each Proxmox node before starting the server.
+The implementation now uses strict host key checking by default (`RejectPolicy`), which means
+unknown hosts are rejected unless the host key is present in `known_hosts` (system-level or
+configured `known_hosts_file`). This is the recommended production posture. You can explicitly
+disable strict checking only for local development.
 
 ### Key management
 
