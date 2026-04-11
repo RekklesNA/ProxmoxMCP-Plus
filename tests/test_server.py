@@ -274,6 +274,67 @@ async def test_get_containers_skips_offline_node(server, mock_proxmox):
     assert "node2" not in text
 
 @pytest.mark.asyncio
+async def test_create_container_with_lxc_options(server, mock_proxmox):
+    """Test create_container supports onboot and nesting options."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    proxmox.nodes.return_value.lxc.get.return_value = []
+    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-1"
+
+    response = await server.mcp.call_tool(
+        "create_container",
+        {
+            "node": "node1",
+            "vmid": "200",
+            "ostemplate": "local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz",
+            "hostname": "ct200",
+            "onboot": True,
+            "nesting": True,
+        },
+    )
+    text = response[0].text
+
+    proxmox.nodes.return_value.lxc.create.assert_called_once_with(
+        vmid=200,
+        ostemplate="local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz",
+        hostname="ct200",
+        cores=1,
+        memory=512,
+        swap=512,
+        rootfs="local-lvm:8",
+        net0="name=eth0,bridge=vmbr0,ip=dhcp",
+        unprivileged=1,
+        start=0,
+        onboot=1,
+        features="nesting=1",
+    )
+    assert "Start on boot: Yes" in text
+    assert "Nesting enabled: Yes" in text
+
+@pytest.mark.asyncio
+async def test_create_container_default_lxc_options(server, mock_proxmox):
+    """Test create_container default values keep onboot disabled and omit nesting feature."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    proxmox.nodes.return_value.lxc.get.return_value = []
+    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-2"
+
+    await server.mcp.call_tool(
+        "create_container",
+        {
+            "node": "node1",
+            "vmid": "201",
+            "ostemplate": "local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz",
+        },
+    )
+
+    create_kwargs = proxmox.nodes.return_value.lxc.create.call_args.kwargs
+    assert create_kwargs["onboot"] == 0
+    assert "features" not in create_kwargs
+
+@pytest.mark.asyncio
 async def test_update_container_resources(server, mock_proxmox):
     """Test update_container_resources tool."""
     mock_proxmox.return_value.nodes.get.return_value = [{"node": "node1", "status": "online"}]

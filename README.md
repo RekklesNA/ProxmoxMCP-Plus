@@ -510,6 +510,8 @@ Create a new LXC container with specified configuration.
 - `ssh_public_keys` (string, optional): SSH public keys for root user
 - `network_bridge` (string, optional): Network bridge name (default: 'vmbr0')
 - `start_after_create` (boolean, optional): Start container after creation (default: false)
+- `onboot` (boolean, optional): Start container automatically when host boots (default: false)
+- `nesting` (boolean, optional): Enable LXC nesting by setting `features=nesting=1` (default: false)
 - `unprivileged` (boolean, optional): Create unprivileged container (default: true)
 
 **API Endpoint:**
@@ -524,7 +526,9 @@ Content-Type: application/json
     "hostname": "my-container",
     "cores": 2,
     "memory": 1024,
-    "disk_size": 10
+    "disk_size": 10,
+    "onboot": true,
+    "nesting": true
 }
 ```
 
