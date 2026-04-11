@@ -54,7 +54,7 @@ class ISOTools(ProxmoxTool):
         self, content_type: str, node: Optional[str] = None, storage: Optional[str] = None
     ) -> List[Dict]:
         """Get storage content filtered by type across nodes/storages."""
-        results = []
+        results: List[Dict[str, Any]] = []
         try:
             nodes = _as_list(self.proxmox.nodes.get())
         except Exception as e:

@@ -2,7 +2,7 @@
     "proxmox": {
         "host": "your-proxmox-host-ip",
         "port": 8006,
-        "verify_ssl": false,
+        "verify_ssl": true,
         "service": "PVE"
     },
     "auth": {
@@ -19,5 +19,18 @@
         "host": "127.0.0.1",
         "port": 8000,
         "transport": "STDIO"
+    },
+    "security": {
+        "dev_mode": false
+    },
+    "command_policy": {
+        "mode": "deny_all",
+        "allow_patterns": [],
+        "deny_patterns": [
+            "(^|\\s)rm\\s+-rf(\\s|$)",
+            ":\\(\\)\\{:\\|:\\&\\};:"
+        ],
+        "require_approval_token": false,
+        "approval_token": null
     }
 }

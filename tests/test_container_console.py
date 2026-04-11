@@ -20,6 +20,8 @@ class _SSHConfig:
     password = None
     host_overrides: dict = {}
     use_sudo = False
+    known_hosts_file = None
+    strict_host_key_checking = False
 
 
 @pytest.fixture

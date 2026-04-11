@@ -13,7 +13,7 @@ The models provide:
 - Field descriptions
 - Required vs optional field handling
 """
-from typing import Optional, Annotated, Literal, Dict
+from typing import Optional, Annotated, Literal, Dict, List
 from pydantic import BaseModel, Field, field_validator
 
 class NodeStatus(BaseModel):
@@ -79,6 +79,24 @@ class SSHConfig(BaseModel):
     password: Optional[str] = None   # fallback if no key_file
     host_overrides: Dict[str, str] = Field(default_factory=dict)
     use_sudo: bool = False  # prefix pct with sudo (for non-root SSH users)
+    known_hosts_file: Optional[str] = None
+    strict_host_key_checking: bool = True
+
+
+class SecurityConfig(BaseModel):
+    """Security behavior toggles for runtime hardening."""
+    dev_mode: bool = False
+
+
+class CommandPolicyConfig(BaseModel):
+    """Policy controls for execute_* command tools."""
+    mode: Literal["deny_all", "allowlist", "audit_only"] = "deny_all"
+    allow_patterns: List[str] = Field(default_factory=list)
+    deny_patterns: List[str] = Field(
+        default_factory=lambda: [r"(^|\\s)rm\\s+-rf(\\s|$)", r":\\(\\)\\{:\\|:\\&\\};:"]
+    )
+    require_approval_token: bool = False
+    approval_token: Optional[str] = None
 
 class MCPConfig(BaseModel):
     """Model for MCP server configuration.
@@ -113,3 +131,5 @@ class Config(BaseModel):
     logging: LoggingConfig  # Required: Logging configuration
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     ssh: Optional[SSHConfig] = None
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
+    command_policy: CommandPolicyConfig = Field(default_factory=CommandPolicyConfig)

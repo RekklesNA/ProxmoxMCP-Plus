@@ -15,10 +15,10 @@ This module provides tools for managing and interacting with Proxmox VMs:
 The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool
-from proxmox_mcp.tools.definitions import GET_VMS_DESC, EXECUTE_VM_COMMAND_DESC
 from proxmox_mcp.tools.console.manager import VMConsoleManager
 
 class VMTools(ProxmoxTool):
@@ -37,7 +37,7 @@ class VMTools(ProxmoxTool):
     with QEMU guest agent for VM command execution.
     """
 
-    def __init__(self, proxmox_api):
+    def __init__(self, proxmox_api: Any, command_policy: Optional[Any] = None):
         """Initialize VM tools.
 
         Args:
@@ -45,6 +45,7 @@ class VMTools(ProxmoxTool):
         """
         super().__init__(proxmox_api)
         self.console_manager = VMConsoleManager(proxmox_api)
+        self.command_policy = command_policy
 
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
@@ -169,7 +170,7 @@ class VMTools(ProxmoxTool):
         try:
             # Check if VM ID already exists
             try:
-                existing_vm = self.proxmox.nodes(node).qemu(vmid).config.get()
+                self.proxmox.nodes(node).qemu(vmid).config.get()
                 raise ValueError(f"VM {vmid} already exists on node {node}")
             except Exception as e:
                 if "does not exist" not in str(e).lower():
@@ -424,7 +425,13 @@ class VMTools(ProxmoxTool):
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"reset VM {vmid}", e)
 
-    async def execute_command(self, node: str, vmid: str, command: str) -> List[Content]:
+    async def execute_command(
+        self,
+        node: str,
+        vmid: str,
+        command: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
         """Execute a command in a VM via QEMU guest agent.
 
         Uses the QEMU guest agent to execute commands within a running VM.
@@ -451,14 +458,30 @@ class VMTools(ProxmoxTool):
             RuntimeError: If command execution fails due to permissions or other issues
         """
         try:
-            result = await self.console_manager.execute_command(node, vmid, command)
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    policy_result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
+                    )
+                    return [
+                        Content(
+                            type="text",
+                            text=policy_result.model_dump_json(indent=2),
+                        )
+                    ]
+
+            exec_result = await self.console_manager.execute_command(node, vmid, command)
             # Use the command output formatter from ProxmoxFormatters
             from proxmox_mcp.formatting import ProxmoxFormatters
             formatted = ProxmoxFormatters.format_command_output(
-                success=result["success"],
+                success=exec_result["success"],
                 command=command,
-                output=result["output"],
-                error=result.get("error")
+                output=exec_result["output"],
+                error=exec_result.get("error")
             )
             return [Content(type="text", text=formatted)]
         except Exception as e:

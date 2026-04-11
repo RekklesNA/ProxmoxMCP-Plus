@@ -97,8 +97,7 @@ class ProxmoxManager:
             return api
         except Exception as e:
             self.logger.error(f"Failed to initialize Proxmox API client: {e}")
-            # Still return the API object; it will raise useful errors during tool calls
-            return api
+            raise RuntimeError(f"Failed to initialize Proxmox API client: {e}") from e
 
     def get_api(self) -> ProxmoxAPI:
         """Get the initialized Proxmox API instance.

@@ -15,7 +15,6 @@ detailed storage information might be temporarily unavailable.
 from typing import List
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
-from proxmox_mcp.tools.definitions import GET_STORAGE_DESC
 
 class StorageTools(ProxmoxTool):
     """Tools for managing Proxmox storage.
@@ -60,8 +59,12 @@ class StorageTools(ProxmoxTool):
         Raises:
             RuntimeError: If the cluster-wide storage query fails
         """
+        cached = self._cache_get("storage:list")
+        if cached is not None:
+            return self._format_response(cached, "storage")
+
         try:
-            result = self.proxmox.storage.get()
+            result = self._call_with_retry("get storage", lambda: self.proxmox.storage.get())
             storage = []
             
             for store in result:
@@ -94,6 +97,7 @@ class StorageTools(ProxmoxTool):
                         "available": 0
                     })
                     
+            self._cache_set("storage:list", storage, ttl_seconds=10)
             return self._format_response(storage, "storage")
         except Exception as e:
             self._handle_error("get storage", e)

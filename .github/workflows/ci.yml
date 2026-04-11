@@ -21,11 +21,29 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install -r requirements-dev.in
+        pip install pip-audit
         pip install .
 
     - name: Smoke Test (Import Server)
       run: |
         python -c "from proxmox_mcp.server import ProxmoxMCPServer; print('Successfully imported ProxmoxMCPServer')"
+
+    - name: Run tests
+      run: |
+        pytest -q
+
+    - name: Ruff
+      run: |
+        ruff check . --select E9,F63,F7,F82
+
+    - name: Mypy
+      run: |
+        mypy src --ignore-missing-imports
+
+    - name: pip-audit
+      run: |
+        pip-audit -r requirements.txt
 
     - name: Validate Manifest JSON
       run: |

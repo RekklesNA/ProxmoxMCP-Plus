@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Tuple, Any, Union
 import json
 from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
 from .base import ProxmoxTool
 from .console.container_manager import ContainerConsoleManager
 
@@ -60,11 +61,17 @@ class ContainerTools(ProxmoxTool):
     - Pretty output rendered here; JSON path is raw & sanitized
     """
 
-    def __init__(self, proxmox_api: Any, ssh_config: Any = None) -> None:
+    def __init__(
+        self,
+        proxmox_api: Any,
+        ssh_config: Any = None,
+        command_policy: Any = None,
+    ) -> None:
         super().__init__(proxmox_api)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
+        self.command_policy = command_policy
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -72,11 +79,7 @@ class ContainerTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        if hasattr(self, "handle_error"):
-            return self.handle_error(e, action)  # type: ignore[attr-defined]
-        if hasattr(self, "_handle_error"):
-            return self._handle_error(action, e)  # type: ignore[attr-defined]
-        return [Content(type="text", text=json.dumps({"error": str(e), "action": action}))]
+        self._handle_error(action, e)
 
     # ---------- helpers ----------
     def _list_ct_pairs(self, node: Optional[str]) -> List[Tuple[str, Dict]]:
@@ -544,7 +547,6 @@ class ContainerTools(ProxmoxTool):
                 # Prefer local-lvm, then any storage that supports rootdir/images
                 for s in storage_list:
                     sname = _get(s, "storage")
-                    stype = _get(s, "type")
                     content = _get(s, "content", "")
                     if sname == "local-lvm":
                         storage = sname
@@ -679,7 +681,12 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("Failed to delete container(s)", e)
 
-    def execute_command(self, selector: str, command: str) -> List[Content]:
+    def execute_command(
+        self,
+        selector: str,
+        command: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
         """Execute a shell command inside a running LXC container via SSH + pct exec.
 
         Parameters:
@@ -698,6 +705,17 @@ class ContainerTools(ProxmoxTool):
                 ),
             )
         try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    policy_result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
+                    )
+                    return self._json_fmt(policy_result.model_dump())
+
             targets = self._resolve_targets(selector)
             if not targets:
                 return self._err("execute_command", ValueError(f"No container matched selector: {selector}"))
@@ -710,9 +728,9 @@ class ContainerTools(ProxmoxTool):
                     ),
                 )
             node, vmid, _label = targets[0]
-            result = self.console_manager.execute_command(node, str(vmid), command)
+            exec_result = self.console_manager.execute_command(node, str(vmid), command)
             import json as _json
-            return [Content(type="text", text=_json.dumps(result, indent=2))]
+            return [Content(type="text", text=_json.dumps(exec_result, indent=2))]
         except Exception as e:
             return self._err("execute_command", e)
 

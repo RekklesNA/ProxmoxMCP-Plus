@@ -15,7 +15,6 @@ with fallback mechanisms for partial data availability.
 from typing import List
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
-from proxmox_mcp.tools.definitions import GET_NODES_DESC, GET_NODE_STATUS_DESC
 
 class NodeTools(ProxmoxTool):
     """Tools for managing Proxmox nodes.
@@ -58,8 +57,12 @@ class NodeTools(ProxmoxTool):
         Raises:
             RuntimeError: If the cluster-wide node query fails
         """
+        cached = self._cache_get("nodes:list")
+        if cached is not None:
+            return self._format_response(cached, "nodes")
+
         try:
-            result = self.proxmox.nodes.get()
+            result = self._call_with_retry("get nodes", lambda: self.proxmox.nodes.get())
             nodes = []
             
             # Get detailed info for each node
@@ -100,6 +103,7 @@ class NodeTools(ProxmoxTool):
                             "total": node.get("maxmem", 0)
                         }
                     })
+            self._cache_set("nodes:list", nodes, ttl_seconds=5)
             return self._format_response(nodes, "nodes")
         except Exception as e:
             self._handle_error("get nodes", e)
