@@ -1,5 +1,9 @@
 # ProxmoxMCP-Plus
 
+<div align="center">
+  <img src="assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="200"/>
+</div>
+
 Enterprise-focused MCP server for Proxmox VE automation.  
 This repository provides a secure control plane for VM and container lifecycle operations, plus an OpenAPI bridge for integrations.
 
