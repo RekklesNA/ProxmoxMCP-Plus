@@ -136,7 +136,7 @@ requests==2.32.3
     #   proxmoxer
 rich==13.9.4
     # via typer
-rich-toolkit==0.13.3
+rich-toolkit>=0.13.0,<0.14.0
     # via fastapi-cli
 shellingham==1.5.4
     # via typer
