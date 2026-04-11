@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import sys
 import os
-import subprocess
 import traceback
 import time
 
@@ -10,18 +9,7 @@ print("MCP Bundle: Bootstrapping process...", file=sys.stderr)
 sys.stderr.flush()
 
 def ensure_dependencies():
-    """Checks for required libraries and installs them if missing."""
-    # Complete list of runtime dependencies
-    required = [
-        "mcp>=1.2.0", 
-        "proxmoxer", 
-        "requests", 
-        "pydantic>=2.0.0", 
-        "fastapi", 
-        "uvicorn", 
-        "anyio"
-    ]
-    
+    """Checks for required libraries and fails fast if missing."""
     missing = []
     for pkg in ["mcp", "proxmoxer", "pydantic", "fastapi", "uvicorn", "anyio"]:
         try:
@@ -34,15 +22,11 @@ def ensure_dependencies():
         sys.stderr.flush()
         return
 
-    print(f"MCP Bundle: Missing dependencies ({', '.join(missing)}). Installing...", file=sys.stderr)
-    sys.stderr.flush()
-    try:
-        # Use --no-cache-dir to prevent LXC disk space issues
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--user"] + required)
-        print("MCP Bundle: Auto-install successful!", file=sys.stderr)
-    except Exception as e:
-        print(f"MCP Bundle: ERROR during auto-install: {e}", file=sys.stderr)
-    sys.stderr.flush()
+    raise RuntimeError(
+        "Missing runtime dependencies: "
+        + ", ".join(missing)
+        + ". Install dependencies during build/deploy time instead of runtime."
+    )
 
 # 2. Setup Environment
 base_dir = os.path.dirname(os.path.abspath(__file__))

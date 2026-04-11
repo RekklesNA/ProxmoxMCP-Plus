@@ -65,7 +65,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             'proxmox': {
                 'host': os.getenv("PROXMOX_HOST"),
                 'port': int(os.getenv("PROXMOX_PORT", "8006")),
-                'verify_ssl': os.getenv("PROXMOX_VERIFY_SSL", "false").lower() == "true",
+                'verify_ssl': os.getenv("PROXMOX_VERIFY_SSL", "true").lower() == "true",
                 'service': os.getenv("PROXMOX_SERVICE", "PVE")
             },
             'auth': {
@@ -80,7 +80,17 @@ def load_config(config_path: Optional[str] = None) -> Config:
                 'host': os.getenv("MCP_HOST", "0.0.0.0"),
                 'port': int(os.getenv("MCP_PORT", "8000")),
                 'transport': os.getenv("MCP_TRANSPORT", "stdio").upper() if os.getenv("MCP_TRANSPORT") else "STDIO"
-            }
+            },
+            'security': {
+                'dev_mode': os.getenv("PROXMOX_DEV_MODE", "false").lower() == "true",
+            },
+            'command_policy': {
+                'mode': os.getenv("COMMAND_POLICY_MODE", "deny_all"),
+                'allow_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_ALLOW_PATTERNS", "").split(",") if p.strip()],
+                'deny_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_DENY_PATTERNS", "").split(",") if p.strip()],
+                'require_approval_token': os.getenv("COMMAND_POLICY_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
+                'approval_token': os.getenv("COMMAND_POLICY_APPROVAL_TOKEN"),
+            },
         }
         
         # Handle the internal "STREAMABLE" vs "STREAMABLE_HTTP" naming
@@ -102,6 +112,12 @@ def load_config(config_path: Optional[str] = None) -> Config:
         raise ValueError("Authentication credentials must be provided")
 
     try:
-        return Config(**config_data)
+        config = Config(**config_data)
+        if not config.proxmox.verify_ssl and not config.security.dev_mode:
+            raise ValueError(
+                "Insecure TLS configuration blocked: set proxmox.verify_ssl=true. "
+                "Only dev_mode=true can allow verify_ssl=false."
+            )
+        return config
     except Exception as e:
         raise ValueError(f"Configuration validation failed: {e}")
