@@ -60,11 +60,17 @@ class ContainerTools(ProxmoxTool):
     - Pretty output rendered here; JSON path is raw & sanitized
     """
 
-    def __init__(self, proxmox_api: Any, ssh_config: Any = None) -> None:
+    def __init__(
+        self,
+        proxmox_api: Any,
+        ssh_config: Any = None,
+        command_policy: Any = None,
+    ) -> None:
         super().__init__(proxmox_api)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
+        self.command_policy = command_policy
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -679,7 +685,12 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("Failed to delete container(s)", e)
 
-    def execute_command(self, selector: str, command: str) -> List[Content]:
+    def execute_command(
+        self,
+        selector: str,
+        command: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
         """Execute a shell command inside a running LXC container via SSH + pct exec.
 
         Parameters:
@@ -698,6 +709,17 @@ class ContainerTools(ProxmoxTool):
                 ),
             )
         try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    return self._json_fmt(
+                        {
+                            "success": False,
+                            "code": decision.code,
+                            "error": decision.message,
+                        }
+                    )
+
             targets = self._resolve_targets(selector)
             if not targets:
                 return self._err("execute_command", ValueError(f"No container matched selector: {selector}"))

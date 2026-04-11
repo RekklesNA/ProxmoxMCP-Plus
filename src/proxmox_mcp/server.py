@@ -37,6 +37,7 @@ from proxmox_mcp.tools.containers import ContainerTools
 from proxmox_mcp.tools.snapshots import SnapshotTools
 from proxmox_mcp.tools.iso import ISOTools
 from proxmox_mcp.tools.backup import BackupTools
+from proxmox_mcp.security import CommandPolicyGate
 from proxmox_mcp.tools.definitions import (
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
@@ -94,13 +95,18 @@ class ProxmoxMCPServer:
         # Initialize core components
         self.proxmox_manager = ProxmoxManager(self.config.proxmox, self.config.auth)
         self.proxmox = self.proxmox_manager.get_api()
+        self.command_policy = CommandPolicyGate(self.config.command_policy)
         
         # Initialize tools
         self.node_tools = NodeTools(self.proxmox)
-        self.vm_tools = VMTools(self.proxmox)
+        self.vm_tools = VMTools(self.proxmox, command_policy=self.command_policy)
         self.storage_tools = StorageTools(self.proxmox)
         self.cluster_tools = ClusterTools(self.proxmox)
-        self.container_tools = ContainerTools(self.proxmox, self.config.ssh)
+        self.container_tools = ContainerTools(
+            self.proxmox,
+            self.config.ssh,
+            command_policy=self.command_policy,
+        )
         self.snapshot_tools = SnapshotTools(self.proxmox)
         self.iso_tools = ISOTools(self.proxmox)
         self.backup_tools = BackupTools(self.proxmox)
@@ -163,9 +169,10 @@ class ProxmoxMCPServer:
         async def execute_vm_command(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve1', 'proxmox-node2')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
-            command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")]
+            command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")],
+            approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
         ):
-            return await self.vm_tools.execute_command(node, vmid, command)
+            return await self.vm_tools.execute_command(node, vmid, command, approval_token=approval_token)
 
         # VM Power Management tools
         @self.mcp.tool(description=START_VM_DESC)
@@ -330,8 +337,13 @@ class ProxmoxMCPServer:
             def execute_container_command(
                 selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
+                approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
             ):
-                return self.container_tools.execute_command(selector=selector, command=command)
+                return self.container_tools.execute_command(
+                    selector=selector,
+                    command=command,
+                    approval_token=approval_token,
+                )
 
             @self.mcp.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
             def update_container_ssh_keys(

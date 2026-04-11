@@ -15,7 +15,7 @@ This module provides tools for managing and interacting with Proxmox VMs:
 The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
 from proxmox_mcp.tools.definitions import GET_VMS_DESC, EXECUTE_VM_COMMAND_DESC
@@ -37,7 +37,7 @@ class VMTools(ProxmoxTool):
     with QEMU guest agent for VM command execution.
     """
 
-    def __init__(self, proxmox_api):
+    def __init__(self, proxmox_api: Any, command_policy: Optional[Any] = None):
         """Initialize VM tools.
 
         Args:
@@ -45,6 +45,7 @@ class VMTools(ProxmoxTool):
         """
         super().__init__(proxmox_api)
         self.console_manager = VMConsoleManager(proxmox_api)
+        self.command_policy = command_policy
 
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
@@ -424,7 +425,13 @@ class VMTools(ProxmoxTool):
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"reset VM {vmid}", e)
 
-    async def execute_command(self, node: str, vmid: str, command: str) -> List[Content]:
+    async def execute_command(
+        self,
+        node: str,
+        vmid: str,
+        command: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
         """Execute a command in a VM via QEMU guest agent.
 
         Uses the QEMU guest agent to execute commands within a running VM.
@@ -451,6 +458,20 @@ class VMTools(ProxmoxTool):
             RuntimeError: If command execution fails due to permissions or other issues
         """
         try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    return [
+                        Content(
+                            type="text",
+                            text=(
+                                f"Command execution blocked by policy.\n"
+                                f"Code: {decision.code}\n"
+                                f"Reason: {decision.message}"
+                            ),
+                        )
+                    ]
+
             result = await self.console_manager.execute_command(node, vmid, command)
             # Use the command output formatter from ProxmoxFormatters
             from proxmox_mcp.formatting import ProxmoxFormatters

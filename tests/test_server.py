@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 from proxmox_mcp.server import ProxmoxMCPServer
+from proxmox_mcp.config.loader import load_config
 
 @pytest.fixture
 def mock_env_vars(tmp_path):
@@ -29,6 +30,9 @@ def mock_env_vars(tmp_path):
         "logging": {
             "level": "DEBUG",
         },
+        "command_policy": {
+            "mode": "audit_only",
+        },
     }))
 
     env_vars = {
@@ -38,6 +42,7 @@ def mock_env_vars(tmp_path):
         "PROXMOX_TOKEN_NAME": "test_token",
         "PROXMOX_TOKEN_VALUE": "test_value",
         "LOG_LEVEL": "DEBUG",
+        "COMMAND_POLICY_MODE": "audit_only",
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars
@@ -88,6 +93,32 @@ def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):
 
     assert http_server.mcp.settings.host == "0.0.0.0"
     assert http_server.mcp.settings.port == 9000
+
+
+def test_loader_blocks_insecure_tls_in_prod(tmp_path):
+    config_path = tmp_path / "config_insecure.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": False, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "security": {"dev_mode": False},
+    }))
+
+    with pytest.raises(ValueError, match="Insecure TLS configuration blocked"):
+        load_config(str(config_path))
+
+
+def test_loader_allows_insecure_tls_in_dev_mode(tmp_path):
+    config_path = tmp_path / "config_insecure_dev.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": False, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "security": {"dev_mode": True},
+    }))
+
+    config = load_config(str(config_path))
+    assert config.proxmox.verify_ssl is False
 
 
 @pytest.mark.asyncio
@@ -540,6 +571,26 @@ async def test_execute_vm_command_with_error(server, mock_proxmox):
     assert "Console Command Result" in text
     assert "Status: SUCCESS" in text
     assert "command not found" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_vm_command_blocked_by_policy(mock_proxmox, tmp_path):
+    """Deny-all mode blocks commands not explicitly allowlisted."""
+    config_path = tmp_path / "config_policy_deny.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "command_policy": {"mode": "deny_all"},
+    }))
+
+    deny_server = ProxmoxMCPServer(str(config_path))
+    response = await deny_server.mcp.call_tool("execute_vm_command", {
+        "node": "node1",
+        "vmid": "100",
+        "command": "uname -a",
+    })
+    assert "blocked by policy" in response[0].text.lower()
 
 @pytest.mark.asyncio
 async def test_start_vm(server, mock_proxmox):
