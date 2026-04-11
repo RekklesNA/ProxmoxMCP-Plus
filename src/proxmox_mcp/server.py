@@ -297,6 +297,8 @@ class ProxmoxMCPServer:
             ssh_public_keys: Annotated[Optional[str], Field(description="SSH public keys for root", default=None)] = None,
             network_bridge: Annotated[str, Field(description="Network bridge", default="vmbr0")] = "vmbr0",
             start_after_create: Annotated[bool, Field(description="Start container after creation", default=False)] = False,
+            onboot: Annotated[bool, Field(description="Start container automatically when node boots", default=False)] = False,
+            nesting: Annotated[bool, Field(description="Enable LXC nesting (features: nesting=1)", default=False)] = False,
             unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
         ):
             return self.container_tools.create_container(
@@ -304,6 +306,7 @@ class ProxmoxMCPServer:
                 cores=cores, memory=memory, swap=swap, disk_size=disk_size,
                 storage=storage, password=password, ssh_public_keys=ssh_public_keys,
                 network_bridge=network_bridge, start_after_create=start_after_create,
+                onboot=onboot, nesting=nesting,
                 unprivileged=unprivileged,
             )
 

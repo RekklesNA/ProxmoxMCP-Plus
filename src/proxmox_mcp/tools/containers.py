@@ -492,6 +492,8 @@ class ContainerTools(ProxmoxTool):
         ssh_public_keys: Optional[str] = None,
         network_bridge: str = "vmbr0",
         start_after_create: bool = False,
+        onboot: bool = False,
+        nesting: bool = False,
         unprivileged: bool = True,
     ) -> List[Content]:
         """Create a new LXC container.
@@ -510,6 +512,8 @@ class ContainerTools(ProxmoxTool):
             ssh_public_keys: SSH public keys for root (optional)
             network_bridge: Network bridge (default: 'vmbr0')
             start_after_create: Start container after creation (default: False)
+            onboot: Start container automatically when node boots (default: False)
+            nesting: Enable LXC nesting feature (default: False)
             unprivileged: Create unprivileged container (default: True)
 
         Returns:
@@ -570,6 +574,7 @@ class ContainerTools(ProxmoxTool):
                 "net0": f"name=eth0,bridge={network_bridge},ip=dhcp",
                 "unprivileged": 1 if unprivileged else 0,
                 "start": 1 if start_after_create else 0,
+                "onboot": 1 if onboot else 0,
             }
 
             # Add optional parameters
@@ -577,6 +582,8 @@ class ContainerTools(ProxmoxTool):
                 ct_config["password"] = password
             if ssh_public_keys:
                 ct_config["ssh-public-keys"] = ssh_public_keys
+            if nesting:
+                ct_config["features"] = "nesting=1"
 
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)
@@ -596,6 +603,8 @@ class ContainerTools(ProxmoxTool):
                 f"  • Network: {network_bridge} (DHCP)",
                 f"  • Unprivileged: {'Yes' if unprivileged else 'No'}",
                 f"  • Auto-start: {'Yes' if start_after_create else 'No'}",
+                f"  • Start on boot: {'Yes' if onboot else 'No'}",
+                f"  • Nesting enabled: {'Yes' if nesting else 'No'}",
                 "",
                 f"Task ID: {result}",
                 "",

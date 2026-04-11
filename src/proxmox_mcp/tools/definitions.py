@@ -160,6 +160,8 @@ password - Root password (optional)
 ssh_public_keys - SSH public keys for root user (optional)
 network_bridge - Network bridge name (optional, default: 'vmbr0')
 start_after_create - Start container after creation (optional, default: false)
+onboot - Start container automatically on host boot (optional, default: false)
+nesting - Enable LXC nesting (optional, sets features='nesting=1', default: false)
 unprivileged - Create unprivileged container (optional, default: true)
 
 Examples:
