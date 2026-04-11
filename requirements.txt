@@ -107,7 +107,7 @@ prometheus-client==0.21.1
     # via proxmox-mcp-plus (pyproject.toml)
 proxmoxer==2.2.0
     # via proxmox-mcp-plus (pyproject.toml)
-pydantic==2.10.6
+pydantic==2.11.1
     # via
     #   proxmox-mcp-plus (pyproject.toml)
     #   fastapi
