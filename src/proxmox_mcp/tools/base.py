@@ -12,7 +12,7 @@ consistent behavior and error handling across the MCP server.
 """
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, NoReturn, Optional
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
@@ -109,7 +109,7 @@ class ProxmoxTool:
 
         return [Content(type="text", text=formatted)]
 
-    def _handle_error(self, operation: str, error: Exception) -> None:
+    def _handle_error(self, operation: str, error: Exception) -> NoReturn:
         """Handle and log errors from Proxmox operations.
 
         Provides standardized error handling across all tools by:

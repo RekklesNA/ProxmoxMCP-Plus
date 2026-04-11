@@ -3,7 +3,7 @@ Authentication utilities for the Proxmox MCP server.
 """
 
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 from pydantic import BaseModel
 
@@ -42,6 +42,7 @@ def load_auth_from_env() -> ProxmoxAuth:
             missing.append("PROXMOX_TOKEN_VALUE")
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
+    assert user is not None and token_name is not None and token_value is not None
     return ProxmoxAuth(
         user=user,
         token_name=token_name,

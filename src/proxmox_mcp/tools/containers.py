@@ -79,11 +79,7 @@ class ContainerTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        if hasattr(self, "handle_error"):
-            return self.handle_error(e, action)  # type: ignore[attr-defined]
-        if hasattr(self, "_handle_error"):
-            return self._handle_error(action, e)  # type: ignore[attr-defined]
-        return [Content(type="text", text=json.dumps({"error": str(e), "action": action}))]
+        self._handle_error(action, e)
 
     # ---------- helpers ----------
     def _list_ct_pairs(self, node: Optional[str]) -> List[Tuple[str, Dict]]:
@@ -551,7 +547,6 @@ class ContainerTools(ProxmoxTool):
                 # Prefer local-lvm, then any storage that supports rootdir/images
                 for s in storage_list:
                     sname = _get(s, "storage")
-                    stype = _get(s, "type")
                     content = _get(s, "content", "")
                     if sname == "local-lvm":
                         storage = sname
@@ -713,13 +708,13 @@ class ContainerTools(ProxmoxTool):
             if self.command_policy is not None:
                 decision = self.command_policy.evaluate(command, approval_token=approval_token)
                 if not decision.allowed:
-                    result = ToolResult(
+                    policy_result = ToolResult(
                         success=False,
                         code=decision.code,
                         message="Command execution blocked by policy",
                         data={"reason": decision.message},
                     )
-                    return self._json_fmt(result.model_dump())
+                    return self._json_fmt(policy_result.model_dump())
 
             targets = self._resolve_targets(selector)
             if not targets:
@@ -733,9 +728,9 @@ class ContainerTools(ProxmoxTool):
                     ),
                 )
             node, vmid, _label = targets[0]
-            result = self.console_manager.execute_command(node, str(vmid), command)
+            exec_result = self.console_manager.execute_command(node, str(vmid), command)
             import json as _json
-            return [Content(type="text", text=_json.dumps(result, indent=2))]
+            return [Content(type="text", text=_json.dumps(exec_result, indent=2))]
         except Exception as e:
             return self._err("execute_command", e)
 

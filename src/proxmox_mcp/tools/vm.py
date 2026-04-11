@@ -170,7 +170,7 @@ class VMTools(ProxmoxTool):
         try:
             # Check if VM ID already exists
             try:
-                existing_vm = self.proxmox.nodes(node).qemu(vmid).config.get()
+                self.proxmox.nodes(node).qemu(vmid).config.get()
                 raise ValueError(f"VM {vmid} already exists on node {node}")
             except Exception as e:
                 if "does not exist" not in str(e).lower():
@@ -461,7 +461,7 @@ class VMTools(ProxmoxTool):
             if self.command_policy is not None:
                 decision = self.command_policy.evaluate(command, approval_token=approval_token)
                 if not decision.allowed:
-                    result = ToolResult(
+                    policy_result = ToolResult(
                         success=False,
                         code=decision.code,
                         message="Command execution blocked by policy",
@@ -470,18 +470,18 @@ class VMTools(ProxmoxTool):
                     return [
                         Content(
                             type="text",
-                            text=result.model_dump_json(indent=2),
+                            text=policy_result.model_dump_json(indent=2),
                         )
                     ]
 
-            result = await self.console_manager.execute_command(node, vmid, command)
+            exec_result = await self.console_manager.execute_command(node, vmid, command)
             # Use the command output formatter from ProxmoxFormatters
             from proxmox_mcp.formatting import ProxmoxFormatters
             formatted = ProxmoxFormatters.format_command_output(
-                success=result["success"],
+                success=exec_result["success"],
                 command=command,
-                output=result["output"],
-                error=result.get("error")
+                output=exec_result["output"],
+                error=exec_result.get("error")
             )
             return [Content(type="text", text=formatted)]
         except Exception as e:

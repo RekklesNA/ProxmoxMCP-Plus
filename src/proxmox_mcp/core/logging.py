@@ -16,7 +16,6 @@ The logging system supports:
 """
 import logging
 import os
-from typing import Optional
 from proxmox_mcp.config.models import LoggingConfig
 
 def setup_logging(config: LoggingConfig) -> logging.Logger:
@@ -60,7 +59,7 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
         log_file = os.path.join(os.getcwd(), log_file)
         
     # Create handlers
-    handlers = []
+    handlers: list[logging.Handler] = []
     
     if log_file:
         try:

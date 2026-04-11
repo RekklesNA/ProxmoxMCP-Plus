@@ -27,7 +27,7 @@ def setup_logging(
     logger.setLevel(getattr(logging, level.upper()))
 
     # Create handlers
-    handlers = []
+    handlers: list[logging.Handler] = []
 
     # Console handler
     console_handler = logging.StreamHandler(sys.stderr)

@@ -12,7 +12,7 @@ import shlex
 import logging
 from typing import Dict, Any
 
-import paramiko
+import paramiko  # type: ignore[import-untyped]
 
 
 class ContainerConsoleManager:

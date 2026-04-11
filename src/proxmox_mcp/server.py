@@ -14,15 +14,12 @@ The server exposes a set of tools for managing Proxmox resources including:
 - Storage management
 - Cluster status monitoring
 """
-import logging
 import os
 import sys
 import signal
-from typing import Optional, List, Annotated, Literal
+from typing import Optional, Annotated, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.tools import Tool
-from mcp.types import TextContent as Content
 from pydantic import Field, BaseModel
 from fastapi import Body
 
@@ -116,7 +113,10 @@ class ProxmoxMCPServer:
             "ProxmoxMCP",
             host=self.config.mcp.host,
             port=self.config.mcp.port,
-            log_level=self.config.logging.level.upper(),
+            log_level=cast(
+                Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                self.config.logging.level.upper(),
+            ),
         )
         self._setup_tools()
 

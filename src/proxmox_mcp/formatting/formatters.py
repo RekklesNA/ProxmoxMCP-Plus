@@ -1,7 +1,5 @@
-"""
-Core formatting functions for Proxmox MCP output.
-"""
-from typing import List, Union, Dict, Any
+"""Core formatting functions for Proxmox MCP output."""
+from typing import Optional
 from proxmox_mcp.formatting.theme import ProxmoxTheme
 from proxmox_mcp.formatting.colors import ProxmoxColors
 
@@ -18,11 +16,12 @@ class ProxmoxFormatters:
         Returns:
             Formatted string with appropriate unit
         """
+        value = float(bytes_value)
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if bytes_value < 1024:
-                return f"{bytes_value:.2f} {unit}"
-            bytes_value /= 1024
-        return f"{bytes_value:.2f} TB"
+            if value < 1024:
+                return f"{value:.2f} {unit}"
+            value /= 1024
+        return f"{value:.2f} TB"
     
     @staticmethod
     def format_uptime(seconds: int) -> str:
@@ -126,7 +125,12 @@ class ProxmoxFormatters:
         return f"{prefix}{key_str}: {value}"
     
     @staticmethod
-    def format_command_output(success: bool, command: str, output: str, error: str = None) -> str:
+    def format_command_output(
+        success: bool,
+        command: str,
+        output: str,
+        error: Optional[str] = None,
+    ) -> str:
         """Format command execution output.
         
         Args:
