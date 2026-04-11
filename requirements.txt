@@ -71,7 +71,7 @@ markdown-it-py==3.0.0
     # via rich
 markupsafe==3.0.2
     # via jinja2
-mcp==1.9.2
+mcp==1.12.1
     # via
     #   proxmox-mcp-plus (pyproject.toml)
     #   mcpo
