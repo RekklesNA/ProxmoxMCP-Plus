@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Tuple, Any, Union
 import json
 from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
 from .base import ProxmoxTool
 from .console.container_manager import ContainerConsoleManager
 
@@ -712,13 +713,13 @@ class ContainerTools(ProxmoxTool):
             if self.command_policy is not None:
                 decision = self.command_policy.evaluate(command, approval_token=approval_token)
                 if not decision.allowed:
-                    return self._json_fmt(
-                        {
-                            "success": False,
-                            "code": decision.code,
-                            "error": decision.message,
-                        }
+                    result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
                     )
+                    return self._json_fmt(result.model_dump())
 
             targets = self._resolve_targets(selector)
             if not targets:

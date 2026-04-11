@@ -17,8 +17,8 @@ detailed VM information might be temporarily unavailable.
 """
 from typing import List, Optional, Any
 from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool
-from proxmox_mcp.tools.definitions import GET_VMS_DESC, EXECUTE_VM_COMMAND_DESC
 from proxmox_mcp.tools.console.manager import VMConsoleManager
 
 class VMTools(ProxmoxTool):
@@ -461,14 +461,16 @@ class VMTools(ProxmoxTool):
             if self.command_policy is not None:
                 decision = self.command_policy.evaluate(command, approval_token=approval_token)
                 if not decision.allowed:
+                    result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
+                    )
                     return [
                         Content(
                             type="text",
-                            text=(
-                                f"Command execution blocked by policy.\n"
-                                f"Code: {decision.code}\n"
-                                f"Reason: {decision.message}"
-                            ),
+                            text=result.model_dump_json(indent=2),
                         )
                     ]
 

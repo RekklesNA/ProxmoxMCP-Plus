@@ -11,7 +11,8 @@ All tool implementations inherit from the ProxmoxTool base class to ensure
 consistent behavior and error handling across the MCP server.
 """
 import logging
-from typing import Any, Dict, List, Optional, Union
+import time
+from typing import Any, Callable, Dict, List, Optional
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
@@ -37,6 +38,37 @@ class ProxmoxTool:
         """
         self.proxmox = proxmox_api
         self.logger = logging.getLogger(f"proxmox-mcp.{self.__class__.__name__.lower()}")
+        self._cache: Dict[str, tuple[float, Any]] = {}
+
+    def _cache_get(self, key: str) -> Any:
+        entry = self._cache.get(key)
+        if not entry:
+            return None
+        expires_at, value = entry
+        if time.time() >= expires_at:
+            self._cache.pop(key, None)
+            return None
+        return value
+
+    def _cache_set(self, key: str, value: Any, ttl_seconds: int = 5) -> None:
+        self._cache[key] = (time.time() + ttl_seconds, value)
+
+    def _call_with_retry(
+        self,
+        operation: str,
+        fn: Callable[[], Any],
+        retries: int = 2,
+        backoff_seconds: float = 0.2,
+    ) -> Any:
+        attempt = 0
+        while True:
+            try:
+                return fn()
+            except Exception as error:
+                attempt += 1
+                if attempt > retries:
+                    self._handle_error(operation, error)
+                time.sleep(backoff_seconds * attempt)
 
     def _format_response(self, data: Any, resource_type: Optional[str] = None) -> List[Content]:
         """Format response data into MCP content using templates.

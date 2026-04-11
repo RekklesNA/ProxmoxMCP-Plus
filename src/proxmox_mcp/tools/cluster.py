@@ -13,7 +13,6 @@ cluster health and ensuring proper operation.
 from typing import List
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
-from proxmox_mcp.tools.definitions import GET_CLUSTER_STATUS_DESC
 
 class ClusterTools(ProxmoxTool):
     """Tools for managing Proxmox cluster.
@@ -63,8 +62,14 @@ class ClusterTools(ProxmoxTool):
                         - Authentication problems
                         - API endpoint failures
         """
+        cached = self._cache_get("cluster:status")
+        if cached is not None:
+            return self._format_response(cached, "cluster")
+
         try:
-            result = self.proxmox.cluster.status.get()
+            result = self._call_with_retry(
+                "get cluster status", lambda: self.proxmox.cluster.status.get()
+            )
         
             first_item = result[0] if result and len(result) > 0 else {}
             status = {
@@ -73,6 +78,7 @@ class ClusterTools(ProxmoxTool):
                 "nodes": len([node for node in result if node.get("type") == "node"]) if result else 0,
                 "resources": [res for res in result if res.get("type") == "resource"] if result else []
             }
+            self._cache_set("cluster:status", status, ttl_seconds=5)
             return self._format_response(status, "cluster")
         except Exception as e:
             self._handle_error("get cluster status", e)
