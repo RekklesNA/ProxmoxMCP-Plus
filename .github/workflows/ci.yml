@@ -21,9 +21,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install -r requirements-dev.in
-        pip install pip-audit
-        pip install .
+        pip install pytest pytest-asyncio pytest-cov ruff mypy black pip-audit
 
     - name: Smoke Test (Import Server)
       run: |

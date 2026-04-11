@@ -11,10 +11,20 @@ The ProxmoxManager class serves as the central point for all Proxmox API
 interactions, ensuring consistent connection handling and authentication
 across the MCP server.
 """
+
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 from proxmoxer import ProxmoxAPI
-from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
+
+from proxmox_mcp.config.models import AuthConfig, ProxmoxConfig
+from proxmox_mcp.exceptions import (
+    ProxmoxAuthError,
+    ProxmoxConnectionError,
+    ProxmoxConfigError,
+)
 
 class ProxmoxManager:
     """Manager class for Proxmox API operations.
@@ -80,24 +90,43 @@ class ProxmoxManager:
             Initialized and tested ProxmoxAPI instance
 
         Raises:
-            RuntimeError: If connection fails due to:
+            ProxmoxConnectionError: If connection fails due to:
                         - Invalid host/port
-                        - Authentication failure
                         - Network connectivity issues
                         - SSL certificate validation errors
+            ProxmoxAuthError: If authentication fails due to:
+                        - Invalid credentials
+                        - Expired tokens
+                        - Insufficient permissions
+            ProxmoxConfigError: If configuration is invalid
         """
         try:
+            # Validate required configuration fields
+            if not self.config.get("host"):
+                raise ProxmoxConfigError("Proxmox host is not configured")
+            if not self.config.get("user"):
+                raise ProxmoxAuthError("Authentication user is not configured")
+            if not self.config.get("token_name") or not self.config.get("token_value"):
+                raise ProxmoxAuthError("Authentication token is not configured")
+
             self.logger.info(f"Connecting to Proxmox host: {self.config['host']}")
             api = ProxmoxAPI(**self.config)
-            
+
             # Connection test removed from startup for robustness.
             # It will fail gracefully later if credentials are wrong.
-            # api.version.get() 
-            
+            # api.version.get()
+
             return api
+        except ProxmoxConfigError:
+            raise
+        except ProxmoxAuthError:
+            raise
         except Exception as e:
             self.logger.error(f"Failed to initialize Proxmox API client: {e}")
-            raise RuntimeError(f"Failed to initialize Proxmox API client: {e}") from e
+            raise ProxmoxConnectionError(
+                f"Failed to connect to Proxmox API: {e}",
+                details={"host": self.config.get("host"), "error": str(e)},
+            ) from e
 
     def get_api(self) -> ProxmoxAPI:
         """Get the initialized Proxmox API instance.

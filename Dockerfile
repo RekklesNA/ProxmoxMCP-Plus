@@ -19,7 +19,7 @@ COPY . .
 # Create virtual environment and install dependencies
 RUN uv venv && \
     . .venv/bin/activate && \
-    uv pip install -e ".[dev]"
+    uv pip install -r requirements.txt
 
 # Expose port
 EXPOSE 8811

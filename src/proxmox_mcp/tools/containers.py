@@ -612,7 +612,7 @@ class ContainerTools(ProxmoxTool):
                 "",
                 "Next steps:",
                 f"  • Start container: start_container selector='{vmid}'",
-                f"  • Check status: get_containers",
+                "  • Check status: get_containers",
             ]
             return [Content(type="text", text="\n".join(lines))]
 

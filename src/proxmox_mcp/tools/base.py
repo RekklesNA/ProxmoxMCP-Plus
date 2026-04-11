@@ -6,15 +6,22 @@ This module provides the foundation for all Proxmox MCP tools, including:
 - Response formatting utilities
 - Error handling mechanisms
 - Logging setup
+- Caching mechanisms
 
 All tool implementations inherit from the ProxmoxTool base class to ensure
 consistent behavior and error handling across the MCP server.
 """
+
+from __future__ import annotations
+
+import json
 import logging
 import time
-from typing import Any, Callable, Dict, List, NoReturn, Optional
+from typing import Any, Callable, List, NoReturn
+
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
+
 from proxmox_mcp.formatting import ProxmoxTemplates
 
 class ProxmoxTool:
@@ -38,7 +45,7 @@ class ProxmoxTool:
         """
         self.proxmox = proxmox_api
         self.logger = logging.getLogger(f"proxmox-mcp.{self.__class__.__name__.lower()}")
-        self._cache: Dict[str, tuple[float, Any]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
 
     def _cache_get(self, key: str) -> Any:
         entry = self._cache.get(key)
@@ -70,7 +77,7 @@ class ProxmoxTool:
                     self._handle_error(operation, error)
                 time.sleep(backoff_seconds * attempt)
 
-    def _format_response(self, data: Any, resource_type: Optional[str] = None) -> List[Content]:
+    def _format_response(self, data: Any, resource_type: str | None = None) -> List[Content]:
         """Format response data into MCP content using templates.
 
         This method handles formatting of various Proxmox resource types into
@@ -104,7 +111,6 @@ class ProxmoxTool:
             formatted = ProxmoxTemplates.cluster_status(data)
         else:
             # Fallback to JSON formatting for unknown types
-            import json
             formatted = json.dumps(data, indent=2)
 
         return [Content(type="text", text=formatted)]

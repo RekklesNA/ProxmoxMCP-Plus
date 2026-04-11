@@ -61,7 +61,7 @@ Operational boundaries:
 
 Prerequisites:
 
-- Python 3.9+
+- Python 3.11+
 - `uv` package manager
 - Proxmox API token with required permissions
 
@@ -71,7 +71,7 @@ Minimal setup:
 git clone https://github.com/RekklesNA/ProxmoxMCP-Plus.git
 cd ProxmoxMCP-Plus
 uv venv
-uv pip install -e ".[dev]"
+uv pip install -r requirements.txt
 ```
 
 Create runtime config:
