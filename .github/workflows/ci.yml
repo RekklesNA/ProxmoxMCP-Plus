@@ -43,7 +43,7 @@ jobs:
 
     - name: pip-audit
       run: |
-        pip-audit
+        pip-audit -r requirements.txt
 
     - name: Validate Manifest JSON
       run: |
