@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.RekklesNA/proxmox-mcp-plus",
   "title": "ProxmoxMCP-Plus",
-  "description": "Enhanced Proxmox MCP server for managing Proxmox VE nodes, VMs, LXCs, snapshots, backups, ISOs, and related operational workflows.",
+  "description": "Proxmox VE MCP server for VMs, LXCs, snapshots, backups, storage, and cluster operations.",
   "repository": {
     "url": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
     "source": "github"
