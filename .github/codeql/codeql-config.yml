@@ -4,8 +4,7 @@ queries:
   - uses: security-extended
 
 paths:
-  - src
-  - main.py
+  - .
 
 paths-ignore:
   - tests
