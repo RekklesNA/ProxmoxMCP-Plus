@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide describes local development workflows, code quality gates, and release expectations.
+This guide covers local development, validation, and release expectations.
 
 ## Local Setup
 
@@ -22,7 +22,7 @@ black .
 ## Development Expectations
 
 - Keep behavior changes covered by tests
-- Prefer explicit, typed interfaces for tool contracts
+- Prefer clear, typed interfaces for tool contracts
 - Document security-impacting changes in Wiki pages
 - Maintain README as a concise index, not a full manual
 

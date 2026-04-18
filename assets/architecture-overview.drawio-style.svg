@@ -1,0 +1,99 @@
+<svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 30px 'Segoe UI', Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 400 16px 'Segoe UI', Arial, sans-serif; fill: #4B5563; }
+      .label { font: 700 18px 'Segoe UI', Arial, sans-serif; fill: #111827; }
+      .body { font: 400 14px 'Segoe UI', Arial, sans-serif; fill: #374151; }
+      .small { font: 600 13px 'Segoe UI', Arial, sans-serif; fill: #374151; }
+      .mono { font: 700 13px 'Consolas', 'Courier New', monospace; fill: #0F172A; }
+      .line { stroke: #64748B; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow { fill: #64748B; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0F172A" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="760" rx="24" fill="#F8FAFC"/>
+  <rect x="28" y="28" width="1224" height="704" rx="20" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2"/>
+
+  <text x="56" y="76" class="title">ProxmoxMCP-Plus Architecture Overview</text>
+  <text x="56" y="104" class="subtitle">MCP clients and HTTP consumers share one controlled service boundary for Proxmox automation.</text>
+
+  <rect x="56" y="140" width="250" height="160" rx="14" fill="#EFF6FF" stroke="#60A5FA" stroke-width="2" filter="url(#shadow)"/>
+  <text x="82" y="178" class="label">MCP Clients</text>
+  <rect x="82" y="196" width="198" height="30" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="104" y="216" class="body">Claude Desktop / Cline</text>
+  <rect x="82" y="236" width="198" height="30" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="124" y="256" class="body">Open WebUI</text>
+  <rect x="82" y="276" width="198" height="30" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="136" y="296" class="body">Custom MCP Apps</text>
+
+  <rect x="56" y="370" width="250" height="120" rx="14" fill="#F5F3FF" stroke="#A78BFA" stroke-width="2" filter="url(#shadow)"/>
+  <text x="82" y="408" class="label">HTTP Consumers</text>
+  <rect x="82" y="426" width="198" height="30" rx="8" fill="#EDE9FE" stroke="#C4B5FD"/>
+  <text x="111" y="446" class="body">OpenAPI / Swagger UI</text>
+  <rect x="82" y="466" width="198" height="30" rx="8" fill="#EDE9FE" stroke="#C4B5FD"/>
+  <text x="131" y="486" class="body">Automation Tools</text>
+
+  <rect x="382" y="184" width="520" height="280" rx="16" fill="#F8FAFC" stroke="#0F766E" stroke-width="3" filter="url(#shadow)"/>
+  <rect x="404" y="206" width="476" height="48" rx="10" fill="#CCFBF1" stroke="#5EEAD4"/>
+  <text x="428" y="236" class="label">ProxmoxMCP-Plus Service Boundary</text>
+
+  <rect x="422" y="274" width="206" height="76" rx="10" fill="#ECFEFF" stroke="#67E8F9"/>
+  <text x="446" y="304" class="small">MCP Server</text>
+  <text x="446" y="326" class="body">stdio transport</text>
+  <text x="446" y="344" class="body">tool registration</text>
+
+  <rect x="654" y="274" width="206" height="76" rx="10" fill="#ECFDF5" stroke="#86EFAC"/>
+  <text x="678" y="304" class="small">OpenAPI Bridge</text>
+  <text x="678" y="326" class="body">HTTP routes</text>
+  <text x="678" y="344" class="body">health + docs</text>
+
+  <rect x="422" y="366" width="206" height="76" rx="10" fill="#FEFCE8" stroke="#FACC15"/>
+  <text x="446" y="396" class="small">Tooling Layer</text>
+  <text x="446" y="418" class="body">VM / LXC / storage / backup</text>
+
+  <rect x="654" y="366" width="206" height="76" rx="10" fill="#FEF2F2" stroke="#FCA5A5"/>
+  <text x="678" y="396" class="small">Control Layer</text>
+  <text x="678" y="418" class="body">auth / policy / logging</text>
+
+  <rect x="976" y="184" width="248" height="320" rx="14" fill="#FFF7ED" stroke="#FB923C" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1002" y="222" class="label">Proxmox VE</text>
+  <rect x="1002" y="242" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="1047" y="269" class="body">Cluster API</text>
+  <rect x="1002" y="302" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="1057" y="329" class="body">Nodes</text>
+  <rect x="1002" y="362" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="1045" y="389" class="body">VMs and LXCs</text>
+  <rect x="1002" y="422" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="1036" y="449" class="body">Storage / Backups</text>
+
+  <rect x="382" y="538" width="842" height="148" rx="16" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" filter="url(#shadow)"/>
+  <text x="410" y="578" class="label">Typical Flow</text>
+  <text x="410" y="608" class="body">1. A client sends an MCP tool call or HTTP request.</text>
+  <text x="410" y="632" class="body">2. ProxmoxMCP-Plus validates credentials, applies command policy, and logs the action.</text>
+  <text x="410" y="656" class="body">3. The tooling layer executes the requested Proxmox operation and returns a structured result.</text>
+
+  <line x1="306" y1="220" x2="382" y2="220" class="line"/>
+  <polygon points="382,220 368,212 368,228" class="arrow"/>
+
+  <line x1="306" y1="430" x2="382" y2="430" class="line"/>
+  <polygon points="382,430 368,422 368,438" class="arrow"/>
+
+  <line x1="628" y1="312" x2="654" y2="312" class="line"/>
+  <polygon points="654,312 640,304 640,320" class="arrow"/>
+
+  <line x1="628" y1="404" x2="654" y2="404" class="line"/>
+  <polygon points="654,404 640,396 640,412" class="arrow"/>
+
+  <line x1="902" y1="324" x2="976" y2="324" class="line"/>
+  <polygon points="976,324 962,316 962,332" class="arrow"/>
+
+  <line x1="902" y1="404" x2="976" y2="404" class="line"/>
+  <polygon points="976,404 962,396 962,412" class="arrow"/>
+
+  <text x="464" y="156" class="mono">stdio / HTTP</text>
+  <text x="942" y="168" class="mono">REST API</text>
+</svg>

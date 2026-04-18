@@ -1,6 +1,6 @@
 # API & Tool Reference
 
-This page is the authoritative index for tooling and endpoint behavior.
+This page is the main index for tools and endpoint behavior.
 
 ## Domain Coverage
 
@@ -10,15 +10,15 @@ This page is the authoritative index for tooling and endpoint behavior.
 - Storage, ISO, template, and node/cluster visibility
 - Optional remote command execution workflows
 
-## Reference Structure
+## What to document for each tool
 
 Document each tool and endpoint with:
 
-- Intent and expected use case
-- Required parameters and constraints
-- Authentication and authorization considerations
-- Typical success response and failure patterns
-- Operational caveats
+- What the tool is for
+- Required parameters and limits
+- Auth or permission requirements
+- Typical success response and common failure patterns
+- Notes that matter during day-to-day use
 
 ## Related Pages
 

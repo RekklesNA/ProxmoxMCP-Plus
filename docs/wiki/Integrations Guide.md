@@ -1,6 +1,6 @@
 # Integrations Guide
 
-This guide covers client and platform integration paths for ProxmoxMCP-Plus.
+This guide covers the main ways to connect clients and platforms to ProxmoxMCP-Plus.
 
 ## Supported Integration Patterns
 
@@ -21,7 +21,7 @@ This guide covers client and platform integration paths for ProxmoxMCP-Plus.
 - Swagger UI: `http://<host>:8811/docs`
 - Health check: `http://<host>:8811/health`
 
-## Integration Validation
+## Integration checks
 
 - Confirm MCP server starts with expected tool registration
 - Confirm OpenAPI endpoints return authenticated responses
