@@ -204,6 +204,8 @@ Published wiki:
 - `src/proxmox_mcp/`: MCP server, config loading, security, OpenAPI bridge
 - `main.py`: MCP entrypoint for local and client-driven usage
 - `docker-compose.yml`: HTTP/OpenAPI runtime
+- `requirements/`: auxiliary dependency sources and runtime install lists
+- `scripts/`: helper startup scripts for local workflows
 - `test_scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
 - `tests/`: unit and integration coverage
 - `examples/`: scenario-driven prompts and HTTP examples

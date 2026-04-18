@@ -1,5 +1,5 @@
 # Development dependencies
--r requirements.in
+-r base.in
 
 # Testing
 pytest>=7.0.0,<8.0.0
