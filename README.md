@@ -128,9 +128,11 @@ Client-specific examples for Claude Desktop and Open WebUI are in the [Integrati
 
 ## Demo
 
-This GIF is a direct terminal recording of an LLM-driven MCP session against a live local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
+This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live MCP session in English against a local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
 
 ![Recorded demo gif](assets/proxmoxmcp-demo.gif)
+
+[Watch the MP4 version](assets/proxmoxmcp-demo.mp4)
 
 ## Live Environment Verification
 
