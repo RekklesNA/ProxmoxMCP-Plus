@@ -1,5 +1,7 @@
 # ProxmoxMCP-Plus
 
+<!-- mcp-name: io.github.RekklesNA/proxmox-mcp-plus -->
+
 <div align="center">
   <img src="assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
 </div>
@@ -76,8 +78,14 @@ Add an `ssh` section as well if you want container command execution.
 #### PyPI
 
 ```bash
+uvx proxmox-mcp-plus
+```
+
+Or install it first:
+
+```bash
 pip install proxmox-mcp-plus
-python main.py
+proxmox-mcp-plus
 ```
 
 #### Docker / GHCR

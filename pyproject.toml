@@ -1,6 +1,6 @@
 [project]
 name = "proxmox-mcp-plus"
-version = "0.2.0"
+version = "0.2.1"
 description = "Enhanced Proxmox MCP Server"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,6 +51,7 @@ Issues = "https://github.com/RekklesNA/ProxmoxMCP-Plus/issues"
 
 [project.scripts]
 proxmox-mcp = "proxmox_mcp.server:main"
+proxmox-mcp-plus = "proxmox_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
