@@ -190,7 +190,7 @@ The README is intentionally optimized for fast GitHub comprehension. Longer oper
 | Configure and run against a Proxmox environment | [Operator Guide](docs/wiki/Operator%20Guide.md) |
 | Connect Claude Desktop or Open WebUI | [Integrations Guide](docs/wiki/Integrations%20Guide.md) |
 | Review security and command policy | [Security Guide](docs/wiki/Security%20Guide.md) |
-| Inspect tool groups and behavior | [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md) |
+| Inspect tool parameters, prerequisites, and behavior | [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md) |
 | Debug startup, auth, or health issues | [Troubleshooting](docs/wiki/Troubleshooting.md) |
 | Work on the codebase or release it | [Developer Guide](docs/wiki/Developer%20Guide.md) |
 | Review release and upgrade notes | [Release & Upgrade Notes](docs/wiki/Release%20%26%20Upgrade%20Notes.md) |
