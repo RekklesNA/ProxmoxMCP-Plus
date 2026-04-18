@@ -17,7 +17,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> |
   <a href="#demo">Demo</a> |
-  <a href="#live-environment-verification">Validation</a> |
+  <a href="#core-platform-capabilities">Capabilities</a> |
   <a href="#scenario-templates">Scenarios</a> |
   <a href="#documentation">Docs</a> |
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
@@ -134,25 +134,25 @@ This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live M
 
 [Watch the MP4 version](assets/proxmoxmcp-demo.mp4)
 
-## Live Environment Verification
+## Core Platform Capabilities
 
-This repository is documented against observed behavior, not a hypothetical feature list. The workflows below were exercised against a live Proxmox lab and are represented by repeatable validation entry points in this repository.
+ProxmoxMCP-Plus provides a unified control surface for the operational tasks most teams actually need in Proxmox VE. The same server can expose these workflows to MCP clients for LLM and AI-agent use cases, and to HTTP consumers through the OpenAPI bridge.
 
-Latest verified workflows:
+Supported workflow areas:
 
-| Workflow | Status |
+| Capability Area | Availability |
 | --- | --- |
-| VM create / start / stop / delete | Verified |
-| VM snapshot create / rollback / delete | Verified |
-| Backup create / restore | Verified |
-| ISO download / delete | Verified |
-| LXC create / start / stop / delete | Verified |
-| Container SSH-backed command execution | Verified |
-| Container authorized_keys update | Verified |
-| Local OpenAPI `/health` and schema | Verified |
-| Docker image build and `/health` | Verified |
+| VM create / start / stop / delete | Available |
+| VM snapshot create / rollback / delete | Available |
+| Backup create / restore | Available |
+| ISO download / delete | Available |
+| LXC create / start / stop / delete | Available |
+| Container SSH-backed command execution | Available |
+| Container authorized_keys update | Available |
+| Local OpenAPI `/health` and schema | Available |
+| Docker image build and `/health` | Available |
 
-Validation entry points in this repository:
+Validation and contract entry points in this repository:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
