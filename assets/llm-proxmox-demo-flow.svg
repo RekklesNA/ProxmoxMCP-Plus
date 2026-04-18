@@ -1,0 +1,118 @@
+<svg width="1200" height="675" viewBox="0 0 1200 675" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="1112" y2="627" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1724"/>
+      <stop offset="1" stop-color="#102A43"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#13283E"/>
+      <stop offset="1" stop-color="#1C3A57"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FF6B35"/>
+      <stop offset="1" stop-color="#FF9F1C"/>
+    </linearGradient>
+    <filter id="shadow" x="-20" y="-20" width="1240" height="715" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="675" rx="28" fill="url(#bg)"/>
+  <circle cx="165" cy="132" r="118" fill="#14304B"/>
+  <circle cx="1036" cy="566" r="136" fill="#13324B"/>
+  <circle cx="1087" cy="123" r="76" fill="#173A58"/>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="56" width="1080" height="563" rx="28" fill="#0E2236" fill-opacity="0.9" stroke="#2B4B68"/>
+  </g>
+
+  <text x="92" y="118" fill="#F3F7FA" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="700">
+    LLM / AI Agent -&gt; MCP + OpenAPI -&gt; Proxmox VE
+  </text>
+  <text x="92" y="154" fill="#B8D2E8" font-family="Segoe UI, Arial, sans-serif" font-size="20">
+    One control plane for Claude Desktop, Open WebUI, HTTP clients, and real VM/LXC operations.
+  </text>
+
+  <rect x="92" y="205" width="286" height="250" rx="24" fill="url(#card)" stroke="#446A8C"/>
+  <text x="118" y="247" fill="#FFB997" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
+    User Prompt
+  </text>
+  <text x="118" y="291" fill="#F3F7FA" font-family="Consolas, 'Courier New', monospace" font-size="18">
+    "Create a Debian test VM,
+  </text>
+  <text x="118" y="321" fill="#F3F7FA" font-family="Consolas, 'Courier New', monospace" font-size="18">
+    snapshot it, then expose
+  </text>
+  <text x="118" y="351" fill="#F3F7FA" font-family="Consolas, 'Courier New', monospace" font-size="18">
+    the same controls over
+  </text>
+  <text x="118" y="381" fill="#F3F7FA" font-family="Consolas, 'Courier New', monospace" font-size="18">
+    OpenAPI and verify /health."
+  </text>
+  <rect x="118" y="406" width="106" height="30" rx="15" fill="#1D4F73"/>
+  <text x="142" y="426" fill="#DFF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">
+    Claude
+  </text>
+  <rect x="234" y="406" width="126" height="30" rx="15" fill="#1D4F73"/>
+  <text x="255" y="426" fill="#DFF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">
+    Open WebUI
+  </text>
+
+  <rect x="454" y="191" width="295" height="278" rx="26" fill="url(#accent)"/>
+  <rect x="468" y="205" width="267" height="250" rx="22" fill="#101E2D"/>
+  <text x="498" y="250" fill="#FFD8BF" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
+    ProxmoxMCP-Plus
+  </text>
+  <text x="498" y="293" fill="#F3F7FA" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">
+    MCP Server
+  </text>
+  <text x="498" y="326" fill="#B8D2E8" font-family="Segoe UI, Arial, sans-serif" font-size="19">
+    Secure tools for VM, LXC, backup,
+  </text>
+  <text x="498" y="352" fill="#B8D2E8" font-family="Segoe UI, Arial, sans-serif" font-size="19">
+    snapshot, ISO, and SSH-backed
+  </text>
+  <text x="498" y="378" fill="#B8D2E8" font-family="Segoe UI, Arial, sans-serif" font-size="19">
+    container execution.
+  </text>
+  <rect x="498" y="398" width="104" height="32" rx="16" fill="#193954"/>
+  <text x="523" y="419" fill="#E9F8FF" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">
+    MCP
+  </text>
+  <rect x="612" y="398" width="108" height="32" rx="16" fill="#193954"/>
+  <text x="625" y="419" fill="#E9F8FF" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">
+    OpenAPI
+  </text>
+
+  <rect x="828" y="205" width="280" height="116" rx="24" fill="url(#card)" stroke="#446A8C"/>
+  <text x="854" y="246" fill="#FFB997" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
+    Proxmox VE Outcomes
+  </text>
+  <text x="854" y="282" fill="#F3F7FA" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">
+    VM | LXC | Backup | Restore
+  </text>
+  <text x="854" y="311" fill="#B8D2E8" font-family="Segoe UI, Arial, sans-serif" font-size="18">
+    Snapshot | ISO | SSH | Node checks
+  </text>
+
+  <rect x="828" y="343" width="280" height="112" rx="24" fill="#12324D" stroke="#446A8C"/>
+  <text x="854" y="383" fill="#9CE5C2" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">
+    HTTP bridge
+  </text>
+  <text x="854" y="418" fill="#F3F7FA" font-family="Consolas, 'Courier New', monospace" font-size="22">
+    GET /health  -&gt; 200 OK
+  </text>
+
+  <path d="M378 330H438" stroke="#FFB997" stroke-width="6" stroke-linecap="round"/>
+  <path d="M738 330H802" stroke="#FFB997" stroke-width="6" stroke-linecap="round"/>
+  <path d="M428 318L446 330L428 342" stroke="#FFB997" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M790 318L808 330L790 342" stroke="#FFB997" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="92" y="514" width="1016" height="72" rx="20" fill="#0C1A28" stroke="#264763"/>
+  <text x="123" y="556" fill="#F3F7FA" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">
+    Real E2E verified:
+  </text>
+  <text x="334" y="556" fill="#9CE5C2" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700">
+    VM / LXC / Backup / Restore / Snapshot / ISO / SSH / OpenAPI / Docker
+  </text>
+</svg>
