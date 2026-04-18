@@ -10,8 +10,7 @@ Dockerfile
 docker-compose.yml
 requirements.txt
 setup.py
-requirements.in
-requirements-dev.in
+requirements/
 README.md
 LICENSE
 docs/

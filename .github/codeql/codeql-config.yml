@@ -1,0 +1,17 @@
+name: "Repository CodeQL Config"
+
+queries:
+  - uses: security-extended
+
+paths:
+  - src
+  - main.py
+
+paths-ignore:
+  - tests
+  - test_scripts
+  - docs
+  - examples
+  - assets
+  - dist
+  - proxmox-config
