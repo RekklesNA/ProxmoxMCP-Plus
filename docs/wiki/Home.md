@@ -13,7 +13,7 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 
 | If you want to... | Open this page |
 | --- | --- |
-| Deploy the project against a real Proxmox environment | [Operator Guide](Operator-Guide) |
+| Deploy the project against a configured Proxmox environment | [Operator Guide](Operator-Guide) |
 | Work on the codebase, run checks, or publish releases | [Developer Guide](Developer-Guide) |
 | Connect Claude Desktop, Open WebUI, or HTTP clients | [Integrations Guide](Integrations-Guide) |
 | Understand auth, command policy, and execution safety | [Security Guide](Security-Guide) |
@@ -41,7 +41,7 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 
 ## Validation Summary
 
-The repository includes real-environment validation entry points for:
+The repository includes live-environment verification entry points for:
 
 - VM create, start, stop, and delete
 - snapshot create, rollback, and delete
@@ -49,6 +49,7 @@ The repository includes real-environment validation entry points for:
 - ISO download and cleanup
 - LXC create, start, stop, and delete
 - container SSH-backed command execution
+- container authorized_keys update
 - local OpenAPI `/health` and schema
 - Docker image build and `/health`
 
