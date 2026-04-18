@@ -43,6 +43,7 @@ class ProxmoxConfig(BaseModel):
     """
     host: str  # Required: Proxmox host address
     port: int = 8006  # Optional: API port (default: 8006)
+    timeout: int = 30  # Optional: API timeout in seconds (default: 30)
     verify_ssl: bool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
 

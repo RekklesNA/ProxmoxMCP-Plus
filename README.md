@@ -107,6 +107,21 @@ Set required fields in `proxmox-config/config.json`:
 - `auth.token_name`
 - `auth.token_value`
 
+Fast Proxmox setup, so you do not get stuck on day one:
+
+- Install Proxmox from the official installer first: [Installation Guide](https://pve.proxmox.com/pve-docs/pve-installation-plain.html)
+- Create an API token in Proxmox and use that token here: [Proxmox VE API](https://pve.proxmox.com/wiki/Proxmox_VE_API)
+- Make sure your node has at least one bridge such as `vmbr0`, because new VMs and LXCs default to that bridge: [Administration Guide](https://pve.proxmox.com/pve-docs/pve-admin-guide.html)
+- If you want container workflows, download an LXC template on the node first or let the live E2E script do it for you: [Linux Container Guide](https://pve.proxmox.com/wiki/Linux_Container)
+- If you want `execute_command` for containers, add the `ssh` section in `proxmox-config/config.json` so MCP can SSH to the Proxmox node and run `pct exec`
+
+Recommended first-run order:
+
+1. Verify `https://<proxmox-host>:8006` is reachable from the machine running this project.
+2. Confirm the API token can read `/nodes` before attempting create/delete operations.
+3. For LXC tests, confirm DNS works on the Proxmox host, otherwise template and ISO downloads will fail.
+4. For nested-lab setups such as VirtualBox or some cloud VMs, expect QEMU/KVM acceleration limits and test with a software-emulated VM profile if needed.
+
 Run MCP server:
 
 ```bash
@@ -196,7 +211,7 @@ Release prerequisites:
 - Configure a PyPI project named `proxmox-mcp-plus`
 - Prefer PyPI Trusted Publishing, or set repository secret `PYPI_API_TOKEN`
 - Ensure GitHub Actions has permission to publish packages to GHCR
-- Create a GitHub Release such as `v0.1.0` to trigger both publish workflows
+- Create a GitHub Release such as `v0.2.0` to trigger both publish workflows
 
 Pull request quality bar:
 

@@ -160,7 +160,7 @@ class BackupTools(ProxmoxTool):
                 if notes:
                     lines.append(f"     Notes: {notes}")
                 if protected:
-                    lines.append(f"     🔒 Protected")
+                    lines.append("     🔒 Protected")
                 lines.append("")
 
             lines.append("Use the Volume ID with restore_backup to restore.")
