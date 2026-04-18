@@ -1,51 +1,66 @@
 # ProxmoxMCP-Plus Wiki
 
-This wiki contains the longer documentation for ProxmoxMCP-Plus.
+This wiki is the longer-form documentation hub for ProxmoxMCP-Plus.
 
-ProxmoxMCP-Plus is an MCP server and OpenAPI bridge for Proxmox VE. It lets MCP-capable assistants, WebUI tools, and HTTP clients work with VMs, LXC containers, snapshots, backups, storage, and cluster state through one service.
+ProxmoxMCP-Plus gives you one Proxmox VE control surface for both:
+
+- MCP clients such as Claude Desktop and Open WebUI
+- HTTP and OpenAPI consumers such as dashboards, internal tools, and automation jobs
+
+Use the root `README.md` for the fast project overview. Use this wiki when you need setup detail, operating guidance, security notes, or tool-by-tool reference material.
 
 ## Start Here
 
-- First-time deployment: [Operator Guide](Operator-Guide)
-- Local setup and contribution flow: [Developer Guide](Developer-Guide)
-- Security settings and command policy: [Security Guide](Security-Guide)
-- Client integration examples: [Integrations Guide](Integrations-Guide)
-- Tool-by-tool capability index: [API & Tool Reference](API-&-Tool-Reference)
-- Common failures and recovery steps: [Troubleshooting](Troubleshooting)
-- Version tracking and upgrade notes: [Release & Upgrade Notes](Release-&-Upgrade-Notes)
+| If you want to... | Open this page |
+| --- | --- |
+| Deploy the project against a real Proxmox environment | [Operator Guide](Operator-Guide) |
+| Work on the codebase, run checks, or publish releases | [Developer Guide](Developer-Guide) |
+| Connect Claude Desktop, Open WebUI, or HTTP clients | [Integrations Guide](Integrations-Guide) |
+| Understand auth, command policy, and execution safety | [Security Guide](Security-Guide) |
+| Browse the exact tool surface and prerequisites | [API & Tool Reference](API-&-Tool-Reference) |
+| Debug startup, auth, SSH, or `/health` issues | [Troubleshooting](Troubleshooting) |
+| Review release history and upgrade notes | [Release & Upgrade Notes](Release-&-Upgrade-Notes) |
 
-## What This Project Does
+## What The Project Covers
 
-- Exposes Proxmox operations as MCP tools
-- Optionally exposes the same operations over HTTP through an OpenAPI proxy
-- Supports VM lifecycle actions such as create, start, stop, shutdown, reset, and delete
-- Supports LXC listing, creation, resource updates, start/stop/restart, config reads, IP discovery, and deletion
-- Supports snapshots, backup creation, backup restore, ISO browsing, template browsing, node status, storage status, and cluster status
-- Adds policy checks around command execution tools
+- VM and LXC lifecycle operations
+- snapshots, rollback, backup, and restore
+- ISO and template workflows
+- cluster, node, and storage inspection
+- SSH-backed container command execution
+- OpenAPI bridging for the MCP tool surface
 
 ## Architecture Summary
 
-- `main.py` starts the MCP server bundle
+- `main.py` starts the MCP server entrypoint
 - `src/proxmox_mcp/server.py` registers MCP tools
-- `src/proxmox_mcp/openapi_proxy.py` wraps the MCP server behind FastAPI and adds `/`, `/docs`, `/openapi.json`, and `/health`
-- `src/proxmox_mcp/config/` contains validation for JSON and environment-based configuration
-- `src/proxmox_mcp/security/command_policy.py` evaluates command execution requests against allow and deny rules
-- `docs/container-command-execution.md` explains the SSH-based LXC command flow
+- `src/proxmox_mcp/openapi_proxy.py` exposes `/`, `/docs`, `/openapi.json`, and `/health`
+- `src/proxmox_mcp/config/` validates configuration and runtime settings
+- `src/proxmox_mcp/security/command_policy.py` applies allow and deny rules for execution requests
+- `docs/container-command-execution.md` explains the SSH-backed LXC command path
 
-## Documentation Layout
+## Validation Summary
 
-- Use the root `README.md` for a quick product overview and minimal startup steps
-- Use this wiki for setup details, operating guidance, and tool behavior
-- Keep page titles stable so README and external links do not break
+The repository includes real-environment validation entry points for:
 
-## Quick Navigation
+- VM create, start, stop, and delete
+- snapshot create, rollback, and delete
+- backup and restore
+- ISO download and cleanup
+- LXC create, start, stop, and delete
+- container SSH-backed command execution
+- local OpenAPI `/health` and schema
+- Docker image build and `/health`
 
-| Topic | Use it for |
-| --- | --- |
-| [Operator Guide](Operator-Guide) | Config, runtime modes, Docker/OpenAPI deployment, health checks |
-| [Developer Guide](Developer-Guide) | Local install, test commands, code layout, release workflow |
-| [Security Guide](Security-Guide) | TLS, token handling, `dev_mode`, command policy, SSH-based container execution |
-| [Integrations Guide](Integrations-Guide) | Claude Desktop, OpenCode, OpenAPI clients |
-| [API & Tool Reference](API-&-Tool-Reference) | Exact tool groups, parameters, prerequisites, and output expectations |
-| [Troubleshooting](Troubleshooting) | Startup failures, auth issues, tool registration problems, health check issues |
-| [Release & Upgrade Notes](Release-&-Upgrade-Notes) | Release entries, upgrade checklist, rollback notes |
+Primary validation entry points:
+
+- `pytest -q`
+- `tests/integration/test_real_contract.py`
+- `test_scripts/run_real_e2e.py`
+
+## External References
+
+- [Proxmox VE installation guide](https://pve.proxmox.com/pve-docs/pve-installation-plain.html)
+- [Proxmox VE API guide](https://pve.proxmox.com/wiki/Proxmox_VE_API)
+- [Proxmox VE administration guide](https://pve.proxmox.com/pve-docs/pve-admin-guide.html)
+- [Linux Container guide](https://pve.proxmox.com/wiki/Linux_Container)

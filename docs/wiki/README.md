@@ -1,14 +1,14 @@
 # Wiki Seed Pages
 
-This directory contains the markdown pages intended to be published to the GitHub Wiki for ProxmoxMCP-Plus.
+This directory contains the markdown files intended for the GitHub Wiki and the in-repo documentation hub.
 
-## Documentation Model
+## Documentation Strategy
 
-- `README.md` in the repo root is the short project entrypoint
-- `docs/wiki/` contains the longer operational and reference pages
-- page names here should stay aligned with the published Wiki page names
+- `README.md` in the repository root is the conversion-focused homepage
+- `docs/wiki/` holds the longer operator, integration, security, and reference material
+- page names should stay stable so README links and published wiki URLs do not break
 
-## Pages Included
+## Included Pages
 
 - `Home.md`
 - `Operator Guide.md`
@@ -40,6 +40,7 @@ git push
 
 ## Maintenance Notes
 
-- Keep titles stable so wiki URLs stay stable
-- Update the root README links if a wiki page is renamed
-- Avoid adding placeholders for features that do not exist in the codebase
+- Keep titles stable so wiki URLs remain stable
+- Update the root README when adding, removing, or renaming wiki pages
+- Keep the homepage short and move operational detail into wiki pages
+- Do not add placeholders for features that do not exist in the codebase

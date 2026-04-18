@@ -4,7 +4,7 @@
   <img src="assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
 </div>
 
-<p align="center"><strong>Use MCP and OpenAPI to safely control Proxmox VE VMs, LXCs, backups, snapshots, and ISO workflows from LLMs, AI agents, Claude Desktop, and Open WebUI.</strong></p>
+<p align="center"><strong>Control Proxmox VE from LLMs, AI agents, MCP clients, and OpenAPI tooling with one safer interface for VMs, LXCs, backups, snapshots, ISOs, and container commands.</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/proxmox-mcp-plus/"><img alt="PyPI" src="https://img.shields.io/pypi/v/proxmox-mcp-plus"></a>
@@ -15,62 +15,130 @@
 </p>
 
 <p align="center">
-  <a href="#30-second-demo">30-second Demo</a> |
-  <a href="#proven-on-a-live-lab">Live Lab Proof</a> |
-  <a href="#install">Install</a> |
-  <a href="#scenario-templates">Scenario Templates</a> |
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#demo">Demo</a> |
+  <a href="#validated-against-real-proxmox-infrastructure">Validation</a> |
+  <a href="#scenario-templates">Scenarios</a> |
+  <a href="#documentation">Docs</a> |
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![LLM and AI agent to Proxmox flow](assets/proxmoxmcp-demo.gif)
+![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero.svg)
 
-## Why This Project Exists
+## What This Project Is
 
-Most Proxmox automation stops at raw API calls, one-off scripts, or UI-only workflows.
+ProxmoxMCP-Plus is a Proxmox VE control plane that exposes the same operational surface in two forms:
 
-ProxmoxMCP-Plus gives you:
+- `MCP` for Claude Desktop, Open WebUI, and other LLM or AI agent clients
+- `OpenAPI` for HTTP automation, dashboards, internal tools, and no-code workflows
 
-- `MCP` tools for Claude Desktop, Open WebUI, and other LLM or AI agent workflows
-- `OpenAPI` endpoints for HTTP clients, internal tools, and no-code integrations
-- `Guardrails` such as token auth, command policy, and safer execution paths
-- `Real operator workflows` for VM, LXC, backup, restore, snapshot, ISO, and SSH-backed container execution
+Instead of wiring raw Proxmox API calls, shell scripts, and separate glue services, you get one project that can handle:
 
-If you want an LLM or AI assistant to do more than just explain Proxmox, this is the missing control plane.
+- VM and LXC lifecycle actions
+- snapshot create, rollback, and delete
+- backup and restore workflows
+- ISO download and cleanup
+- node, storage, and cluster inspection
+- SSH-backed container command execution with guardrails
 
-## 30-second Demo
+## Why Teams Reach For This
 
-What a user says in Claude Desktop or Open WebUI:
+This project exists for the gap between "the Proxmox API is powerful" and "an LLM or AI agent can safely operate real infrastructure."
 
-```text
-Create a small Debian test VM on node pve, snapshot it before changes,
-and expose the same control surface over OpenAPI so I can verify /health.
-```
+- `Dual-surface design`: MCP for conversational workflows, OpenAPI for standard automation
+- `Operator-oriented`: focuses on real tasks, not just raw low-level endpoints
+- `Safer by default`: auth, command policy, and explicit execution paths
+- `Evidence over claims`: important workflows were exercised against a real Proxmox lab
 
-What ProxmoxMCP-Plus enables:
+## Quick Start
 
-1. The LLM calls MCP tools to create and start the VM.
-2. The same server exposes matching OpenAPI endpoints for automation or dashboards.
-3. `/health` confirms the HTTP bridge is alive.
-4. The operator can later snapshot, roll back, back up, or delete the workload from the same interface.
+### 1. Prepare Proxmox access
 
-HTTP verification:
+Read the official Proxmox docs first if you are setting up a fresh lab:
+
+- [Proxmox VE installation guide](https://pve.proxmox.com/pve-docs/pve-installation-plain.html)
+- [Proxmox VE API guide](https://pve.proxmox.com/wiki/Proxmox_VE_API)
+- [Proxmox VE administration guide](https://pve.proxmox.com/pve-docs/pve-admin-guide.html)
+- [Linux Container guide](https://pve.proxmox.com/wiki/Linux_Container)
+
+At minimum, `proxmox-config/config.json` needs:
+
+- `proxmox.host`
+- `proxmox.port`
+- `auth.user`
+- `auth.token_name`
+- `auth.token_value`
+
+Add an `ssh` section as well if you want container command execution.
+
+### 2. Choose one runtime path
+
+#### PyPI
 
 ```bash
+pip install proxmox-mcp-plus
+python main.py
+```
+
+#### Docker / GHCR
+
+```bash
+docker run --rm -p 8811:8811 \
+  -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
+  ghcr.io/rekklesna/proxmoxmcp-plus:latest
+```
+
+#### Source
+
+```bash
+git clone https://github.com/RekklesNA/ProxmoxMCP-Plus.git
+cd ProxmoxMCP-Plus
+uv venv
+uv pip install -e ".[dev]"
+python main.py
+```
+
+### 3. Run the HTTP/OpenAPI surface
+
+```bash
+docker compose up -d
 curl -f http://localhost:8811/health
 curl http://localhost:8811/openapi.json
 ```
 
-This is the core pitch in one sentence:
+### 4. Point an MCP client at the server
 
-> one Proxmox control plane for both LLM-native workflows and standard HTTP/OpenAPI automation.
+Minimal MCP client shape:
 
-## Proven on a Live Lab
+```json
+{
+  "mcpServers": {
+    "proxmox-mcp-plus": {
+      "command": "python",
+      "args": ["/path/to/ProxmoxMCP-Plus/main.py"],
+      "env": {
+        "PROXMOX_MCP_CONFIG": "/path/to/ProxmoxMCP-Plus/proxmox-config/config.json"
+      }
+    }
+  }
+}
+```
 
-This project is not presented as "should work in theory". The core operator flows were run against a real Proxmox environment and checked end to end.
+Client-specific examples for Claude Desktop and Open WebUI are in the [Integrations Guide](docs/wiki/Integrations%20Guide.md).
 
-Most useful paths verified so far:
+## Demo
 
-| Workflow | Live status |
+This GIF shows the product pitch in the fastest possible format: an LLM-facing workflow, Proxmox operations behind it, and the HTTP health surface available for verification.
+
+![Recorded demo gif](assets/proxmoxmcp-demo.gif)
+
+## Validated Against Real Proxmox Infrastructure
+
+The strongest claim here is not "has features." It is "the important workflows were exercised against a real Proxmox environment."
+
+Latest verified paths:
+
+| Workflow | Status |
 | --- | --- |
 | VM create / start / stop / delete | Verified |
 | VM snapshot create / rollback / delete | Verified |
@@ -82,153 +150,64 @@ Most useful paths verified so far:
 | Local OpenAPI `/health` and schema | Verified |
 | Docker image build and `/health` | Verified |
 
-If you want to inspect or rerun the same checks, start here:
+Validation entry points in this repository:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
 - `test_scripts/run_real_e2e.py`
 
-## Install
+## Why This Instead Of Raw API Calls Or Scripts
 
-Three supported ways to get started:
-
-### 1. PyPI
-
-```bash
-pip install proxmox-mcp-plus
-```
-
-### 2. Docker / GHCR
-
-```bash
-docker run --rm -p 8811:8811 \
-  -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
-  ghcr.io/rekklesna/proxmoxmcp-plus:latest
-```
-
-### 3. Source
-
-```bash
-git clone https://github.com/RekklesNA/ProxmoxMCP-Plus.git
-cd ProxmoxMCP-Plus
-uv venv
-uv pip install -e ".[dev]"
-```
-
-Run the MCP server:
-
-```bash
-python main.py
-```
-
-Run the OpenAPI bridge:
-
-```bash
-docker compose up -d
-```
-
-## Quick Proxmox Setup
-
-Do these before blaming the project:
-
-- Install Proxmox VE from the official guide: [Installation Guide](https://pve.proxmox.com/pve-docs/pve-installation-plain.html)
-- Create a Proxmox API token and put it in `proxmox-config/config.json`: [Proxmox VE API](https://pve.proxmox.com/wiki/Proxmox_VE_API)
-- Make sure your node has a bridge such as `vmbr0`: [Administration Guide](https://pve.proxmox.com/pve-docs/pve-admin-guide.html)
-- For LXC workflows, ensure at least one template is available or let the live E2E script download one: [Linux Container Guide](https://pve.proxmox.com/wiki/Linux_Container)
-- For container command execution, add the `ssh` section to `proxmox-config/config.json`
-- If template or ISO downloads fail, check DNS on the Proxmox host first
-
-Minimal config fields:
-
-- `proxmox.host`
-- `proxmox.port`
-- `auth.user`
-- `auth.token_name`
-- `auth.token_value`
+| Capability | Official Proxmox API | One-off scripts | ProxmoxMCP-Plus |
+| --- | --- | --- | --- |
+| MCP for LLM and AI agent workflows | No | No | Yes |
+| OpenAPI surface for standard HTTP tooling | No | Usually no | Yes |
+| VM and LXC operations in one interface | Low-level only | Depends | Yes |
+| Snapshot, backup, and restore workflows | Low-level only | Depends | Yes |
+| Container command execution with policy controls | No | Custom only | Yes |
+| Docker distribution path | No | Rare | Yes |
+| Repo-level real-environment validation | N/A | Rare | Yes |
 
 ## Scenario Templates
 
-Ready-to-copy examples live in [`examples/`](examples/README.md).
+Ready-to-copy examples live in [`examples/`](examples/README.md):
 
 - [Create a test VM](examples/create-test-vm.md)
 - [Roll back a risky change with snapshots](examples/rollback-snapshot.md)
 - [Download an ISO and create an LXC](examples/download-iso-and-create-lxc.md)
 
-These examples include:
-
-- plain-language prompts for Claude or Open WebUI
-- example OpenAPI requests
-- expected operator outcome
-
-## Why Share This Instead of Raw Scripts
-
-| Capability | Official Proxmox API | One-off scripts | ProxmoxMCP-Plus |
-| --- | --- | --- | --- |
-| MCP for LLM / AI agents | No | No | Yes |
-| OpenAPI bridge | No | Usually no | Yes |
-| VM + LXC lifecycle in one interface | Low-level only | Depends | Yes |
-| Snapshot / backup / restore workflows | Low-level only | Depends | Yes |
-| Container SSH-backed execution | No | Custom only | Yes |
-| Command policy / guardrails | No | Rare | Yes |
-| Real repo-level E2E coverage | N/A | Rare | Yes |
-
-## What You Can Build With It
-
-- `Claude Desktop + Proxmox`: ask an LLM to create a sandbox VM, list nodes, or roll back snapshots
-- `Open WebUI + homelab`: expose Proxmox actions to a self-hosted AI assistant
-- `AI infra tools + HTTP`: call `/openapi.json` and integrate with dashboards or internal portals
-- `Operator workflows`: use one control surface for read-only checks and write operations
-
-## Repo Structure
-
-- `src/proxmox_mcp/`: server, tools, config, security, formatting
-- `test_scripts/run_real_e2e.py`: live Proxmox, OpenAPI, Docker smoke path
-- `tests/`: unit and integration coverage
-- `proxmox-config/`: example and runtime config
-- `examples/`: copy-paste usage templates for LLM and HTTP flows
-
-## Release and Distribution
-
-- PyPI package: [proxmox-mcp-plus](https://pypi.org/project/proxmox-mcp-plus/)
-- GitHub releases: [Releases](https://github.com/RekklesNA/ProxmoxMCP-Plus/releases)
-- GHCR image: `ghcr.io/rekklesna/proxmoxmcp-plus`
-
-Current release notes should describe user-visible ability, not generic bugfixes:
-
-- live Proxmox E2E coverage
-- container SSH execution path
-- Docker OpenAPI `/health`
-- source-vs-installed-package test correctness
-
-## Community and Launch
-
-If you want to promote the project instead of just dropping a link, start here:
-
-- [Launch post draft](docs/launch-post.md)
-- [20-30 second demo script](docs/demo-script.md)
-- GitHub Discussions
-- Reddit: `r/selfhosted`, `r/homelab`, `r/Proxmox`, `r/LocalLLaMA`
-- Hacker News: `Show HN`
-- X / AI infra / MCP circles
-
-Suggested angle:
-
-> I built an MCP + OpenAPI server that lets LLMs and AI agents operate real Proxmox VE workflows, and I verified the core paths on a live lab.
+These are written for both human operators and LLM-driven usage.
 
 ## Documentation
 
-README is intentionally optimized for fast GitHub conversion. Deep docs live in the wiki:
+The README is intentionally optimized for fast GitHub comprehension. Longer operational docs live in `docs/wiki/` and can also be published to the GitHub Wiki.
 
-- [Home](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Home)
-- [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide)
-- [Developer Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Developer-Guide)
-- [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide)
-- [Integrations Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Integrations-Guide)
-- [API & Tool Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference)
-- [Troubleshooting](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Troubleshooting)
-- [Release & Upgrade Notes](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Release-&-Upgrade-Notes)
+| If you need to... | Start here |
+| --- | --- |
+| Understand the project and deployment flow | [Wiki Home](docs/wiki/Home.md) |
+| Configure and run against a Proxmox environment | [Operator Guide](docs/wiki/Operator%20Guide.md) |
+| Connect Claude Desktop or Open WebUI | [Integrations Guide](docs/wiki/Integrations%20Guide.md) |
+| Review security and command policy | [Security Guide](docs/wiki/Security%20Guide.md) |
+| Inspect tool groups and behavior | [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md) |
+| Debug startup, auth, or health issues | [Troubleshooting](docs/wiki/Troubleshooting.md) |
+| Work on the codebase or release it | [Developer Guide](docs/wiki/Developer%20Guide.md) |
+| Review release and upgrade notes | [Release & Upgrade Notes](docs/wiki/Release%20%26%20Upgrade%20Notes.md) |
 
-## Development
+Published wiki:
+
+- [GitHub Wiki Home](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Home)
+
+## Repo Layout
+
+- `src/proxmox_mcp/`: MCP server, config loading, security, OpenAPI bridge
+- `main.py`: MCP entrypoint for local and client-driven usage
+- `docker-compose.yml`: HTTP/OpenAPI runtime
+- `test_scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
+- `tests/`: unit and integration coverage
+- `examples/`: scenario-driven prompts and HTTP examples
+- `docs/wiki/`: longer-form operator, integration, and reference docs
+
+## Development Checks
 
 ```bash
 pytest -q
@@ -239,4 +218,4 @@ python -m build
 
 ## License
 
-[MIT License](LICENSE)
+[MIT](LICENSE)
