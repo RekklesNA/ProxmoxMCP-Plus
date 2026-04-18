@@ -1,98 +1,139 @@
 <svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <style>
-      .title { font: 700 32px 'Segoe UI', Arial, sans-serif; fill: #111827; }
-      .subtitle { font: 400 17px 'Segoe UI', Arial, sans-serif; fill: #4B5563; }
-      .section { font: 700 20px 'Segoe UI', Arial, sans-serif; fill: #111827; }
-      .body { font: 400 14px 'Segoe UI', Arial, sans-serif; fill: #374151; }
-      .small { font: 600 13px 'Segoe UI', Arial, sans-serif; fill: #334155; }
-      .mono { font: 700 13px 'Consolas', 'Courier New', monospace; fill: #0F172A; }
-      .line { stroke: #64748B; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-      .arrow { fill: #64748B; }
-    </style>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0F172A" flood-opacity="0.10"/>
+    <linearGradient id="bg" x1="96" y1="36" x2="1174" y2="724" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09090B"/>
+      <stop offset="1" stop-color="#18181B"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="102" y1="98" x2="1128" y2="664" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#131316"/>
+      <stop offset="1" stop-color="#1E1E22"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1B1B20"/>
+      <stop offset="1" stop-color="#24242A"/>
+    </linearGradient>
+    <filter id="shadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000000" flood-opacity="0.35"/>
     </filter>
+    <style>
+      .title { font: 700 32px 'Segoe UI', Arial, sans-serif; fill: #FAFAFA; letter-spacing: -0.02em; }
+      .subtitle { font: 400 16px 'Segoe UI', Arial, sans-serif; fill: #D4D4D8; }
+      .eyebrow { font: 700 12px 'Segoe UI', Arial, sans-serif; fill: #A1A1AA; letter-spacing: 0.16em; text-transform: uppercase; }
+      .section { font: 700 20px 'Segoe UI', Arial, sans-serif; fill: #FAFAFA; }
+      .card-title { font: 700 15px 'Segoe UI', Arial, sans-serif; fill: #F4F4F5; }
+      .body { font: 400 13px 'Segoe UI', Arial, sans-serif; fill: #D4D4D8; }
+      .small { font: 600 12px 'Segoe UI', Arial, sans-serif; fill: #A1A1AA; letter-spacing: 0.08em; text-transform: uppercase; }
+      .mono { font: 700 12px 'Consolas', 'Courier New', monospace; fill: #E4E4E7; letter-spacing: 0.08em; }
+      .line { stroke: #A1A1AA; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow { fill: #A1A1AA; }
+    </style>
   </defs>
 
-  <rect width="1280" height="760" rx="24" fill="#F8FAFC"/>
-  <rect x="24" y="24" width="1232" height="712" rx="20" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2"/>
+  <rect width="1280" height="760" rx="26" fill="url(#bg)"/>
+  <rect x="24" y="24" width="1232" height="712" rx="22" fill="url(#panel)" stroke="#3F3F46" stroke-width="2"/>
 
-  <text x="56" y="74" class="title">ProxmoxMCP-Plus: one Proxmox control plane for LLMs, AI agents, MCP, and OpenAPI</text>
-  <text x="56" y="102" class="subtitle">Use Claude Desktop, Open WebUI, or HTTP clients to drive real VM, LXC, snapshot, backup, restore, ISO, and SSH-backed workflows.</text>
+  <circle cx="120" cy="116" r="78" fill="#111114"/>
+  <circle cx="1164" cy="642" r="112" fill="#111114"/>
+  <circle cx="1098" cy="126" r="64" fill="#1A1A1E"/>
 
-  <rect x="56" y="144" width="254" height="186" rx="14" fill="#EFF6FF" stroke="#60A5FA" stroke-width="2" filter="url(#shadow)"/>
-  <text x="82" y="182" class="section">LLM and MCP Clients</text>
-  <rect x="82" y="198" width="202" height="32" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
-  <text x="112" y="219" class="body">Claude Desktop</text>
-  <rect x="82" y="240" width="202" height="32" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
-  <text x="126" y="261" class="body">Open WebUI</text>
-  <rect x="82" y="282" width="202" height="32" rx="8" fill="#DBEAFE" stroke="#93C5FD"/>
-  <text x="123" y="303" class="body">Other MCP clients</text>
+  <text x="640" y="78" class="eyebrow" text-anchor="middle">PROXMOX CONTROL PLANE</text>
+  <text x="640" y="112" class="title" text-anchor="middle">
+    <tspan x="640" dy="0">ProxmoxMCP-Plus: one control plane for LLMs, AI agents,</tspan>
+    <tspan x="640" dy="36">MCP clients, and OpenAPI automation</tspan>
+  </text>
+  <text x="640" y="184" class="subtitle" text-anchor="middle">Use Claude Desktop, Open WebUI, or HTTP clients to drive real VM, LXC, snapshot, backup, restore, ISO, and SSH-backed workflows.</text>
 
-  <rect x="56" y="372" width="254" height="146" rx="14" fill="#F5F3FF" stroke="#A78BFA" stroke-width="2" filter="url(#shadow)"/>
-  <text x="82" y="410" class="section">HTTP Consumers</text>
-  <rect x="82" y="426" width="202" height="32" rx="8" fill="#EDE9FE" stroke="#C4B5FD"/>
-  <text x="101" y="447" class="body">OpenAPI / Swagger UI</text>
-  <rect x="82" y="468" width="202" height="32" rx="8" fill="#EDE9FE" stroke="#C4B5FD"/>
-  <text x="104" y="489" class="body">Internal tools / scripts</text>
+  <g filter="url(#shadow)">
+    <rect x="64" y="220" width="264" height="316" rx="24" fill="url(#card)" stroke="#52525B"/>
+    <text x="196" y="258" class="section" text-anchor="middle">Clients</text>
+    <text x="196" y="284" class="small" text-anchor="middle">LLM AND MCP</text>
 
-  <rect x="378" y="142" width="544" height="404" rx="16" fill="#F8FAFC" stroke="#0F766E" stroke-width="3" filter="url(#shadow)"/>
-  <rect x="398" y="162" width="504" height="46" rx="10" fill="#CCFBF1" stroke="#5EEAD4"/>
-  <text x="424" y="191" class="section">ProxmoxMCP-Plus service boundary</text>
+    <rect x="88" y="302" width="216" height="36" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="196" y="325" class="body" text-anchor="middle">Claude Desktop</text>
+    <rect x="88" y="348" width="216" height="36" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="196" y="371" class="body" text-anchor="middle">Open WebUI</text>
+    <rect x="88" y="394" width="216" height="36" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="196" y="417" class="body" text-anchor="middle">Other MCP clients</text>
 
-  <rect x="418" y="228" width="216" height="82" rx="10" fill="#ECFEFF" stroke="#67E8F9"/>
-  <text x="442" y="258" class="small">MCP server layer</text>
-  <text x="442" y="280" class="body">stdio transport</text>
-  <text x="442" y="298" class="body">assistant-facing tools</text>
+    <line x1="96" y1="458" x2="296" y2="458" stroke="#3F3F46" stroke-width="1.5"/>
+    <text x="196" y="486" class="small" text-anchor="middle">HTTP CONSUMERS</text>
 
-  <rect x="664" y="228" width="216" height="82" rx="10" fill="#ECFDF5" stroke="#86EFAC"/>
-  <text x="688" y="258" class="small">OpenAPI bridge</text>
-  <text x="688" y="280" class="body">/docs, /openapi.json, /health</text>
-  <text x="688" y="298" class="body">HTTP automation surface</text>
+    <rect x="88" y="502" width="216" height="36" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="196" y="525" class="body" text-anchor="middle">OpenAPI / Swagger UI</text>
+    <rect x="88" y="548" width="216" height="36" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="196" y="571" class="body" text-anchor="middle">Internal tools / scripts</text>
 
-  <rect x="418" y="334" width="216" height="94" rx="10" fill="#FEFCE8" stroke="#FACC15"/>
-  <text x="442" y="364" class="small">Operator workflows</text>
-  <text x="442" y="386" class="body">VM and LXC lifecycle</text>
-  <text x="442" y="404" class="body">snapshot, backup, restore, ISO</text>
+    <rect x="372" y="206" width="556" height="390" rx="26" fill="#0F0F12" stroke="#71717A" stroke-width="2.5"/>
+    <rect x="396" y="230" width="508" height="44" rx="14" fill="#1D1D22" stroke="#5A5A63"/>
+    <text x="650" y="258" class="section" text-anchor="middle">ProxmoxMCP-Plus service boundary</text>
 
-  <rect x="664" y="334" width="216" height="94" rx="10" fill="#FEF2F2" stroke="#FCA5A5"/>
-  <text x="688" y="364" class="small">Control and guardrails</text>
-  <text x="688" y="386" class="body">token auth, command policy</text>
-  <text x="688" y="404" class="body">logging and execution limits</text>
+    <rect x="408" y="298" width="220" height="86" rx="18" fill="#19191E" stroke="#4B4B54"/>
+    <text x="432" y="326" class="card-title">MCP server layer</text>
+    <text x="432" y="348" class="body">stdio transport</text>
+    <text x="432" y="366" class="body">assistant-facing tools</text>
 
-  <rect x="418" y="452" width="462" height="72" rx="10" fill="#F1F5F9" stroke="#94A3B8"/>
-  <text x="442" y="480" class="small">Live-lab verified paths</text>
-  <text x="442" y="504" class="body">VM | LXC | snapshot | backup | restore | ISO | SSH | OpenAPI | Docker</text>
+    <rect x="672" y="298" width="220" height="86" rx="18" fill="#19191E" stroke="#4B4B54"/>
+    <text x="696" y="326" class="card-title">OpenAPI bridge</text>
+    <text x="696" y="348" class="body">/docs, /openapi.json, /health</text>
+    <text x="696" y="366" class="body">HTTP automation surface</text>
 
-  <rect x="974" y="164" width="248" height="318" rx="14" fill="#FFF7ED" stroke="#FB923C" stroke-width="2" filter="url(#shadow)"/>
-  <text x="1000" y="202" class="section">Proxmox VE</text>
-  <rect x="1000" y="220" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
-  <text x="1046" y="247" class="body">Cluster API</text>
-  <rect x="1000" y="280" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
-  <text x="1057" y="307" class="body">Nodes</text>
-  <rect x="1000" y="340" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
-  <text x="1043" y="367" class="body">VMs and LXCs</text>
-  <rect x="1000" y="400" width="196" height="44" rx="8" fill="#FFEDD5" stroke="#FDBA74"/>
-  <text x="1034" y="427" class="body">Storage and backups</text>
+    <rect x="408" y="400" width="220" height="92" rx="18" fill="#19191E" stroke="#4B4B54"/>
+    <text x="432" y="428" class="card-title">Operator workflows</text>
+    <text x="432" y="450" class="body">VM and LXC lifecycle</text>
+    <text x="432" y="468" class="body">snapshot, backup, restore, ISO</text>
 
-  <rect x="378" y="586" width="844" height="114" rx="16" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" filter="url(#shadow)"/>
-  <text x="406" y="624" class="section">Typical operator path</text>
-  <text x="406" y="650" class="body">1. An LLM, AI agent, or HTTP client requests a Proxmox action.</text>
-  <text x="406" y="672" class="body">2. ProxmoxMCP-Plus applies auth and policy, then executes the workflow.</text>
-  <text x="406" y="694" class="body">3. The same result can be returned to MCP clients and HTTP consumers.</text>
+    <rect x="672" y="400" width="220" height="92" rx="18" fill="#19191E" stroke="#4B4B54"/>
+    <text x="696" y="428" class="card-title">Control and guardrails</text>
+    <text x="696" y="450" class="body">token auth and command policy</text>
+    <text x="696" y="468" class="body">logging and execution limits</text>
 
-  <line x1="310" y1="238" x2="378" y2="238" class="line"/>
-  <polygon points="378,238 364,230 364,246" class="arrow"/>
-  <line x1="310" y1="446" x2="378" y2="446" class="line"/>
-  <polygon points="378,446 364,438 364,454" class="arrow"/>
-  <line x1="634" y1="268" x2="664" y2="268" class="line"/>
-  <polygon points="664,268 650,260 650,276" class="arrow"/>
-  <line x1="880" y1="280" x2="974" y2="280" class="line"/>
-  <polygon points="974,280 960,272 960,288" class="arrow"/>
-  <line x1="880" y1="382" x2="974" y2="382" class="line"/>
-  <polygon points="974,382 960,374 960,390" class="arrow"/>
+    <rect x="408" y="508" width="484" height="62" rx="18" fill="#17171B" stroke="#4B4B54"/>
+    <text x="432" y="534" class="card-title">Live-verified paths</text>
+    <text x="432" y="554" class="body">VM | LXC | Snapshot | Backup | Restore | ISO | SSH | OpenAPI | Docker</text>
 
-  <text x="432" y="142" class="mono">MCP / HTTP</text>
-  <text x="928" y="150" class="mono">Proxmox REST API</text>
+    <rect x="964" y="220" width="252" height="316" rx="24" fill="url(#card)" stroke="#52525B"/>
+    <text x="1090" y="258" class="section" text-anchor="middle">Proxmox VE</text>
+    <text x="1090" y="284" class="small" text-anchor="middle">REST API SURFACE</text>
+
+    <rect x="990" y="302" width="200" height="40" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="1090" y="327" class="body" text-anchor="middle">Cluster API</text>
+    <rect x="990" y="354" width="200" height="40" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="1090" y="379" class="body" text-anchor="middle">Nodes</text>
+    <rect x="990" y="406" width="200" height="40" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="1090" y="431" class="body" text-anchor="middle">VMs and LXCs</text>
+    <rect x="990" y="458" width="200" height="40" rx="12" fill="#101014" stroke="#5A5A63"/>
+    <text x="1090" y="483" class="body" text-anchor="middle">Storage and backups</text>
+
+    <rect x="372" y="620" width="844" height="108" rx="24" fill="#0F0F12" stroke="#71717A" stroke-width="2"/>
+    <text x="404" y="652" class="section">Typical operator path</text>
+
+    <rect x="396" y="668" width="248" height="40" rx="14" fill="#17171B" stroke="#4B4B54"/>
+    <circle cx="422" cy="688" r="12" fill="#F4F4F5"/>
+    <text x="422" y="692" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#111114" text-anchor="middle">1</text>
+    <text x="446" y="693" class="body">Client submits a Proxmox action</text>
+
+    <rect x="670" y="668" width="248" height="40" rx="14" fill="#17171B" stroke="#4B4B54"/>
+    <circle cx="696" cy="688" r="12" fill="#F4F4F5"/>
+    <text x="696" y="692" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#111114" text-anchor="middle">2</text>
+    <text x="720" y="693" class="body">Auth and policy gate execution</text>
+
+    <rect x="944" y="668" width="248" height="40" rx="14" fill="#17171B" stroke="#4B4B54"/>
+    <circle cx="970" cy="688" r="12" fill="#F4F4F5"/>
+    <text x="970" y="692" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#111114" text-anchor="middle">3</text>
+    <text x="994" y="693" class="body">Results return to MCP and HTTP</text>
+  </g>
+
+  <line x1="328" y1="366" x2="372" y2="366" class="line"/>
+  <polygon points="372,366 358,358 358,374" class="arrow"/>
+  <line x1="328" y1="520" x2="372" y2="520" class="line"/>
+  <polygon points="372,520 358,512 358,528" class="arrow"/>
+  <line x1="628" y1="341" x2="672" y2="341" class="line"/>
+  <polygon points="672,341 658,333 658,349" class="arrow"/>
+  <line x1="892" y1="341" x2="964" y2="341" class="line"/>
+  <polygon points="964,341 950,333 950,349" class="arrow"/>
+  <line x1="892" y1="446" x2="964" y2="446" class="line"/>
+  <polygon points="964,446 950,438 950,454" class="arrow"/>
+
+  <text x="404" y="204" class="mono">MCP / HTTP</text>
+  <text x="966" y="204" class="mono">PROXMOX REST API</text>
 </svg>
