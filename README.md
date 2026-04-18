@@ -158,6 +158,26 @@ black .
 
 Contribution standards, local setup, and validation expectations are maintained in [Developer Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Developer-Guide).
 
+Packaging and release:
+
+```bash
+python -m pip install --upgrade build twine
+python -m build
+twine check dist/*
+```
+
+Release automation included in this repository:
+
+- `publish-pypi.yml`: publishes `dist/` artifacts to PyPI on GitHub Release publish or manual dispatch
+- `publish-ghcr.yml`: builds and publishes a container image to `ghcr.io/RekklesNA/ProxmoxMCP-Plus`
+
+Release prerequisites:
+
+- Configure a PyPI project named `proxmox-mcp-plus`
+- Prefer PyPI Trusted Publishing, or set repository secret `PYPI_API_TOKEN`
+- Ensure GitHub Actions has permission to publish packages to GHCR
+- Create a GitHub Release such as `v0.1.0` to trigger both publish workflows
+
 Pull request quality bar:
 
 - Behavior changes are covered by tests
