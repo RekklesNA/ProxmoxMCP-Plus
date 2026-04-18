@@ -16,13 +16,13 @@
 
 <p align="center">
   <a href="#30-second-demo">30-second Demo</a> |
-  <a href="#real-e2e-proof">Real E2E Proof</a> |
+  <a href="#proven-on-a-live-lab">Live Lab Proof</a> |
   <a href="#install">Install</a> |
   <a href="#scenario-templates">Scenario Templates</a> |
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![LLM and AI agent to Proxmox flow](assets/llm-proxmox-demo-flow.svg)
+![LLM and AI agent to Proxmox flow](assets/proxmoxmcp-demo.gif)
 
 ## Why This Project Exists
 
@@ -64,13 +64,13 @@ This is the core pitch in one sentence:
 
 > one Proxmox control plane for both LLM-native workflows and standard HTTP/OpenAPI automation.
 
-## Real E2E Proof
+## Proven on a Live Lab
 
-The strongest claim here is not "has features". It is "the important paths were exercised against a real Proxmox lab".
+This project is not presented as "should work in theory". The core operator flows were run against a real Proxmox environment and checked end to end.
 
-Latest verified live coverage:
+Most useful paths verified so far:
 
-| Capability | Real lab status |
+| Workflow | Live status |
 | --- | --- |
 | VM create / start / stop / delete | Verified |
 | VM snapshot create / rollback / delete | Verified |
@@ -82,7 +82,7 @@ Latest verified live coverage:
 | Local OpenAPI `/health` and schema | Verified |
 | Docker image build and `/health` | Verified |
 
-Validation entry points in this repo:
+If you want to inspect or rerun the same checks, start here:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
