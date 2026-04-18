@@ -1,11 +1,12 @@
 # Wiki Seed Pages
 
-This directory contains the GitHub Wiki seed pages for ProxmoxMCP-Plus.
+This directory contains the markdown pages intended to be published to the GitHub Wiki for ProxmoxMCP-Plus.
 
 ## Documentation Model
 
-- Longer-form project documentation lives in GitHub Wiki
-- README role: concise project entry and navigation
+- `README.md` in the repo root is the short project entrypoint
+- `docs/wiki/` contains the longer operational and reference pages
+- page names here should stay aligned with the published Wiki page names
 
 ## Pages Included
 
@@ -19,23 +20,26 @@ This directory contains the GitHub Wiki seed pages for ProxmoxMCP-Plus.
 - `Release & Upgrade Notes.md`
 - `_Sidebar.md`
 
-## Enable and Publish Wiki
+## Publishing To GitHub Wiki
 
-1. Enable repository Wiki in GitHub:
-   - Repository `Settings` -> `Features` -> enable `Wikis`
-2. Clone the Wiki repository:
-   ```bash
-   git clone https://github.com/RekklesNA/ProxmoxMCP-Plus.wiki.git
-   ```
-3. Copy seed pages into the cloned wiki repo root.
+1. Enable the repository Wiki in GitHub settings.
+2. Clone the wiki repository:
+
+```bash
+git clone https://github.com/RekklesNA/ProxmoxMCP-Plus.wiki.git
+```
+
+3. Copy the files from `docs/wiki/` into the root of the cloned wiki repository.
 4. Commit and push:
-   ```bash
-   git add .
-   git commit -m "Initialize wiki documentation structure"
-   git push
-   ```
 
-## Naming Note
+```bash
+git add .
+git commit -m "Update wiki content"
+git push
+```
 
-GitHub Wiki URL slugs are generated from page titles.  
-Keep these titles stable to preserve external links from `README.md`.
+## Maintenance Notes
+
+- Keep titles stable so wiki URLs stay stable
+- Update the root README links if a wiki page is renamed
+- Avoid adding placeholders for features that do not exist in the codebase
