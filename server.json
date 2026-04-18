@@ -1,0 +1,81 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.RekklesNA/proxmox-mcp-plus",
+  "title": "ProxmoxMCP-Plus",
+  "description": "Enhanced Proxmox MCP server for managing Proxmox VE nodes, VMs, LXCs, snapshots, backups, ISOs, and related operational workflows.",
+  "repository": {
+    "url": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
+    "source": "github"
+  },
+  "version": "0.2.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "proxmox-mcp-plus",
+      "version": "0.2.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PROXMOX_HOST",
+          "description": "Hostname or IP address of the Proxmox VE API endpoint.",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_USER",
+          "description": "Proxmox username with realm, for example root@pam.",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_TOKEN_NAME",
+          "description": "Name of the Proxmox API token.",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_TOKEN_VALUE",
+          "description": "Secret value of the Proxmox API token.",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "PROXMOX_PORT",
+          "description": "Proxmox API port. Defaults to 8006.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_VERIFY_SSL",
+          "description": "Set to true to verify TLS certificates, or false for self-signed lab environments.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_SERVICE",
+          "description": "Proxmox service type. Defaults to PVE.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Server log verbosity. Defaults to INFO.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

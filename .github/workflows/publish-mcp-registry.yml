@@ -1,0 +1,85 @@
+name: Publish MCP Registry Metadata
+
+on:
+  workflow_run:
+    workflows: ["Publish Python Package"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Resolve registry package version
+      id: version
+      shell: bash
+      run: |
+        version=$(python - <<'PY'
+        import json
+        from pathlib import Path
+
+        print(json.loads(Path("server.json").read_text(encoding="utf-8"))["version"])
+        PY
+        )
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Wait for PyPI release visibility
+      shell: bash
+      env:
+        PACKAGE_NAME: proxmox-mcp-plus
+        PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        python - <<'PY'
+        import json
+        import os
+        import sys
+        import time
+        import urllib.request
+
+        package_name = os.environ["PACKAGE_NAME"]
+        package_version = os.environ["PACKAGE_VERSION"]
+        url = f"https://pypi.org/pypi/{package_name}/json"
+
+        for attempt in range(1, 19):
+            with urllib.request.urlopen(url, timeout=30) as response:
+                payload = json.load(response)
+            releases = payload.get("releases", {})
+            if releases.get(package_version):
+                print(f"Found {package_name}=={package_version} on PyPI.")
+                sys.exit(0)
+            print(
+                f"Attempt {attempt}/18: {package_name}=={package_version} "
+                "is not visible on PyPI yet. Waiting 10 seconds..."
+            )
+            time.sleep(10)
+
+        raise SystemExit(
+            f"{package_name}=={package_version} did not become visible on PyPI in time."
+        )
+        PY
+
+    - name: Install mcp-publisher
+      shell: bash
+      run: |
+        curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+        chmod +x ./mcp-publisher
+
+    - name: Authenticate to MCP Registry
+      run: ./mcp-publisher login github-oidc
+
+    - name: Publish server to MCP Registry
+      run: ./mcp-publisher publish
