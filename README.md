@@ -17,7 +17,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> |
   <a href="#demo">Demo</a> |
-  <a href="#validated-against-real-proxmox-infrastructure">Validation</a> |
+  <a href="#live-environment-verification">Validation</a> |
   <a href="#scenario-templates">Scenarios</a> |
   <a href="#documentation">Docs</a> |
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
@@ -48,7 +48,7 @@ This project exists for the gap between "the Proxmox API is powerful" and "an LL
 - `Dual-surface design`: MCP for conversational workflows, OpenAPI for standard automation
 - `Operator-oriented`: focuses on real tasks, not just raw low-level endpoints
 - `Safer by default`: auth, command policy, and explicit execution paths
-- `Evidence over claims`: important workflows were exercised against a real Proxmox lab
+- `Evidence over claims`: documented workflows are backed by live-environment verification
 
 ## Quick Start
 
@@ -128,15 +128,15 @@ Client-specific examples for Claude Desktop and Open WebUI are in the [Integrati
 
 ## Demo
 
-This GIF shows the product pitch in the fastest possible format: an LLM-facing workflow, Proxmox operations behind it, and the HTTP health surface available for verification.
+This GIF is a direct terminal recording of an LLM-driven MCP session against a live local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
 
 ![Recorded demo gif](assets/proxmoxmcp-demo.gif)
 
-## Validated Against Real Proxmox Infrastructure
+## Live Environment Verification
 
-The strongest claim here is not "has features." It is "the important workflows were exercised against a real Proxmox environment."
+This repository is documented against observed behavior, not a hypothetical feature list. The workflows below were exercised against a live Proxmox lab and are represented by repeatable validation entry points in this repository.
 
-Latest verified paths:
+Latest verified workflows:
 
 | Workflow | Status |
 | --- | --- |
@@ -166,7 +166,7 @@ Validation entry points in this repository:
 | Snapshot, backup, and restore workflows | Low-level only | Depends | Yes |
 | Container command execution with policy controls | No | Custom only | Yes |
 | Docker distribution path | No | Rare | Yes |
-| Repo-level real-environment validation | N/A | Rare | Yes |
+| Repository-level live-environment verification | N/A | Rare | Yes |
 
 ## Scenario Templates
 
