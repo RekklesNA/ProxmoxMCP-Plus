@@ -2,9 +2,9 @@
 
 This directory contains the GitHub Wiki seed pages for ProxmoxMCP-Plus.
 
-## Canonical Documentation Model
+## Documentation Model
 
-- Source of truth for deep documentation: GitHub Wiki
+- Longer-form project documentation lives in GitHub Wiki
 - README role: concise project entry and navigation
 
 ## Pages Included
@@ -31,7 +31,7 @@ This directory contains the GitHub Wiki seed pages for ProxmoxMCP-Plus.
 4. Commit and push:
    ```bash
    git add .
-   git commit -m "Initialize enterprise documentation structure"
+   git commit -m "Initialize wiki documentation structure"
    git push
    ```
 

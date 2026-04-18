@@ -1,6 +1,6 @@
 # Operator Guide
 
-This guide is for infrastructure and platform operators running ProxmoxMCP-Plus in managed environments.
+This guide is for people running ProxmoxMCP-Plus as a shared service or integration endpoint.
 
 ## Runtime Topology
 
@@ -8,13 +8,13 @@ This guide is for infrastructure and platform operators running ProxmoxMCP-Plus 
 - OpenAPI mode for HTTP client integrations
 - Docker Compose for service-oriented deployments
 
-## Production Deployment Checklist
+## Deployment Checklist
 
 - Validate Proxmox API token scope and RBAC model
-- Configure `proxmox-config/config.json` with production-safe values
+- Configure `proxmox-config/config.json` with deployment-safe values
 - Keep `security.dev_mode=false` in production
 - Set and enforce OpenAPI API key controls
-- Put OpenAPI endpoint behind TLS termination and trusted ingress
+- Put the OpenAPI endpoint behind TLS termination and controlled ingress
 - Configure centralized log shipping and retention
 - Monitor `/health` for liveness and readiness
 

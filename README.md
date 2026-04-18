@@ -8,26 +8,26 @@ Open-source MCP server for Proxmox VE automation.
 This repository provides a secure control plane for VM and container lifecycle operations, plus an OpenAPI bridge for integrations.
 
 Documentation strategy: this README is the stable entrypoint, while detailed runbooks and references live in Wiki.
-This keeps onboarding fast while preserving operational depth in one canonical location.
+This keeps onboarding fast while leaving longer guides and runbooks in Wiki.
 
-[Quick Start](#quick-start) | [Security](#security--compliance) | [API Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference) | [Troubleshooting](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Troubleshooting)
+[Quick Start](#quick-start) | [Security](#security) | [API Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference) | [Troubleshooting](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Troubleshooting)
 
 ## 1) Project Positioning and Value
 
 ProxmoxMCP-Plus is designed for teams that need:
 
 - Reliable MCP-native automation for Proxmox clusters
-- Operationally safe execution paths with policy controls
+- Safer execution paths with policy controls
 - Integration flexibility across MCP clients and HTTP/OpenAPI consumers
 - A documentation model where README stays concise and Wiki carries deep guidance
 
-This project builds on [canvrno/ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP), and extends it for enterprise-oriented deployment and operations.
+This project builds on [canvrno/ProxmoxMCP](https://github.com/canvrno/ProxmoxMCP), and extends it with stronger operational controls, OpenAPI access, and clearer documentation for day-to-day use.
 
 Target audience:
 
-- Platform engineering teams operating Proxmox at scale
-- AI platform teams exposing virtualization controls to assistant workflows
-- Infrastructure teams requiring auditable and policy-aware automation
+- Teams operating Proxmox with MCP-based automation
+- AI and tooling teams exposing virtualization controls to assistant workflows
+- Infrastructure operators who need traceable automation with policy controls
 
 ## 2) Architecture and Capability Overview
 
@@ -39,6 +39,8 @@ High-level architecture:
 - `Observability Layer`: logging and health visibility
 - `OpenAPI Bridge`: HTTP exposure for external platforms
 
+![ProxmoxMCP-Plus architecture overview](assets/architecture-overview.drawio-style.svg)
+
 Capability groups:
 
 | Domain | Coverage |
@@ -48,6 +50,24 @@ Capability groups:
 | Platform Operations | Node, cluster, storage, and ISO/template management |
 | Remote Execution | Optional command execution for VM and container workflows |
 | Integrations | MCP clients, OpenAPI consumers, and WebUI-based automation |
+
+Core features:
+
+- `VM lifecycle you can actually automate`: create VMs with CPU, memory, disk, storage, OS type, and bridge settings; then start, stop, shut down, reset, or delete them from MCP or HTTP clients.
+- `LXC management with practical controls`: list containers, start/stop/restart them, resize CPU and memory, create new containers from templates, inspect config, fetch container IPs, and remove containers cleanly.
+- `Snapshots and rollback`: create, list, delete, and roll back snapshots for both VMs and containers, so assistants can handle change checkpoints without dropping to the Proxmox UI.
+- `Backups and restore flows`: browse backup volumes, trigger backups, restore them to new IDs, and clean up old backup artifacts when needed.
+- `Storage and image visibility`: inspect storage pools, browse uploaded ISOs, list templates, and download or delete ISO images without switching tools.
+- `Cluster and node awareness`: read cluster status, enumerate nodes, and inspect per-node health before making changes.
+- `Command execution with guardrails`: run commands in VMs through QEMU Guest Agent and in containers through SSH-backed execution, while still passing through command policy checks.
+- `OpenAPI bridge out of the box`: expose the same MCP capabilities over HTTP with `/docs`, `/openapi.json`, and `/health`, which makes it easier to connect Open WebUI, internal tools, or simple automation scripts.
+
+Why this is useful in practice:
+
+- An assistant can create a test VM from a plain-language request, choose storage automatically, and return the resulting VM details.
+- A workflow can snapshot a workload before change, run an update, and roll back if the verification step fails.
+- A WebUI or internal portal can use the OpenAPI endpoint instead of implementing Proxmox calls directly.
+- Teams can keep risky command execution behind policy checks instead of exposing raw shell access everywhere.
 
 Full endpoint and tool details are maintained in Wiki: [API & Tool Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference).
 
@@ -105,7 +125,7 @@ Health endpoint:
 curl -f http://localhost:8811/health
 ```
 
-For production deployment details, use [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide).
+For deployment details and runtime operations, use [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide).
 
 Validation path for first run:
 
@@ -127,22 +147,22 @@ Integration expectations:
 - Use environment-specific API keys when exposing OpenAPI.
 - Test with read-only operations before enabling lifecycle mutation workflows.
 
-## 5) Security & Compliance
+## 5) Security
 
-Security posture summary:
+Security summary:
 
 - API-token based Proxmox authentication
 - Environment-aware controls (`dev_mode` for development-only relaxation)
 - Command execution policy and allow/deny constraints
 - Operational logging and health visibility
 
-Security baseline, hardening checklist, and threat boundaries are documented in [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide).
+Security controls, deployment guidance, and threat boundaries are documented in [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide).
 
-Minimum production controls:
+Recommended deployment controls:
 
 - Enforce `security.dev_mode=false`
 - Restrict ingress to trusted networks or VPN paths
-- Terminate TLS at an approved reverse proxy
+- Terminate TLS at a reverse proxy you control
 - Rotate API credentials regularly and monitor denied operations
 
 ## 6) Contributing / Development
@@ -193,18 +213,18 @@ Support channels:
 
 FAQ shortcuts:
 
-- How do I deploy to production? See [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide).
+- How do I deploy this service? See [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide).
 - Where are all tools/endpoints listed? See [API & Tool Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference).
 - How do I configure secure command execution? See [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide).
 
-Escalation guidance:
+When troubleshooting deeper issues:
 
-- For security-sensitive incidents, collect logs and request context before remediation.
+- For security-related incidents, collect logs and request context before remediation.
 - For breaking behavior after upgrade, compare against [Release & Upgrade Notes](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Release-&-Upgrade-Notes).
 
 ## 8) Wiki Navigation Panel
 
-GitHub Wiki is the source of truth for detailed documentation.  
+GitHub Wiki contains the detailed documentation.  
 If Wiki is not enabled yet, enable it in repository settings first, then publish the seed pages from `docs/wiki/`.
 
 ### Documentation Map
@@ -212,9 +232,9 @@ If Wiki is not enabled yet, enable it in repository settings first, then publish
 | Topic | What it covers | Wiki link |
 | --- | --- | --- |
 | Home | Documentation landing page and navigation | [Home](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Home) |
-| Operator Guide | Deployment, runtime operations, OpenAPI, production checklist | [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide) |
+| Operator Guide | Deployment, runtime operations, OpenAPI, and operating checklist | [Operator Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Operator-Guide) |
 | Developer Guide | Local setup, coding standards, testing and release flow | [Developer Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Developer-Guide) |
-| Security Guide | Auth model, command policy, hardening and audit guidance | [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide) |
+| Security Guide | Auth model, command policy, hardening, and logging guidance | [Security Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Security-Guide) |
 | Integrations Guide | Claude, Cline, Open WebUI, MCP transport setup | [Integrations Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Integrations-Guide) |
 | API & Tool Reference | Tool groups, endpoint behavior, and request notes | [API & Tool Reference](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/API-&-Tool-Reference) |
 | Troubleshooting | Incident patterns, diagnostics, and recovery actions | [Troubleshooting](https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki/Troubleshooting) |
@@ -222,7 +242,7 @@ If Wiki is not enabled yet, enable it in repository settings first, then publish
 
 Local seed pages for Wiki bootstrap are available in [`docs/wiki/`](docs/wiki/README.md).
 
-### Documentation Contract
+### Documentation Notes
 
 README remains intentionally concise and stable.  
 Detailed operational guidance, examples, and runbooks live in Wiki.
@@ -230,7 +250,7 @@ Detailed operational guidance, examples, and runbooks live in Wiki.
 The following entry points are treated as stable documentation interfaces:
 
 - `Quick Start`: repository bootstrap and first-run verification
-- `Security`: baseline controls and hardening navigation
+- `Security`: control overview and hardening navigation
 - `API Reference`: tool and endpoint behavior index
 - `Troubleshooting`: incident diagnosis and recovery guidance
 

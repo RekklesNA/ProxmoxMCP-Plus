@@ -1,8 +1,8 @@
 # Troubleshooting
 
-Use this page for incident diagnosis and recovery workflows.
+Use this page to diagnose and recover from common failures.
 
-## Common Incident Areas
+## Common Problem Areas
 
 - Proxmox connectivity or auth failures
 - Permission and RBAC denials
@@ -10,7 +10,7 @@ Use this page for incident diagnosis and recovery workflows.
 - Command policy denials
 - Storage compatibility or allocation failures
 
-## First-Line Diagnostics
+## First Checks
 
 - Verify configuration values and token validity
 - Check server logs and recent deployment changes
