@@ -97,7 +97,7 @@ class SnapshotTools(ProxmoxTool):
                 if parent:
                     lines.append(f"     Parent: {parent}")
                 if vmstate:
-                    lines.append(f"     RAM State: Included")
+                    lines.append("     RAM State: Included")
                 lines.append("")
 
             return [Content(type="text", text="\n".join(lines).rstrip())]
@@ -150,7 +150,7 @@ class SnapshotTools(ProxmoxTool):
             if description:
                 lines.append(f"  • Description: {description}")
             if vmstate and vm_type == "qemu":
-                lines.append(f"  • RAM State: Included")
+                lines.append("  • RAM State: Included")
 
             lines.extend([
                 "",

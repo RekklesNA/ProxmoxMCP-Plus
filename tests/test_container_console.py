@@ -3,7 +3,7 @@ Tests for LXC container console operations via SSH + pct exec.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from proxmox_mcp.tools.console.container_manager import ContainerConsoleManager
 

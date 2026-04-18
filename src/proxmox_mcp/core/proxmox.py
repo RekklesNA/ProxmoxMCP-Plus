@@ -60,6 +60,7 @@ class ProxmoxManager:
         return {
             'host': proxmox_config.host,
             'port': proxmox_config.port,
+            'timeout': proxmox_config.timeout,
             'user': auth_config.user,
             'token_name': auth_config.token_name,
             'token_value': auth_config.token_value,

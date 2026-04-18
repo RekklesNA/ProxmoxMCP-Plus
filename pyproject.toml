@@ -1,6 +1,6 @@
 [project]
 name = "proxmox-mcp-plus"
-version = "0.1.0"
+version = "0.2.0"
 description = "Enhanced Proxmox MCP Server"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,6 +38,8 @@ dev = [
     "black>=24.3.0,<27.0.0",
     "mypy>=1.0.0,<2.0.0",
     "ruff>=0.1.0,<0.2.0",
+    "build>=1.2.0,<2.0.0",
+    "types-paramiko>=4.0.0.20250822,<5.0.0",
     "types-requests>=2.31.0,<3.0.0",
 ]
 
@@ -63,4 +65,20 @@ include = [
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",
+]
+
+[tool.mypy]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = [
+    "proxmoxer",
+    "mcpo",
+    "mcpo.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: runs live Proxmox and OpenAPI end-to-end checks",
 ]

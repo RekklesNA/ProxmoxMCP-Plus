@@ -67,6 +67,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             'proxmox': {
                 'host': os.getenv("PROXMOX_HOST"),
                 'port': int(os.getenv("PROXMOX_PORT", "8006")),
+                'timeout': int(os.getenv("PROXMOX_TIMEOUT", "30")),
                 'verify_ssl': os.getenv("PROXMOX_VERIFY_SSL", "true").lower() == "true",
                 'service': os.getenv("PROXMOX_SERVICE", "PVE")
             },
