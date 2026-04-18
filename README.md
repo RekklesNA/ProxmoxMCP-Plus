@@ -23,7 +23,7 @@
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero.svg)
+![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero-main-refresh.svg)
 
 ## What This Project Is
 
