@@ -25,14 +25,14 @@
 
 ![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero-main-refresh.svg)
 
-## What This Project Is
+## Platform Overview
 
-ProxmoxMCP-Plus is a Proxmox VE control plane that exposes the same operational surface in two forms:
+ProxmoxMCP-Plus provides a unified Proxmox VE control surface in two forms:
 
 - `MCP` for Claude Desktop, Open WebUI, and other LLM or AI agent clients
 - `OpenAPI` for HTTP automation, dashboards, internal tools, and no-code workflows
 
-Instead of wiring raw Proxmox API calls, shell scripts, and separate glue services, you get one project that can handle:
+Instead of stitching together raw Proxmox API calls, shell scripts, and custom glue code, the project consolidates core operational workflows in one interface:
 
 - VM and LXC lifecycle actions
 - snapshot create, rollback, and delete
@@ -41,14 +41,14 @@ Instead of wiring raw Proxmox API calls, shell scripts, and separate glue servic
 - node, storage, and cluster inspection
 - SSH-backed container command execution with guardrails
 
-## Why Teams Reach For This
+## Design Priorities
 
-This project exists for the gap between "the Proxmox API is powerful" and "an LLM or AI agent can safely operate real infrastructure."
+ProxmoxMCP-Plus is designed for the gap between low-level Proxmox primitives and production-facing workflows that need to be usable from both LLM-native clients and standard automation systems.
 
-- `Dual-surface design`: MCP for conversational workflows, OpenAPI for standard automation
-- `Operator-oriented`: focuses on real tasks, not just raw low-level endpoints
-- `Safer by default`: auth, command policy, and explicit execution paths
-- `Evidence over claims`: documented workflows are backed by live-environment verification
+- `Dual-surface architecture`: MCP for conversational workflows, OpenAPI for standard automation
+- `Operator-oriented scope`: focused on day-2 tasks, not just raw low-level endpoints
+- `Safer-by-default execution`: auth, command policy, and explicit execution paths
+- `Operationally grounded`: documented workflows are backed by live-environment verification
 
 ## Quick Start
 
@@ -158,7 +158,7 @@ Validation and contract entry points in this repository:
 - `tests/integration/test_real_contract.py`
 - `test_scripts/run_real_e2e.py`
 
-## Why This Instead Of Raw API Calls Or Scripts
+## Positioning Against Common Approaches
 
 | Capability | Official Proxmox API | One-off scripts | ProxmoxMCP-Plus |
 | --- | --- | --- | --- |
