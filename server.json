@@ -3,7 +3,18 @@
   "name": "io.github.RekklesNA/proxmox-mcp-plus",
   "title": "ProxmoxMCP-Plus",
   "description": "Proxmox VE MCP server for VMs, LXCs, snapshots, backups, storage, and cluster operations.",
+  "websiteUrl": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/RekklesNA/ProxmoxMCP-Plus/main/assets/logo-proxmoxmcp-plus-400.png",
+      "sizes": [
+        "400x400"
+      ],
+      "mimeType": "image/png"
+    }
+  ],
   "repository": {
+    "id": "988856738",
     "url": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
     "source": "github"
   },
@@ -19,6 +30,13 @@
         "type": "stdio"
       },
       "environmentVariables": [
+        {
+          "name": "PROXMOX_MCP_CONFIG",
+          "description": "Optional path to a JSON config file. If set, file config is used before environment variable fallback.",
+          "isRequired": false,
+          "format": "filepath",
+          "isSecret": false
+        },
         {
           "name": "PROXMOX_HOST",
           "description": "Hostname or IP address of the Proxmox VE API endpoint.",
@@ -57,6 +75,13 @@
         {
           "name": "PROXMOX_VERIFY_SSL",
           "description": "Set to true to verify TLS certificates, or false for self-signed lab environments.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "PROXMOX_DEV_MODE",
+          "description": "Set to true when using verify_ssl=false in a self-signed lab environment.",
           "isRequired": false,
           "format": "string",
           "isSecret": false

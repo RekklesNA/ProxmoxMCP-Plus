@@ -1,0 +1,78 @@
+# Smithery configuration file: https://smithery.ai/docs/build/publish
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - proxmoxHost
+      - proxmoxUser
+      - proxmoxTokenName
+      - proxmoxTokenValue
+    properties:
+      configPath:
+        type: string
+        default: ""
+        description: Optional path to proxmox-config/config.json. If present, file config is used before env var fallback.
+      proxmoxHost:
+        type: string
+        description: Hostname or IP address of the Proxmox VE API endpoint.
+      proxmoxPort:
+        type: string
+        default: "8006"
+        description: Proxmox VE API port.
+      proxmoxUser:
+        type: string
+        description: Proxmox username with realm, for example root@pam.
+      proxmoxTokenName:
+        type: string
+        description: Proxmox API token name.
+      proxmoxTokenValue:
+        type: string
+        description: Proxmox API token secret value.
+      proxmoxVerifySsl:
+        type: boolean
+        default: true
+        description: Verify TLS certificates for the Proxmox endpoint.
+      proxmoxDevMode:
+        type: boolean
+        default: false
+        description: Required when proxmoxVerifySsl is false for self-signed lab environments.
+      proxmoxService:
+        type: string
+        default: PVE
+        description: Proxmox service type.
+      logLevel:
+        type: string
+        default: INFO
+        description: Server log level.
+    description: Configuration for running ProxmoxMCP-Plus as a local stdio MCP server.
+  commandFunction:
+    |-
+    (config) => ({
+      command: 'python',
+      args: ['main.py'],
+      env: {
+        PROXMOX_MCP_CONFIG: config.configPath || '',
+        PROXMOX_HOST: config.proxmoxHost,
+        PROXMOX_PORT: String(config.proxmoxPort || '8006'),
+        PROXMOX_USER: config.proxmoxUser,
+        PROXMOX_TOKEN_NAME: config.proxmoxTokenName,
+        PROXMOX_TOKEN_VALUE: config.proxmoxTokenValue,
+        PROXMOX_VERIFY_SSL: String(config.proxmoxVerifySsl ?? true),
+        PROXMOX_DEV_MODE: String(config.proxmoxDevMode ?? false),
+        PROXMOX_SERVICE: config.proxmoxService || 'PVE',
+        LOG_LEVEL: config.logLevel || 'INFO'
+      }
+    })
+  exampleConfig:
+    configPath: ""
+    proxmoxHost: proxmox.example.internal
+    proxmoxPort: "8006"
+    proxmoxUser: root@pam
+    proxmoxTokenName: mcp-token
+    proxmoxTokenValue: your-token-secret
+    proxmoxVerifySsl: false
+    proxmoxDevMode: true
+    proxmoxService: PVE
+    logLevel: INFO

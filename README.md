@@ -197,6 +197,7 @@ The README is intentionally optimized for fast GitHub comprehension. Longer oper
 | Understand the project and deployment flow | [Wiki Home](docs/wiki/Home.md) |
 | Configure and run against a Proxmox environment | [Operator Guide](docs/wiki/Operator%20Guide.md) |
 | Connect Claude Desktop or Open WebUI | [Integrations Guide](docs/wiki/Integrations%20Guide.md) |
+| Install from MCP-aware IDEs and agents | [llms-installation.md](llms-installation.md) |
 | Review security and command policy | [Security Guide](docs/wiki/Security%20Guide.md) |
 | Inspect tool parameters, prerequisites, and behavior | [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md) |
 | Debug startup, auth, or health issues | [Troubleshooting](docs/wiki/Troubleshooting.md) |
