@@ -232,6 +232,53 @@ Common error codes:
 - `409`: the job exists but that operation is not valid now
 - `503`: the OpenAPI proxy was started without a local `JobStore`
 
+`test_scripts/run_real_e2e.py` now prefers `proxmox-config/config.live.json` or `PROXMOX_MCP_E2E_CONFIG`.
+This avoids accidentally running live checks against a machine-specific default `config.json`.
+
+## Long-Running Jobs
+
+Many Proxmox mutations are asynchronous. ProxmoxMCP-Plus now wraps those tasks in a persistent job layer so MCP and OpenAPI clients can track them through a stable `Job ID`.
+
+Long-running tools such as VM create/start/stop, container create/start/stop, snapshot changes, backup/restore, and ISO download/delete now return both:
+
+- `task_id`: the raw Proxmox `UPID`
+- `job_id`: the stable server-side job record
+
+The job record stores:
+
+- current status and progress
+- retry count and prior `UPID`s
+- latest result payload or failure reason
+- audit history for create, poll, retry, and cancel actions
+
+By default the job store persists to `proxmox-jobs.sqlite3`, so restart does not lose in-flight or completed job metadata.
+
+### MCP Job Tools
+
+- `list_jobs`
+- `get_job`
+- `poll_job`
+- `cancel_job`
+- `retry_job`
+
+### OpenAPI Job Routes
+
+When the OpenAPI proxy is enabled and a local `JobStore` is available, these routes are exposed directly:
+
+| Path | Method | Purpose | Success Codes |
+| --- | --- | --- | --- |
+| `/jobs` | `GET` | list persisted jobs | `200` |
+| `/jobs/{job_id}` | `GET` | fetch one job, optional `refresh=true` | `200` |
+| `/jobs/{job_id}/poll` | `POST` | refresh status from Proxmox | `200` |
+| `/jobs/{job_id}/cancel` | `POST` | request cancellation | `202` |
+| `/jobs/{job_id}/retry` | `POST` | replay a stored retry recipe | `202` |
+
+Common error codes:
+
+- `404`: unknown `job_id`
+- `409`: the job exists but that operation is not valid now
+- `503`: the OpenAPI proxy was started without a local `JobStore`
+
 ## Positioning Against Common Approaches
 
 | Capability | Official Proxmox API | One-off scripts | ProxmoxMCP-Plus |
