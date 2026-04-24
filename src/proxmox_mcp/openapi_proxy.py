@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -108,7 +108,7 @@ def create_app(
     app.state.rate_limit_rpm = rate_limit_rpm
     app.add_middleware(ProxyMetricsMiddleware)
     if rate_limit_rpm > 0:
-        app.add_middleware(RateLimitMiddleware, requests_per_minute=rate_limit_rpm)
+        app.add_middleware(cast(Any, RateLimitMiddleware), requests_per_minute=rate_limit_rpm)
 
     app.add_middleware(
         CORSMiddleware,
