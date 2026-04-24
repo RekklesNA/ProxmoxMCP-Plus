@@ -3,7 +3,7 @@
 <!-- mcp-name: io.github.RekklesNA/proxmox-mcp-plus -->
 
 <div align="center">
-  <img src="assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
+  <img src="docs/assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
 </div>
 
 <p align="center"><strong>Control Proxmox VE from LLMs, AI agents, MCP clients, and OpenAPI tooling with one safer interface for VMs, LXCs, backups, snapshots, ISOs, container commands, and persistent long-running jobs.</strong></p>
@@ -25,7 +25,7 @@
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero-main-refresh.svg)
+![ProxmoxMCP-Plus architecture and control flow](docs/assets/proxmoxmcp-drawio-hero-main-refresh.svg)
 
 ## Platform Overview
 
@@ -154,9 +154,9 @@ Client-specific examples for Claude Desktop and Open WebUI are in the [Integrati
 
 This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live MCP session in English against a local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
 
-![Recorded demo gif](assets/proxmoxmcp-demo.gif)
+![Recorded demo gif](docs/assets/proxmoxmcp-demo.gif)
 
-[Watch the MP4 version](assets/proxmoxmcp-demo.mp4)
+[Watch the MP4 version](docs/assets/proxmoxmcp-demo.mp4)
 
 ## Core Platform Capabilities
 
@@ -183,9 +183,9 @@ Validation and contract entry points in this repository:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
-- `test_scripts/run_real_e2e.py`
+- `tests/scripts/run_real_e2e.py`
 
-`test_scripts/run_real_e2e.py` now prefers `proxmox-config/config.live.json` or `PROXMOX_MCP_E2E_CONFIG`.
+`tests/scripts/run_real_e2e.py` now prefers `proxmox-config/config.live.json` or `PROXMOX_MCP_E2E_CONFIG`.
 This avoids accidentally running live checks against a machine-specific default `config.json`.
 
 ## Long-Running Jobs
@@ -247,11 +247,11 @@ Common error codes:
 
 ## Scenario Templates
 
-Ready-to-copy examples live in [`examples/`](examples/README.md):
+Ready-to-copy examples live in [`docs/examples/`](docs/examples/README.md):
 
-- [Create a test VM](examples/create-test-vm.md)
-- [Roll back a risky change with snapshots](examples/rollback-snapshot.md)
-- [Download an ISO and create an LXC](examples/download-iso-and-create-lxc.md)
+- [Create a test VM](docs/examples/create-test-vm.md)
+- [Roll back a risky change with snapshots](docs/examples/rollback-snapshot.md)
+- [Download an ISO and create an LXC](docs/examples/download-iso-and-create-lxc.md)
 
 These are written for both human operators and LLM-driven usage.
 
@@ -282,9 +282,9 @@ Published wiki:
 - `docker-compose.yml`: HTTP/OpenAPI runtime
 - `requirements/`: auxiliary dependency sources and runtime install lists
 - `scripts/`: helper startup scripts for local workflows
-- `test_scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
+- `tests/scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
 - `tests/`: unit and integration coverage
-- `examples/`: scenario-driven prompts and HTTP examples
+- `docs/examples/`: scenario-driven prompts and HTTP examples
 - `docs/wiki/`: longer-form operator, integration, and reference docs
 
 ## Development Checks
@@ -292,7 +292,7 @@ Published wiki:
 ```bash
 pytest -q
 ruff check .
-mypy src tests main.py test_scripts/run_real_e2e.py
+mypy src tests main.py tests/scripts/run_real_e2e.py
 python -m build
 ```
 

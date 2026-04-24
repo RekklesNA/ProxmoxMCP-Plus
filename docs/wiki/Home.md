@@ -59,7 +59,7 @@ Primary validation entry points:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
-- `test_scripts/run_real_e2e.py`
+- `tests/scripts/run_real_e2e.py`
 
 ## External References
 
