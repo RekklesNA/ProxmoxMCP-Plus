@@ -5,7 +5,7 @@ import pytest
 
 
 def _reload_run_real_e2e():
-    module_path = Path(__file__).resolve().parents[1] / "test_scripts" / "run_real_e2e.py"
+    module_path = Path(__file__).resolve().parents[1] / "tests" / "scripts" / "run_real_e2e.py"
     spec = importlib.util.spec_from_file_location("run_real_e2e_for_test", module_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 DEFAULT_CONFIG_PATH = ROOT / "proxmox-config" / "config.json"
 DEFAULT_LIVE_CONFIG_PATH = ROOT / "proxmox-config" / "config.live.json"

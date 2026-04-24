@@ -20,7 +20,7 @@ Common causes:
 
 ## Real E2E Refuses To Start
 
-`test_scripts/run_real_e2e.py` is intentionally stricter than normal runtime startup.
+`tests/scripts/run_real_e2e.py` is intentionally stricter than normal runtime startup.
 
 Check:
 

@@ -11,7 +11,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-HARNESS = ROOT / "test_scripts" / "run_real_e2e.py"
+HARNESS = ROOT / "tests" / "scripts" / "run_real_e2e.py"
 
 
 @pytest.mark.integration
