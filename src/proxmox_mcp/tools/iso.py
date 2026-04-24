@@ -235,6 +235,16 @@ class ISOTools(ProxmoxTool):
                 params["checksum-algorithm"] = checksum_algorithm
 
             result = self.proxmox.nodes(node).storage(storage)("download-url").post(**params)
+            job = self._register_background_job(
+                tool_name="download_iso",
+                summary=f"Download ISO {filename} to {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "filename": filename, "url": url},
+                retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
+                retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             lines = [
                 "⬇️ ISO Download Started",
@@ -250,6 +260,7 @@ class ISOTools(ProxmoxTool):
             lines.extend([
                 "",
                 f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "The download is running in the background.",
                 "Use list_isos to verify when complete.",
@@ -265,6 +276,7 @@ class ISOTools(ProxmoxTool):
         node: str,
         storage: str,
         filename: str,
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Delete an ISO or template from storage.
 
@@ -276,6 +288,7 @@ class ISOTools(ProxmoxTool):
         Returns:
             List[Content] with deletion result
         """
+        _ = approval_token
         try:
             # Construct volume ID if just filename provided
             if ":" not in filename:
@@ -300,6 +313,16 @@ class ISOTools(ProxmoxTool):
 
             # Delete the content
             result = self.proxmox.nodes(node).storage(storage).content(volid).delete()
+            job = self._register_background_job(
+                tool_name="delete_iso",
+                summary=f"Delete ISO/template {volid} from {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "volid": volid},
+                retry_spec={"kind": "iso.delete", "params": {"node": node, "storage": storage, "volid": volid}},
+                retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             lines = [
                 "🗑️ ISO/Template Deleted",
@@ -310,7 +333,7 @@ class ISOTools(ProxmoxTool):
             ]
 
             if result:
-                lines.extend(["", f"Task ID: {result}"])
+                lines.extend(["", f"Task ID: {result}", f"Job ID: {job['job_id'] if job else 'n/a'}"])
 
             return [Content(type="text", text="\n".join(lines))]
 

@@ -15,6 +15,7 @@ import logging
 from typing import Dict, Any
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
+from proxmox_mcp.core.ssh_tunnel import SSHTunnelManager
 
 class ProxmoxManager:
     """Manager class for Proxmox API operations.
@@ -29,7 +30,13 @@ class ProxmoxManager:
     ensuring proper initialization and error handling for all API operations.
     """
     
-    def __init__(self, proxmox_config: ProxmoxConfig, auth_config: AuthConfig):
+    def __init__(
+        self,
+        proxmox_config: ProxmoxConfig,
+        auth_config: AuthConfig,
+        api_tunnel_config: Any | None = None,
+        ssh_config: Any | None = None,
+    ):
         """Initialize the Proxmox API manager.
 
         Args:
@@ -37,6 +44,9 @@ class ProxmoxManager:
             auth_config: Authentication configuration
         """
         self.logger = logging.getLogger("proxmox-mcp.proxmox")
+        self.tunnel_manager = SSHTunnelManager(api_tunnel_config, ssh_config) if api_tunnel_config is not None else None
+        if self.tunnel_manager is not None:
+            self.tunnel_manager.ensure_tunnel()
         self.config = self._create_config(proxmox_config, auth_config)
         self.api = self._setup_api()
 

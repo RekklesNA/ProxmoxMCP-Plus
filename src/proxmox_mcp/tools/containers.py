@@ -66,8 +66,10 @@ class ContainerTools(ProxmoxTool):
         proxmox_api: Any,
         ssh_config: Any = None,
         command_policy: Any = None,
+        metrics: Any = None,
+        job_store: Any = None,
     ) -> None:
-        super().__init__(proxmox_api)
+        super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
@@ -414,7 +416,25 @@ class ContainerTools(ProxmoxTool):
             for node, vmid, label in targets:
                 try:
                     resp = self.proxmox.nodes(node).lxc(vmid).status.start.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+                    job = self._register_background_job(
+                        tool_name="start_container",
+                        summary=f"Start container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.start", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=lambda node=node, vmid=vmid: self.proxmox.nodes(node).lxc(vmid).status.start.post(),
+                        cancel_factory=lambda upid, node=node: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -444,7 +464,29 @@ class ContainerTools(ProxmoxTool):
                         resp = self.proxmox.nodes(node).lxc(vmid).status.shutdown.post(timeout=timeout_seconds)
                     else:
                         resp = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+                    job = self._register_background_job(
+                        tool_name="stop_container",
+                        summary=f"Stop container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid, "graceful": graceful},
+                        retry_spec={"kind": "ct.stop", "params": {"node": node, "vmid": vmid, "graceful": graceful, "timeout_seconds": timeout_seconds}},
+                        retry_factory=(
+                            (lambda node=node, vmid=vmid: self.proxmox.nodes(node).lxc(vmid).status.shutdown.post(timeout=timeout_seconds))
+                            if graceful
+                            else (lambda node=node, vmid=vmid: self.proxmox.nodes(node).lxc(vmid).status.stop.post())
+                        ),
+                        cancel_factory=lambda upid, node=node: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -469,7 +511,25 @@ class ContainerTools(ProxmoxTool):
             for node, vmid, label in targets:
                 try:
                     resp = self.proxmox.nodes(node).lxc(vmid).status.reboot.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+                    job = self._register_background_job(
+                        tool_name="restart_container",
+                        summary=f"Restart container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.restart", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=lambda node=node, vmid=vmid: self.proxmox.nodes(node).lxc(vmid).status.reboot.post(),
+                        cancel_factory=lambda upid, node=node: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -589,6 +649,16 @@ class ContainerTools(ProxmoxTool):
 
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)
+            job = self._register_background_job(
+                tool_name="create_container",
+                summary=f"Create container {vmid} ({hostname}) on {node}",
+                node=node,
+                upid=result,
+                metadata={"vmid": vmid, "hostname": hostname},
+                retry_spec={"kind": "ct.create", "params": {"node": node, "ct_config": ct_config}},
+                retry_factory=lambda: self.proxmox.nodes(node).lxc.create(**ct_config),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             # Format success response
             lines = [
@@ -609,6 +679,7 @@ class ContainerTools(ProxmoxTool):
                 f"  • Nesting enabled: {'Yes' if nesting else 'No'}",
                 "",
                 f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "Next steps:",
                 f"  • Start container: start_container selector='{vmid}'",
@@ -624,6 +695,7 @@ class ContainerTools(ProxmoxTool):
         selector: str,
         force: bool = False,
         format_style: str = "pretty",
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Delete one or more LXC containers.
 
@@ -635,6 +707,7 @@ class ContainerTools(ProxmoxTool):
         Returns:
             List[Content] with deletion results
         """
+        _ = approval_token
         try:
             targets = self._resolve_targets(selector)
             if not targets:
@@ -667,6 +740,17 @@ class ContainerTools(ProxmoxTool):
                     # Delete the container
                     task_result = self.proxmox.nodes(node).lxc(vmid).delete()
                     rec["task_id"] = str(task_result)
+                    job = self._register_background_job(
+                        tool_name="delete_container",
+                        summary=f"Delete container {vmid} on {node}",
+                        node=node,
+                        upid=task_result,
+                        metadata={"vmid": vmid, "force": force},
+                        retry_spec={"kind": "ct.delete", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=lambda node=node, vmid=vmid: self.proxmox.nodes(node).lxc(vmid).delete(),
+                        cancel_factory=lambda upid, node=node: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    )
+                    rec["job_id"] = job["job_id"] if job else None
 
                 except Exception as e:
                     rec["ok"] = False

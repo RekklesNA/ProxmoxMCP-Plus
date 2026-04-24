@@ -32,6 +32,8 @@ python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port 8811 -- python main.py
 | `src/proxmox_mcp/openapi_proxy.py` | FastAPI wrapper for HTTP/OpenAPI mode |
 | `src/proxmox_mcp/config/` | config models and loader |
 | `src/proxmox_mcp/security/` | command policy checks |
+| `src/proxmox_mcp/services/jobs.py` | persistent SQLite-backed job store |
+| `src/proxmox_mcp/services/builtin_tool_plugins.py` | plugin-based tool registration |
 | `src/proxmox_mcp/tools/` | Proxmox-facing tool implementations |
 | `tests/` | unit and integration-facing test coverage |
 | `docs/wiki/` | wiki seed pages |
@@ -48,10 +50,16 @@ python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port 8811 -- python main.py
 If you add or change a tool:
 
 - Update the implementation in `src/proxmox_mcp/tools/`
-- Register or adjust it in `src/proxmox_mcp/server.py`
+- Register or adjust it in `src/proxmox_mcp/services/builtin_tool_plugins.py`
 - Update descriptions in `src/proxmox_mcp/tools/definitions.py`
 - Add or update tests under `tests/`
 - Update [API & Tool Reference](API-&-Tool-Reference) if the surface changed
+
+If the tool launches an asynchronous Proxmox task, also:
+
+- return a stable `job_id` alongside the raw Proxmox `task_id`
+- add or update the persisted retry recipe in `src/proxmox_mcp/services/jobs.py`
+- verify the job is queryable through both MCP tools and the OpenAPI `/jobs` routes
 
 ## Configuration Development Notes
 
@@ -61,6 +69,7 @@ The config loader supports:
 - Environment-only fallback when no config file is available
 - TLS safety checks that block `verify_ssl=false` unless `security.dev_mode=true`
 - MCP transport normalization, including `STREAMABLE_HTTP` to `STREAMABLE`
+- `jobs.sqlite_path` fallback through `PROXMOX_JOBS_SQLITE_PATH`
 
 If you change config semantics, keep the example files in `proxmox-config/` consistent.
 
@@ -90,8 +99,10 @@ The current tests cover several important behaviors already:
 - tool registration with and without SSH config
 - config validation and TLS safety checks
 - OpenAPI root and health endpoints
+- OpenAPI `/metrics` and `/jobs` endpoints
 - VM and container tool behavior
 - backup, storage, ISO, and cluster-related flows
+- SQLite-backed job persistence and retry behavior
 
 When adding a new feature, extend tests in the same area rather than only relying on manual checks.
 

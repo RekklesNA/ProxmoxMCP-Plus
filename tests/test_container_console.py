@@ -22,6 +22,7 @@ class _SSHConfig:
     use_sudo = False
     known_hosts_file = None
     strict_host_key_checking = False
+    prefer_ssh_client = False
 
 
 @pytest.fixture
@@ -159,3 +160,17 @@ def test_password_auth_used_when_no_key(MockSSHClient, manager, ssh_cfg):
     connect_kwargs = mock_client.connect.call_args[1]
     assert connect_kwargs.get("password") == "s3cr3t"
     assert "key_filename" not in connect_kwargs
+
+
+@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
+    ssh_cfg.prefer_ssh_client = True
+    ssh_cfg.host_overrides = {"pve1": "ahg1"}
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+    result = manager.execute_command("pve1", "101", "echo ok")
+
+    assert result["success"] is True
+    ssh_command = mock_run.call_args[0][0]
+    assert ssh_command[-2] == "ahg1"
+    assert "/usr/sbin/pct exec" in ssh_command[-1]

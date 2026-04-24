@@ -18,6 +18,8 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+DEFAULT_CONFIG_PATH = ROOT / "proxmox-config" / "config.json"
+DEFAULT_LIVE_CONFIG_PATH = ROOT / "proxmox-config" / "config.live.json"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -28,6 +30,121 @@ TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICodexLiveE2ETestKey codex-live-
 
 def log(message: str) -> None:
     print(f"[live-e2e] {message}", flush=True)
+
+
+def call_with_transient_retry(getter: Any, context: str, attempts: int = 8, delay: float = 2.0) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return getter()
+        except (requests.exceptions.RequestException, OSError) as exc:
+            last_error = exc
+            if attempt == attempts:
+                break
+            log(f"Transient API failure during {context}; retrying ({attempt}/{attempts}) -> {exc}")
+            time.sleep(delay)
+    raise RuntimeError(f"Failed during {context} after {attempts} attempts: {last_error}") from last_error
+
+
+def resolve_live_config_path() -> Path:
+    explicit_e2e = os.getenv("PROXMOX_MCP_E2E_CONFIG")
+    if explicit_e2e:
+        return Path(explicit_e2e)
+
+    if DEFAULT_LIVE_CONFIG_PATH.exists():
+        return DEFAULT_LIVE_CONFIG_PATH
+
+    explicit_runtime = os.getenv("PROXMOX_MCP_CONFIG")
+    if explicit_runtime:
+        explicit_path = Path(explicit_runtime)
+        if explicit_path != DEFAULT_CONFIG_PATH:
+            return explicit_path
+
+    raise FileNotFoundError(
+        "Live e2e requires a dedicated reachable config. "
+        "Create proxmox-config/config.live.json from proxmox-config/config.live.example.json, "
+        "or set PROXMOX_MCP_E2E_CONFIG to an explicit live config path."
+    )
+
+
+def tcp_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def build_connectivity_hint(config: Any) -> str:
+    proxmox_host = str(config.proxmox.host)
+    proxmox_port = int(config.proxmox.port)
+    lines = [
+        f"Configured Proxmox API target {proxmox_host}:{proxmox_port} is not reachable from this machine.",
+    ]
+
+    api_tunnel = getattr(config, "api_tunnel", None)
+    ssh_config_path = Path.home() / ".ssh" / "config"
+    ssh_config_text = ""
+    if ssh_config_path.exists():
+        ssh_config_text = ssh_config_path.read_text(encoding="utf-8", errors="ignore")
+    if api_tunnel is not None and getattr(api_tunnel, "enabled", False):
+        lines.append(
+            f"Automatic API tunnel is enabled via ssh host '{api_tunnel.ssh_host}', but that SSH path is not reachable either."
+        )
+        lines.append(
+            "Restore the jump-host/VPN path first; once SSH to that alias works, the server will create the local API forward automatically."
+        )
+    elif proxmox_host in {"localhost", "127.0.0.1", "::1"}:
+        lines.append(
+            "This config assumes a local tunnel or local PVE install, but no local listener is present."
+        )
+        ssh_cfg = config.ssh
+        if ssh_cfg is not None:
+            lines.append(
+                f"Configured SSH path also looks local-only: port {ssh_cfg.port}, host_overrides={ssh_cfg.host_overrides or {}}."
+            )
+        if "proxyjump" in ssh_config_text.lower():
+            lines.append(
+                "Your ~/.ssh/config still contains jump-host entries. This usually means the real PVE lives behind a jump host, not on localhost."
+            )
+        lines.append(
+            "Fix one of these before rerunning e2e: set proxmox.host to the actual reachable PVE address, or re-establish the local tunnel that used to forward 8006/2222."
+        )
+    else:
+        lines.append(
+            "Either the host is wrong, the required VPN/Tailscale/SSH jump path is down, or a firewall blocks access."
+        )
+
+    return "\n".join(lines)
+
+
+def validate_live_connectivity(config: Any) -> None:
+    proxmox_host = str(config.proxmox.host)
+    proxmox_port = int(config.proxmox.port)
+    api_tunnel = getattr(config, "api_tunnel", None)
+    if api_tunnel is not None and getattr(api_tunnel, "enabled", False):
+        ssh_host = str(api_tunnel.ssh_host)
+        if not tcp_reachable(ssh_host, 22):
+            raise RuntimeError(build_connectivity_hint(config))
+        return
+
+    if not tcp_reachable(proxmox_host, proxmox_port):
+        raise RuntimeError(build_connectivity_hint(config))
+
+    if config.ssh is not None:
+        ssh_port = int(config.ssh.port)
+        override_hosts = config.ssh.host_overrides or {}
+        if proxmox_host in {"localhost", "127.0.0.1", "::1"} and override_hosts:
+            unresolved = [
+                f"{node_alias}->{ssh_host}:{ssh_port}"
+                for node_alias, ssh_host in sorted(override_hosts.items())
+                if not tcp_reachable(str(ssh_host), ssh_port)
+            ]
+            if unresolved:
+                log(
+                    "SSH override targets are currently unreachable: "
+                    + ", ".join(unresolved)
+                )
 
 
 def parse_json_text(contents: list[Any]) -> Any:
@@ -53,7 +170,10 @@ def wait_for_task(api: Any, node: str, upid: str, timeout: int = 900) -> dict[st
     deadline = time.time() + timeout
     last_status: dict[str, Any] | None = None
     while time.time() < deadline:
-        status = api.nodes(node).tasks(upid).status.get()
+        status = call_with_transient_retry(
+            lambda: api.nodes(node).tasks(upid).status.get(),
+            f"task status poll for {upid}",
+        )
         last_status = status if isinstance(status, dict) else {"raw": status}
         exit_status = str(last_status.get("exitstatus", "") or "")
         state = str(last_status.get("status", "") or "").lower()
@@ -71,7 +191,10 @@ def wait_for_guest_status(getter: Any, expected: str, timeout: int = 180) -> dic
     deadline = time.time() + timeout
     last_status: dict[str, Any] | None = None
     while time.time() < deadline:
-        status = getter()
+        status = call_with_transient_retry(
+            getter,
+            f"guest status wait for '{expected}'",
+        )
         last_status = status if isinstance(status, dict) else {"raw": status}
         if last_status.get("status") == expected:
             return last_status
@@ -307,12 +430,21 @@ def prepare_live_config(config_path: Path) -> tuple[Path, str | None]:
     return config_path, None
 
 
+def assert_config_is_live_ready(config_path: Path, config: Any) -> None:
+    proxmox_host = str(config.proxmox.host)
+    if config_path == DEFAULT_CONFIG_PATH and proxmox_host in {"localhost", "127.0.0.1", "::1"}:
+        raise RuntimeError(
+            "Refusing to run live e2e against the default proxmox-config/config.json because it still "
+            "points at a local-only API target. Use proxmox-config/config.live.json or PROXMOX_MCP_E2E_CONFIG."
+        )
+
+
 def main() -> int:
     from proxmox_mcp.config.loader import load_config
     from proxmox_mcp.core.proxmox import ProxmoxManager
     from proxmox_mcp.server import ProxmoxMCPServer
 
-    source_config_path = Path(os.getenv("PROXMOX_MCP_CONFIG", ROOT / "proxmox-config" / "config.json"))
+    source_config_path = resolve_live_config_path()
     if not source_config_path.exists():
         raise FileNotFoundError(f"Config file not found: {source_config_path}")
 
@@ -321,6 +453,8 @@ def main() -> int:
         if config_note:
             log(config_note)
         config = load_config(str(config_path))
+        assert_config_is_live_ready(source_config_path, config)
+        validate_live_connectivity(config)
         api = ProxmoxManager(config.proxmox, config.auth).get_api()
         server = ProxmoxMCPServer(str(config_path))
 
