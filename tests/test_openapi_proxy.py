@@ -135,6 +135,7 @@ def test_jobs_routes_return_expected_status_codes():
 
     missing_response = client.get("/jobs/missing")
     assert missing_response.status_code == 404
+    assert missing_response.json()["message"] == "Job was not found"
 
     poll_response = client.post("/jobs/job-1/poll")
     assert poll_response.status_code == 200
@@ -146,7 +147,28 @@ def test_jobs_routes_return_expected_status_codes():
 
     conflict_response = client.post("/jobs/bad/cancel")
     assert conflict_response.status_code == 409
+    assert conflict_response.json()["message"] == "Job cannot perform that operation right now"
 
     retry_response = client.post("/jobs/job-1/retry")
     assert retry_response.status_code == 202
     assert retry_response.json()["attempts"] == 2
+
+
+def test_jobs_routes_hide_internal_error_details():
+    class _BrokenJobStore:
+        def list_jobs(self, **kwargs):
+            raise ValueError("sensitive backend detail")
+
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_store=_BrokenJobStore(),
+    )
+    client = TestClient(app)
+
+    response = client.get("/jobs")
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Job request failed"

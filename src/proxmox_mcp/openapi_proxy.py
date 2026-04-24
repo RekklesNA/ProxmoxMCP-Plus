@@ -185,13 +185,14 @@ def create_app(
         return job_store_local
 
     def _job_error_response(error: Exception) -> JSONResponse:
+        LOGGER.warning("Job route error: %s", error, exc_info=True)
         if isinstance(error, JobNotFoundError):
-            return JSONResponse(status_code=404, content={"status": "not_found", "message": str(error)})
+            return JSONResponse(status_code=404, content={"status": "not_found", "message": "Job was not found"})
         if isinstance(error, JobConflictError):
-            return JSONResponse(status_code=409, content={"status": "conflict", "message": str(error)})
+            return JSONResponse(status_code=409, content={"status": "conflict", "message": "Job cannot perform that operation right now"})
         if isinstance(error, RuntimeError):
-            return JSONResponse(status_code=503, content={"status": "unavailable", "message": str(error)})
-        return JSONResponse(status_code=400, content={"status": "error", "message": str(error)})
+            return JSONResponse(status_code=503, content={"status": "unavailable", "message": "Job service is unavailable in this process"})
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Job request failed"})
 
     @app.get("/jobs")
     async def list_jobs(
