@@ -85,13 +85,16 @@ class ContainerConsoleManager:
 
         # 3. SSH to node and run command
         client = paramiko.SSHClient()
-        if self.ssh_cfg.strict_host_key_checking:
-            client.load_system_host_keys()
-            if self.ssh_cfg.known_hosts_file:
-                client.load_host_keys(os.path.expanduser(self.ssh_cfg.known_hosts_file))
-            client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        else:
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.load_system_host_keys()
+        if self.ssh_cfg.known_hosts_file:
+            client.load_host_keys(os.path.expanduser(self.ssh_cfg.known_hosts_file))
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        if not self.ssh_cfg.strict_host_key_checking:
+            self.logger.warning(
+                "Ignoring strict_host_key_checking=false for Paramiko execution; "
+                "unknown SSH host keys are always rejected. "
+                "Use prefer_ssh_client=true if you need OpenSSH-specific host key behavior."
+            )
 
         connect_kwargs: Dict[str, Any] = dict(
             hostname=target,

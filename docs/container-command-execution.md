@@ -89,10 +89,11 @@ which is the same surface that already exists if an attacker compromises a conta
 
 ### SSH host key checking
 
-The implementation now uses strict host key checking by default (`RejectPolicy`), which means
-unknown hosts are rejected unless the host key is present in `known_hosts` (system-level or
-configured `known_hosts_file`). This is the recommended production posture. You can explicitly
-disable strict checking only for local development.
+The implementation now uses strict host key checking for the Paramiko execution path (`RejectPolicy`),
+which means unknown hosts are rejected unless the host key is present in `known_hosts` (system-level
+or configured `known_hosts_file`). This is the recommended production posture. `strict_host_key_checking`
+no longer downgrades Paramiko to auto-trust unknown hosts. If you need host key behavior managed by
+your local OpenSSH client configuration instead, use `prefer_ssh_client=true`.
 
 ### Key management
 
