@@ -37,13 +37,19 @@ class VMTools(ProxmoxTool):
     with QEMU guest agent for VM command execution.
     """
 
-    def __init__(self, proxmox_api: Any, command_policy: Optional[Any] = None):
+    def __init__(
+        self,
+        proxmox_api: Any,
+        command_policy: Optional[Any] = None,
+        metrics: Optional[Any] = None,
+        job_store: Optional[Any] = None,
+    ):
         """Initialize VM tools.
 
         Args:
             proxmox_api: Initialized ProxmoxAPI instance
         """
-        super().__init__(proxmox_api)
+        super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager = VMConsoleManager(proxmox_api)
         self.command_policy = command_policy
 
@@ -260,6 +266,16 @@ class VMTools(ProxmoxTool):
             
             # Create the VM
             task_result = self.proxmox.nodes(node).qemu.create(**vm_config)
+            job = self._register_background_job(
+                tool_name="create_vm",
+                summary=f"Create VM {vmid} ({name}) on {node}",
+                node=node,
+                upid=task_result,
+                metadata={"vmid": vmid, "name": name},
+                retry_spec={"kind": "vm.create", "params": {"node": node, "vm_config": vm_config}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu.create(**vm_config),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
             
             cloudinit_note = ""
             if storage_type in ["lvm", "lvmthin"]:
@@ -280,6 +296,7 @@ class VMTools(ProxmoxTool):
   • QEMU Agent: Enabled{cloudinit_note}
 
 🔧 Task ID: {task_result}
+🧾 Job ID: {job["job_id"] if job else "n/a"}
 
 💡 Next steps:
   1. Upload an ISO to install the operating system
@@ -317,7 +334,21 @@ class VMTools(ProxmoxTool):
             else:
                 # Start the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.start.post()
-                result_text = f"🚀 VM {vmid} start initiated successfully\nTask ID: {task_result}"
+                job = self._register_background_job(
+                    tool_name="start_vm",
+                    summary=f"Start VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.start", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.start.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                )
+                result_text = (
+                    f"🚀 VM {vmid} start initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
                 
             return [Content(type="text", text=result_text)]
             
@@ -350,7 +381,21 @@ class VMTools(ProxmoxTool):
             else:
                 # Stop the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
-                result_text = f"🛑 VM {vmid} stop initiated successfully\nTask ID: {task_result}"
+                job = self._register_background_job(
+                    tool_name="stop_vm",
+                    summary=f"Stop VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.stop", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                )
+                result_text = (
+                    f"🛑 VM {vmid} stop initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
                 
             return [Content(type="text", text=result_text)]
             
@@ -383,7 +428,21 @@ class VMTools(ProxmoxTool):
             else:
                 # Shutdown the VM gracefully
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.shutdown.post()
-                result_text = f"💤 VM {vmid} graceful shutdown initiated\nTask ID: {task_result}"
+                job = self._register_background_job(
+                    tool_name="shutdown_vm",
+                    summary=f"Shutdown VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.shutdown", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.shutdown.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                )
+                result_text = (
+                    f"💤 VM {vmid} graceful shutdown initiated\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
                 
             return [Content(type="text", text=result_text)]
             
@@ -416,7 +475,21 @@ class VMTools(ProxmoxTool):
             else:
                 # Reset the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.reset.post()
-                result_text = f"🔄 VM {vmid} reset initiated successfully\nTask ID: {task_result}"
+                job = self._register_background_job(
+                    tool_name="reset_vm",
+                    summary=f"Reset VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.reset", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.reset.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                )
+                result_text = (
+                    f"🔄 VM {vmid} reset initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
                 
             return [Content(type="text", text=result_text)]
             
@@ -487,7 +560,13 @@ class VMTools(ProxmoxTool):
         except Exception as e:
             self._handle_error(f"execute command on VM {vmid}", e)
 
-    def delete_vm(self, node: str, vmid: str, force: bool = False) -> List[Content]:
+    def delete_vm(
+        self,
+        node: str,
+        vmid: str,
+        force: bool = False,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
         """Delete/remove a virtual machine completely.
         
         This will permanently delete the VM and all its associated data including:
@@ -509,6 +588,7 @@ class VMTools(ProxmoxTool):
             ValueError: If VM is not found or is running and force=False
             RuntimeError: If deletion fails
         """
+        _ = approval_token
         try:
             # Check if VM exists and get current status
             try:
@@ -534,6 +614,16 @@ class VMTools(ProxmoxTool):
             
             # Delete the VM
             task_result = self.proxmox.nodes(node).qemu(vmid).delete()
+            job = self._register_background_job(
+                tool_name="delete_vm",
+                summary=f"Delete VM {vmid} ({vm_name}) on {node}",
+                node=node,
+                upid=task_result,
+                metadata={"vmid": vmid, "force": force},
+                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
             
             result_text += f"""🗑️ VM {vmid} ({vm_name}) deletion initiated successfully!
 
@@ -544,6 +634,7 @@ class VMTools(ProxmoxTool):
   • Cannot be undone!
 
 🔧 Task ID: {task_result}
+🧾 Job ID: {job["job_id"] if job else "n/a"}
 
 ✅ VM {vmid} ({vm_name}) is being deleted from node {node}"""
             

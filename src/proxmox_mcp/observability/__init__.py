@@ -1,5 +1,5 @@
 """Observability scaffolding."""
 
-from .metrics import ToolMetrics
+from .metrics import HttpRequestMetrics, ToolMetrics
 
-__all__ = ["ToolMetrics"]
+__all__ = ["ToolMetrics", "HttpRequestMetrics"]

@@ -16,6 +16,42 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 - Upgrade steps:
 - Rollback notes:
 
+## Release History
+
+### Version `0.3.0`
+
+- Release date: 2026-04-24
+- Summary: adds a persistent SQLite-backed job layer for long-running Proxmox tasks, direct OpenAPI job routes, richer OpenAPI operational endpoints, and plugin-based tool registration.
+- New tools or endpoints:
+  - MCP tools: `list_jobs`, `get_job`, `poll_job`, `cancel_job`, `retry_job`
+  - OpenAPI routes: `GET /jobs`, `GET /jobs/{job_id}`, `POST /jobs/{job_id}/poll`, `POST /jobs/{job_id}/cancel`, `POST /jobs/{job_id}/retry`
+  - OpenAPI route: `/metrics`
+- Changed behavior:
+  - async mutating tools now return a stable `job_id` in addition to raw Proxmox `task_id`
+  - tool registration now flows through built-in registry plugins instead of one growing `server.py` block
+  - high-risk operations can be policy-gated separately from command execution
+- Removed or deprecated behavior:
+  - none
+- Config changes:
+  - new `jobs.sqlite_path`
+  - new optional `api_tunnel` section
+  - expanded `command_policy` with high-risk operation controls
+- Docs updated:
+  - `README.md`
+  - `docs/wiki/Home.md`
+  - `docs/wiki/Operator Guide.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Troubleshooting.md`
+  - `docs/wiki/Developer Guide.md`
+- Upgrade steps:
+  - add a persistent path for `jobs.sqlite_path` in long-lived deployments
+  - update config from `proxmox-config/config.example.json`
+  - if you depend on async tooling, switch client logic to keep `job_id` and not just `task_id`
+  - if you use OpenAPI, update monitors and clients to account for `/metrics` and `/jobs`
+- Rollback notes:
+  - older versions cannot read back persisted jobs through `/jobs`
+  - clients written against `job_id` should be reverted together with the server downgrade
+
 ## Suggested Upgrade Checklist
 
 Before upgrading:
@@ -44,4 +80,4 @@ After upgrading:
 
 ## Existing Notes
 
-No release history has been backfilled yet. Add entries here starting with the next tagged release or when reconstructing past changes from git history.
+Older release history has not been backfilled yet.

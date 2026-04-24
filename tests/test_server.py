@@ -770,3 +770,46 @@ async def test_update_container_ssh_keys_missing_parameters(ssh_server):
     """update_container_ssh_keys raises ToolError when required parameters are missing."""
     with pytest.raises(ToolError):
         await ssh_server.mcp.call_tool("update_container_ssh_keys", {})
+
+
+@pytest.mark.asyncio
+async def test_tool_metrics_record_calls(server, mock_proxmox):
+    mock_proxmox.return_value.nodes.get.return_value = [
+        {"node": "node1", "status": "online"},
+    ]
+    mock_proxmox.return_value.nodes.return_value.status.get.return_value = {
+        "status": "online",
+        "uptime": 12,
+        "cpuinfo": {"cpus": 4},
+        "memory": {"used": 128, "total": 1024},
+    }
+
+    await server.mcp.call_tool("get_nodes", {})
+    snapshot = server.metrics.snapshot()
+
+    assert snapshot["get_nodes"]["success"]["calls"] == 1
+    assert snapshot["get_nodes"]["success"]["latency_ms_sum"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_high_risk_operation_requires_approval_token(mock_proxmox, tmp_path):
+    config_path = tmp_path / "config_high_risk.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "command_policy": {
+            "mode": "audit_only",
+            "high_risk_mode": "enforce",
+            "high_risk_require_approval_token": True,
+            "high_risk_approval_token": "approve-me",
+        },
+    }))
+
+    policy_server = ProxmoxMCPServer(str(config_path))
+
+    with pytest.raises(ToolError, match="requires an approval token"):
+        await policy_server.mcp.call_tool(
+            "delete_vm",
+            {"node": "node1", "vmid": "100", "force": False},
+        )

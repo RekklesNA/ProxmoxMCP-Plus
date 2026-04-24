@@ -1,4 +1,4 @@
-"""Command policy gateway for execute_* tools."""
+"""Command and operation policy gateway for runtime safety controls."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class CommandPolicyDecision:
 
 
 class CommandPolicyGate:
-    """Evaluate command execution requests against configured policy."""
+    """Evaluate command and high-risk operation requests against configured policy."""
 
     def __init__(self, config: CommandPolicyConfig):
         self.config = config
@@ -73,3 +73,48 @@ class CommandPolicyGate:
             return CommandPolicyDecision(True, "CMD_POLICY_AUDIT_ALLOW", "Allowed (audit-only mode)")
 
         return CommandPolicyDecision(True, "CMD_POLICY_ALLOW", "Allowed by policy")
+
+    def evaluate_operation(
+        self,
+        operation_name: str,
+        *,
+        approval_token: str | None = None,
+    ) -> CommandPolicyDecision:
+        if not operation_name:
+            return CommandPolicyDecision(False, "OP_POLICY_EMPTY", "Operation name cannot be empty")
+
+        if operation_name not in set(self.config.high_risk_operations):
+            return CommandPolicyDecision(True, "OP_POLICY_ALLOW", "Operation is not classified as high risk")
+
+        mode = self.config.high_risk_mode
+        if mode == "disabled":
+            return CommandPolicyDecision(True, "OP_POLICY_DISABLED", "High-risk policy is disabled")
+
+        expected_token = self.config.high_risk_approval_token or self.config.approval_token
+        requires_token = self.config.high_risk_require_approval_token
+        if requires_token:
+            if not expected_token:
+                return CommandPolicyDecision(
+                    False,
+                    "OP_POLICY_APPROVAL_NOT_CONFIGURED",
+                    "High-risk approval token required but not configured on server",
+                )
+            if approval_token != expected_token:
+                return CommandPolicyDecision(
+                    False,
+                    "OP_POLICY_APPROVAL_REQUIRED",
+                    f"High-risk operation '{operation_name}' requires an approval token",
+                )
+
+        if mode == "audit_only":
+            return CommandPolicyDecision(
+                True,
+                "OP_POLICY_AUDIT_ALLOW",
+                f"High-risk operation '{operation_name}' allowed in audit-only mode",
+            )
+
+        return CommandPolicyDecision(
+            True,
+            "OP_POLICY_ALLOW",
+            f"High-risk operation '{operation_name}' allowed by policy",
+        )

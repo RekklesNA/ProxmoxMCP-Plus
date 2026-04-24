@@ -6,8 +6,8 @@ This project currently provides security fixes for the latest release line only.
 
 | Version | Supported |
 | --- | --- |
-| `0.2.x` | Yes |
-| `< 0.2.0` | No |
+| `0.3.x` | Yes |
+| `< 0.3.0` | No |
 
 The `main` branch may contain changes that have not been released yet. For production use, prefer the latest tagged release and upgrade within the current supported release line.
 
@@ -17,7 +17,7 @@ Do not open a public GitHub issue for a suspected security vulnerability.
 
 Please report security issues privately through one of these paths:
 
-1. GitHub Security Advisories / private vulnerability reporting for this repository, if available.
+1. GitHub Security Advisories or private vulnerability reporting for this repository, if available.
 2. Otherwise, open a GitHub issue only to request a private contact path, without including exploit details, credentials, tokens, private IPs, or reproduction steps.
 
 When reporting a vulnerability, include:
@@ -63,9 +63,9 @@ Examples of issues that are usually not security vulnerabilities by themselves:
 
 Operators should also review:
 
-- [README.md](README.md)
-- [Security Guide](docs/wiki/Security%20Guide.md)
-- [Operator Guide](docs/wiki/Operator%20Guide.md)
+- [README.md](../README.md)
+- [Security Guide](../docs/wiki/Security%20Guide.md)
+- [Operator Guide](../docs/wiki/Operator%20Guide.md)
 
 At minimum:
 

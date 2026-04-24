@@ -1,0 +1,34 @@
+{
+    "proxmox": {
+        "host": "your-reachable-proxmox-host",
+        "port": 8006,
+        "timeout": 30,
+        "verify_ssl": true,
+        "service": "PVE"
+    },
+    "auth": {
+        "user": "root@pam",
+        "token_name": "your-token-name",
+        "token_value": "your-token-value"
+    },
+    "logging": {
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "file": "proxmox_mcp.log"
+    },
+    "security": {
+        "dev_mode": false
+    },
+    "command_policy": {
+        "mode": "audit_only",
+        "high_risk_mode": "enforce",
+        "high_risk_require_approval_token": false
+    },
+    "ssh": {
+        "user": "root",
+        "port": 22,
+        "key_file": "C:\\Users\\your-user\\.ssh\\id_rsa",
+        "strict_host_key_checking": true,
+        "prefer_ssh_client": true
+    }
+}

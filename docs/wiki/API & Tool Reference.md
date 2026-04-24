@@ -21,6 +21,8 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 | `/docs` | Swagger UI | interactive API docs for the currently running tool set |
 | `/openapi.json` | generated OpenAPI schema | reflects conditional tool registration such as SSH-backed tools |
 | `/health` | health and backend status | validates wrapper availability and MCP backend connectivity |
+| `/metrics` | Prometheus metrics | includes per-route labels for `route`, `method`, and `status` |
+| `/jobs` | persistent job list | requires a local `JobStore` in the OpenAPI process |
 
 ## Global Behavior And Constraints
 
@@ -36,6 +38,23 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 - Some tools return human-readable text by default.
 - Several container tools support `format_style` with `pretty` or `json`.
 - In HTTP mode, exact request and response payloads should be verified against `/openapi.json` for the running server version.
+- Long-running mutating tools can return both a raw Proxmox `task_id` and a stable `job_id`.
+
+### Job Tracking Conventions
+
+- `job_id` is the MCP and OpenAPI stable identifier for a long-running operation.
+- `task_id` remains the raw Proxmox `UPID` and can change when a job is retried.
+- Job records persist in the configured SQLite database and survive process restart.
+- `retry_job` only works when the job was created with a stored retry recipe.
+- `cancel_job` is best-effort and follows Proxmox task cancellation semantics.
+
+### OpenAPI Job Status Codes
+
+- `200`: list, fetch, or poll succeeded
+- `202`: cancel or retry request accepted
+- `404`: unknown `job_id`
+- `409`: the job exists but cannot perform that action now
+- `503`: the OpenAPI wrapper has no local `JobStore`
 
 ### Common Prerequisites
 
@@ -80,6 +99,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `stop_vm` is the force-stop path. Use `shutdown_vm` for graceful guest shutdown when supported.
 - `execute_vm_command` is not a generic SSH shell. It is mediated through QEMU Guest Agent and command-policy checks.
+- `create_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
 
 ## Container Tools
 
@@ -103,6 +123,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 - `update_container_resources.disk_gb` is an additional resize amount for the selected disk, not a full replacement size target.
 - `create_container.start_after_create` controls immediate startup after provisioning.
 - `create_container.nesting` and `create_container.unprivileged` change container execution characteristics and should match your Proxmox policy.
+- `create_container`, `start_container`, `stop_container`, `restart_container`, and `delete_container` create persistent job records for asynchronous task tracking.
 
 ## Snapshot Tools
 
@@ -117,6 +138,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `rollback_snapshot` is a disruptive restore action and should be treated as an operationally sensitive step.
 - `vmstate` applies to VM snapshots and is not a general LXC memory-capture option.
+- `create_snapshot`, `delete_snapshot`, and `rollback_snapshot` all register persistent jobs when Proxmox returns a task `UPID`.
 
 ## ISO and Template Tools
 
@@ -131,6 +153,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `list_templates` is commonly used to discover a valid `ostemplate` value for `create_container`.
 - When `checksum` is supplied, `checksum_algorithm` must match the provided digest.
+- `download_iso` and `delete_iso` register jobs so callers can poll progress from the same `job_id`.
 
 ## Backup Tools
 
@@ -145,6 +168,24 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `restore_backup` restores into a new `vmid`.
 - `create_backup.mode` changes how Proxmox coordinates workload state during backup and may affect runtime interruption characteristics.
+- `create_backup`, `restore_backup`, and `delete_backup` register persistent jobs and support later `poll`, `cancel`, and `retry` through the job surface.
+
+## Job Tools
+
+| Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
+| --- | --- | --- | --- | --- | --- |
+| `list_jobs` | Read-only | none | `status`, `tool_name`, `limit=100` | in-process `JobStore` enabled | job store unavailable |
+| `get_job` | Read-only | `job_id` | `refresh=false` | job exists | unknown `job_id` |
+| `poll_job` | Mutating | `job_id` | none | job exists and has a Proxmox `UPID` | unknown `job_id`, backend poll failure |
+| `cancel_job` | Mutating | `job_id` | none | job exists and supports cancellation | unknown `job_id`, no `UPID`, cancel conflict |
+| `retry_job` | Mutating | `job_id` | none | job exists and has a retry recipe | unknown `job_id`, no retry recipe, handler unavailable |
+
+### Job Notes
+
+- `get_job(refresh=true)` is the HTTP equivalent of calling `poll_job`.
+- Completed jobs stay queryable until you remove the SQLite file or add retention logic.
+- `previous_upids` records earlier Proxmox task IDs after retries.
+- `audit_log` stores creation, polling, retry, and cancellation events for operator review.
 
 ## Storage and Cluster Tools
 
@@ -158,7 +199,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 When adding or changing a tool, update all of the following:
 
 - tool implementation under `src/proxmox_mcp/tools/`
-- registration in `src/proxmox_mcp/server.py`
+- registration in the built-in plugin layer under `src/proxmox_mcp/services/builtin_tool_plugins.py`
 - human-facing description in `src/proxmox_mcp/tools/definitions.py`
 - tests under `tests/`
 - this page if parameters, prerequisites, or availability changed

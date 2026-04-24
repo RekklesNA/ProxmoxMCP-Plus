@@ -76,6 +76,15 @@ def load_config(config_path: Optional[str] = None) -> Config:
                 'token_name': os.getenv("PROXMOX_TOKEN_NAME"),
                 'token_value': os.getenv("PROXMOX_TOKEN_VALUE")
             },
+            'api_tunnel': {
+                'enabled': os.getenv("PROXMOX_API_TUNNEL_ENABLED", "false").lower() == "true",
+                'ssh_host': os.getenv("PROXMOX_API_TUNNEL_SSH_HOST"),
+                'local_host': os.getenv("PROXMOX_API_TUNNEL_LOCAL_HOST", "127.0.0.1"),
+                'local_port': int(os.getenv("PROXMOX_API_TUNNEL_LOCAL_PORT", os.getenv("PROXMOX_PORT", "8006"))),
+                'remote_host': os.getenv("PROXMOX_API_TUNNEL_REMOTE_HOST", "127.0.0.1"),
+                'remote_port': int(os.getenv("PROXMOX_API_TUNNEL_REMOTE_PORT", "8006")),
+                'connect_timeout': int(os.getenv("PROXMOX_API_TUNNEL_CONNECT_TIMEOUT", "15")),
+            },
             'logging': {
                 'level': log_level_raw.upper() if log_level_raw and not log_level_raw.startswith("${") else "INFO"
             },
@@ -87,12 +96,19 @@ def load_config(config_path: Optional[str] = None) -> Config:
             'security': {
                 'dev_mode': os.getenv("PROXMOX_DEV_MODE", "false").lower() == "true",
             },
+            'jobs': {
+                'sqlite_path': os.getenv("PROXMOX_JOBS_SQLITE_PATH", "proxmox-jobs.sqlite3"),
+            },
             'command_policy': {
                 'mode': os.getenv("COMMAND_POLICY_MODE", "deny_all"),
                 'allow_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_ALLOW_PATTERNS", "").split(",") if p.strip()],
                 'deny_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_DENY_PATTERNS", "").split(",") if p.strip()],
                 'require_approval_token': os.getenv("COMMAND_POLICY_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
                 'approval_token': os.getenv("COMMAND_POLICY_APPROVAL_TOKEN"),
+                'high_risk_mode': os.getenv("COMMAND_POLICY_HIGH_RISK_MODE", "audit_only"),
+                'high_risk_operations': [p.strip() for p in os.getenv("COMMAND_POLICY_HIGH_RISK_OPERATIONS", "").split(",") if p.strip()],
+                'high_risk_require_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
+                'high_risk_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_APPROVAL_TOKEN"),
             },
         }
         
@@ -100,6 +116,9 @@ def load_config(config_path: Optional[str] = None) -> Config:
         mcp_config = config_data.get("mcp")
         if isinstance(mcp_config, dict) and mcp_config.get("transport") == "STREAMABLE_HTTP":
             mcp_config["transport"] = "STREAMABLE"
+        api_tunnel_config = config_data.get("api_tunnel")
+        if isinstance(api_tunnel_config, dict) and not api_tunnel_config.get("ssh_host"):
+            config_data.pop("api_tunnel", None)
     else:
         try:
             with open(config_path) as f:

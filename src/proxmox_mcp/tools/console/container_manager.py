@@ -10,6 +10,7 @@ SSHes to the appropriate node and runs:
 import os
 import shlex
 import logging
+import subprocess
 from typing import Dict, Any
 
 import paramiko  # type: ignore[import-untyped]
@@ -25,6 +26,33 @@ class ContainerConsoleManager:
 
     def _ssh_host(self, node: str) -> str:
         return self.ssh_cfg.host_overrides.get(node, node)
+
+    def _use_system_ssh(self) -> bool:
+        return bool(getattr(self.ssh_cfg, "prefer_ssh_client", False))
+
+    def _execute_via_system_ssh(self, target: str, cmd: str) -> Dict[str, Any]:
+        ssh_cmd = ["ssh"]
+        key_file = getattr(self.ssh_cfg, "key_file", None)
+        if key_file:
+            ssh_cmd.extend(["-i", os.path.expanduser(key_file)])
+        if getattr(self.ssh_cfg, "port", None):
+            ssh_cmd.extend(["-p", str(self.ssh_cfg.port)])
+        ssh_cmd.extend([target, cmd])
+
+        self.logger.debug("Executing via OpenSSH client: %s", " ".join(shlex.quote(p) for p in ssh_cmd))
+        completed = subprocess.run(  # noqa: S603
+            ssh_cmd,
+            capture_output=True,
+            text=True,
+            timeout=70,
+            check=False,
+        )
+        return {
+            "success": completed.returncode == 0,
+            "output": completed.stdout,
+            "error": completed.stderr,
+            "exit_code": completed.returncode,
+        }
 
     def execute_command(self, node: str, vmid: str, command: str) -> Dict[str, Any]:
         """Execute *command* inside the LXC container identified by *vmid* on *node*.
@@ -50,19 +78,26 @@ class ContainerConsoleManager:
         prefix = "sudo " if self.ssh_cfg.use_sudo else ""
         cmd = f"{prefix}/usr/sbin/pct exec {shlex.quote(str(vmid))} -- sh -c {shlex.quote(command)}"
         self.logger.info("Executing on CT %s@%s: %s", vmid, node, command)
+        target = self._ssh_host(node)
+
+        if self._use_system_ssh():
+            return self._execute_via_system_ssh(target, cmd)
 
         # 3. SSH to node and run command
         client = paramiko.SSHClient()
-        if self.ssh_cfg.strict_host_key_checking:
-            client.load_system_host_keys()
-            if self.ssh_cfg.known_hosts_file:
-                client.load_host_keys(os.path.expanduser(self.ssh_cfg.known_hosts_file))
-            client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        else:
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.load_system_host_keys()
+        if self.ssh_cfg.known_hosts_file:
+            client.load_host_keys(os.path.expanduser(self.ssh_cfg.known_hosts_file))
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        if not self.ssh_cfg.strict_host_key_checking:
+            self.logger.warning(
+                "Ignoring strict_host_key_checking=false for Paramiko execution; "
+                "unknown SSH host keys are always rejected. "
+                "Use prefer_ssh_client=true if you need OpenSSH-specific host key behavior."
+            )
 
         connect_kwargs: Dict[str, Any] = dict(
-            hostname=self._ssh_host(node),
+            hostname=target,
             port=self.ssh_cfg.port,
             username=self.ssh_cfg.user,
             timeout=10,
