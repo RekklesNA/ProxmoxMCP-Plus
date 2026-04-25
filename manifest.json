@@ -2,7 +2,7 @@
     "manifest_version": "0.4",
     "name": "proxmox-mcp-plus",
     "display_name": "ProxmoxMCP-Plus",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "description": "An enhanced MCP server for managing Proxmox virtualization platforms.",
     "long_description": "ProxmoxMCP-Plus is an enhanced Model Context Protocol (MCP) server that provides comprehensive tools for managing Proxmox virtualization environments, including VM lifecycle, container management, snapshot operations, and backup/restore capabilities.",
     "author": {
@@ -25,6 +25,7 @@
                 "PROXMOX_TOKEN_VALUE": "${user_config.proxmox_token_value}",
                 "PROXMOX_PORT": "${user_config.proxmox_port}",
                 "PROXMOX_VERIFY_SSL": "${user_config.proxmox_verify_ssl}",
+                "PROXMOX_DEV_MODE": "${user_config.proxmox_dev_mode}",
                 "PROXMOX_SERVICE": "${user_config.proxmox_service}",
                 "LOG_LEVEL": "${user_config.log_level}"
             }
@@ -67,6 +68,13 @@
             "type": "string",
             "title": "Verify SSL",
             "description": "Set to 'true' or 'false'",
+            "default": "true",
+            "required": false
+        },
+        "proxmox_dev_mode": {
+            "type": "string",
+            "title": "Development Mode",
+            "description": "Set to 'true' only when using PROXMOX_VERIFY_SSL=false in a self-signed lab.",
             "default": "false",
             "required": false
         },

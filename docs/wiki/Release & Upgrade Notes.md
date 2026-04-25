@@ -18,6 +18,23 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.1`
+
+- Release date: 2026-04-25
+- Summary: fixes first-run documentation and client example configuration issues found after the 0.4.0 release.
+- Changed behavior:
+  - no runtime behavior changes
+- Config changes:
+  - client examples now default to `PROXMOX_VERIFY_SSL=true`
+  - examples that expose TLS mode also include `PROXMOX_DEV_MODE`
+- Docs updated:
+  - `README.md`
+  - `docs/releases/v0.4.1.md`
+  - `proxmox-config/opencode/README.md`
+- Upgrade steps:
+  - no migration required
+  - for self-signed lab endpoints, set both `PROXMOX_VERIFY_SSL=false` and `PROXMOX_DEV_MODE=true`
+
 ### Version `0.4.0`
 
 - Release date: 2026-04-25
