@@ -11,7 +11,8 @@
                 "PROXMOX_TOKEN_NAME": "token-name",
                 "PROXMOX_TOKEN_VALUE": "token-value",
                 "PROXMOX_PORT": "8006",
-                "PROXMOX_VERIFY_SSL": "false",
+                "PROXMOX_VERIFY_SSL": "true",
+                "PROXMOX_DEV_MODE": "false",
                 "PROXMOX_SERVICE": "PVE",
                 "LOG_LEVEL": "DEBUG"
             }
