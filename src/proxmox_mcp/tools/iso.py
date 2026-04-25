@@ -130,7 +130,7 @@ class ISOTools(ProxmoxTool):
                     msg += f" in storage {storage}"
                 return [Content(type="text", text=msg)]
 
-            lines = ["💿 Available ISO Images", ""]
+            lines = ["Available ISO Images", ""]
 
             for iso in sorted(isos, key=lambda x: _get(x, "volid", "")):
                 volid = _get(iso, "volid", "unknown")
@@ -141,7 +141,7 @@ class ISOTools(ProxmoxTool):
                 # Extract filename from volid (format: storage:iso/filename.iso)
                 filename = volid.split("/")[-1] if "/" in volid else volid
 
-                lines.append(f"  💿 {filename}")
+                lines.append(f"{filename}")
                 lines.append(f"     Size: {_b2h(size)}")
                 lines.append(f"     Storage: {storage_name} @ {node_name}")
                 lines.append(f"     Volume ID: {volid}")
@@ -177,7 +177,7 @@ class ISOTools(ProxmoxTool):
                     msg += f" in storage {storage}"
                 return [Content(type="text", text=msg)]
 
-            lines = ["📦 Available OS Templates", ""]
+            lines = ["Available OS Templates", ""]
 
             for tmpl in sorted(templates, key=lambda x: _get(x, "volid", "")):
                 volid = _get(tmpl, "volid", "unknown")
@@ -188,7 +188,7 @@ class ISOTools(ProxmoxTool):
                 # Extract filename from volid
                 filename = volid.split("/")[-1] if "/" in volid else volid
 
-                lines.append(f"  📦 {filename}")
+                lines.append(f"{filename}")
                 lines.append(f"     Size: {_b2h(size)}")
                 lines.append(f"     Storage: {storage_name} @ {node_name}")
                 lines.append(f"     Volume ID: {volid}")
@@ -247,15 +247,15 @@ class ISOTools(ProxmoxTool):
             )
 
             lines = [
-                "⬇️ ISO Download Started",
+                "ISO Download Started",
                 "",
-                f"  • Filename: {filename}",
-                f"  • URL: {url}",
-                f"  • Storage: {storage} @ {node}",
+                f"  - Filename: {filename}",
+                f"  - URL: {url}",
+                f"  - Storage: {storage} @ {node}",
             ]
 
             if checksum:
-                lines.append(f"  • Checksum: {checksum_algorithm.upper()}")
+                lines.append(f"  - Checksum: {checksum_algorithm.upper()}")
 
             lines.extend([
                 "",
@@ -325,11 +325,11 @@ class ISOTools(ProxmoxTool):
             )
 
             lines = [
-                "🗑️ ISO/Template Deleted",
+                "ISO/Template Deleted",
                 "",
-                f"  • Volume: {volid}",
-                f"  • Storage: {storage}",
-                f"  • Node: {node}",
+                f"  - Volume: {volid}",
+                f"  - Storage: {storage}",
+                f"  - Node: {node}",
             ]
 
             if result:

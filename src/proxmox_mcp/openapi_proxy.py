@@ -29,6 +29,17 @@ def _parse_cors_allow_origins(value: Optional[str]) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _security_warnings(*, api_key: Optional[str], strict_auth: bool, cors_allow_origins: list[str]) -> list[str]:
+    warnings: list[str] = []
+    if not api_key:
+        warnings.append("OpenAPI proxy is running without PROXMOX_API_KEY.")
+    if api_key and not strict_auth:
+        warnings.append("PROXMOX_API_KEY is configured but PROXMOX_STRICT_AUTH is disabled.")
+    if "*" in cors_allow_origins:
+        warnings.append("CORS allows all origins; set MCPO_CORS_ALLOW_ORIGINS for production.")
+    return warnings
+
+
 class ProxyMetricsMiddleware(BaseHTTPMiddleware):
     """Capture basic per-route request metrics."""
 
@@ -130,6 +141,11 @@ def create_app(
     app.state.api_key_configured = bool(api_key)
     app.state.strict_auth = strict_auth
     app.state.job_store = job_store
+    app.state.security_warnings = _security_warnings(
+        api_key=api_key,
+        strict_auth=strict_auth,
+        cors_allow_origins=cors_allow_origins,
+    )
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:
@@ -168,6 +184,7 @@ def create_app(
                 "jobs": {
                     "enabled": app.state.job_store is not None,
                 },
+                "security_warnings": app.state.security_warnings,
             },
         )
 
@@ -291,6 +308,14 @@ def main() -> None:
         args.port,
         " ".join(server_command),
     )
+
+    security_warnings = _security_warnings(
+        api_key=args.api_key,
+        strict_auth=args.strict_auth,
+        cors_allow_origins=_parse_cors_allow_origins(args.cors_allow_origins),
+    )
+    for warning in security_warnings:
+        LOGGER.warning("OpenAPI security warning: %s", warning)
 
     job_store = None
     config_path = os.getenv("PROXMOX_MCP_CONFIG")

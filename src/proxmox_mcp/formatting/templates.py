@@ -34,10 +34,10 @@ class ProxmoxTemplates:
             result.extend([
                 "",  # Empty line between nodes
                 f"{ProxmoxTheme.RESOURCES['node']} {node['node']}",
-                f"  • Status: {status.upper()}",
-                f"  • Uptime: {ProxmoxFormatters.format_uptime(node.get('uptime', 0))}",
-                f"  • CPU Cores: {node.get('maxcpu', 'N/A')}",
-                f"  • Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
+                f"  - Status: {status.upper()}",
+                f"  - Uptime: {ProxmoxFormatters.format_uptime(node.get('uptime', 0))}",
+                f"  - CPU Cores: {node.get('maxcpu', 'N/A')}",
+                f"  - Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
                 f"{ProxmoxFormatters.format_bytes(memory_total)} ({memory_percent:.1f}%)"
             ])
             
@@ -48,7 +48,7 @@ class ProxmoxTemplates:
                 disk_total = disk.get("total", 0)
                 disk_percent = (disk_used / disk_total * 100) if disk_total > 0 else 0
                 result.append(
-                    f"  • Disk: {ProxmoxFormatters.format_bytes(disk_used)} / "
+                    f"  - Disk: {ProxmoxFormatters.format_bytes(disk_used)} / "
                     f"{ProxmoxFormatters.format_bytes(disk_total)} ({disk_percent:.1f}%)"
                 )
             
@@ -72,10 +72,10 @@ class ProxmoxTemplates:
         
         result = [
             f"{ProxmoxTheme.RESOURCES['node']} Node: {node}",
-            f"  • Status: {status.get('status', 'unknown').upper()}",
-            f"  • Uptime: {ProxmoxFormatters.format_uptime(status.get('uptime', 0))}",
-            f"  • CPU Cores: {status.get('maxcpu', 'N/A')}",
-            f"  • Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
+            f"  - Status: {status.get('status', 'unknown').upper()}",
+            f"  - Uptime: {ProxmoxFormatters.format_uptime(status.get('uptime', 0))}",
+            f"  - CPU Cores: {status.get('maxcpu', 'N/A')}",
+            f"  - Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
             f"{ProxmoxFormatters.format_bytes(memory_total)} ({memory_percent:.1f}%)"
         ]
         
@@ -86,7 +86,7 @@ class ProxmoxTemplates:
             disk_total = disk.get("total", 0)
             disk_percent = (disk_used / disk_total * 100) if disk_total > 0 else 0
             result.append(
-                f"  • Disk: {ProxmoxFormatters.format_bytes(disk_used)} / "
+                f"  - Disk: {ProxmoxFormatters.format_bytes(disk_used)} / "
                 f"{ProxmoxFormatters.format_bytes(disk_total)} ({disk_percent:.1f}%)"
             )
         
@@ -113,10 +113,10 @@ class ProxmoxTemplates:
             result.extend([
                 "",  # Empty line between VMs
                 f"{ProxmoxTheme.RESOURCES['vm']} {vm['name']} (ID: {vm['vmid']})",
-                f"  • Status: {vm['status'].upper()}",
-                f"  • Node: {vm['node']}",
-                f"  • CPU Cores: {vm.get('cpus', 'N/A')}",
-                f"  • Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
+                f"  - Status: {vm['status'].upper()}",
+                f"  - Node: {vm['node']}",
+                f"  - CPU Cores: {vm.get('cpus', 'N/A')}",
+                f"  - Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
                 f"{ProxmoxFormatters.format_bytes(memory_total)} ({memory_percent:.1f}%)"
             ])
             
@@ -142,9 +142,9 @@ class ProxmoxTemplates:
             result.extend([
                 "",  # Empty line between storage pools
                 f"{ProxmoxTheme.RESOURCES['storage']} {store['storage']}",
-                f"  • Status: {store.get('status', 'unknown').upper()}",
-                f"  • Type: {store['type']}",
-                f"  • Usage: {ProxmoxFormatters.format_bytes(used)} / "
+                f"  - Status: {store.get('status', 'unknown').upper()}",
+                f"  - Type: {store['type']}",
+                f"  - Usage: {ProxmoxFormatters.format_bytes(used)} / "
                 f"{ProxmoxFormatters.format_bytes(total)} ({percent:.1f}%)"
             ])
             
@@ -174,10 +174,10 @@ class ProxmoxTemplates:
             result.extend([
                 "",  # Empty line between containers
                 f"{ProxmoxTheme.RESOURCES['container']} {container['name']} (ID: {container['vmid']})",
-                f"  • Status: {container['status'].upper()}",
-                f"  • Node: {container['node']}",
-                f"  • CPU Cores: {container.get('cpus', 'N/A')}",
-                f"  • Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
+                f"  - Status: {container['status'].upper()}",
+                f"  - Node: {container['node']}",
+                f"  - CPU Cores: {container.get('cpus', 'N/A')}",
+                f"  - Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
                 f"{ProxmoxFormatters.format_bytes(memory_total)} ({memory_percent:.1f}%)"
             ])
             
@@ -198,14 +198,14 @@ class ProxmoxTemplates:
         # Basic cluster info
         result.extend([
             "",
-            f"  • Name: {status.get('name', 'N/A')}",
-            f"  • Quorum: {'OK' if status.get('quorum') else 'NOT OK'}",
-            f"  • Nodes: {status.get('nodes', 0)}",
+            f"  - Name: {status.get('name', 'N/A')}",
+            f"  - Quorum: {'OK' if status.get('quorum') else 'NOT OK'}",
+            f"  - Nodes: {status.get('nodes', 0)}",
         ])
         
         # Add resource count if available
         resources = status.get('resources', [])
         if resources:
-            result.append(f"  • Resources: {len(resources)}")
+            result.append(f"  - Resources: {len(resources)}")
         
         return "\n".join(result)

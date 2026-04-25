@@ -115,7 +115,7 @@ Reset VPN-Server with ID 101 on node pve"""
 
 DELETE_VM_DESC = """Delete/remove a virtual machine completely.
 
-⚠️ WARNING: This operation permanently deletes the VM and all its data!
+ WARNING: This operation permanently deletes the VM and all its data!
 
 Parameters:
 node* - Host node name (e.g. 'pve')
@@ -218,7 +218,7 @@ Examples:
 
 EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
 
-No guest agent required — connects to the Proxmox node via SSH and uses `pct exec`.
+No guest agent required - connects to the Proxmox node via SSH and uses `pct exec`.
 
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name'
@@ -409,7 +409,7 @@ Example:
 
 GET_CONTAINER_IP_DESC = """Get the current IP address(es) of a running LXC container.
 
-Queries /nodes/{node}/lxc/{vmid}/interfaces — works with DHCP (no static IP needed).
+Queries /nodes/{node}/lxc/{vmid}/interfaces - works with DHCP (no static IP needed).
 
 Parameters:
 node* - Proxmox node name (e.g. 'pve')
@@ -421,7 +421,7 @@ Returns:
 
 UPDATE_CONTAINER_SSH_KEYS_DESC = """Inject or replace SSH authorized_keys for root in an LXC container.
 
-Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+Uses pct exec via SSH to the Proxmox host - requires SSH to be configured.
 
 Parameters:
 node*        - Proxmox node name (e.g. 'pve')

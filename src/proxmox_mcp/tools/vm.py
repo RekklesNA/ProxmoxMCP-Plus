@@ -279,26 +279,26 @@ class VMTools(ProxmoxTool):
             
             cloudinit_note = ""
             if storage_type in ["lvm", "lvmthin"]:
-                cloudinit_note = "\n  ⚠️  Note: LVM storage doesn't support cloud-init image"
+                cloudinit_note = "\n  - Note: LVM storage does not support cloud-init images"
             
-            result_text = f"""🎉 VM {vmid} created successfully!
+            result_text = f"""VM {vmid} created successfully
 
-📋 VM Configuration:
-  • Name: {name}
-  • Node: {node}
-  • VM ID: {vmid}
-  • CPU Cores: {cpus}
-  • Memory: {memory} MB ({memory/1024:.1f} GB)
-  • Disk: {disk_size} GB ({storage}, {disk_format} format)
-  • Storage Type: {storage_type}
-  • OS Type: {ostype}
-  • Network: virtio (bridge={network_bridge})
-  • QEMU Agent: Enabled{cloudinit_note}
+VM Configuration:
+  - Name: {name}
+  - Node: {node}
+  - VM ID: {vmid}
+  - CPU Cores: {cpus}
+  - Memory: {memory} MB ({memory/1024:.1f} GB)
+  - Disk: {disk_size} GB ({storage}, {disk_format} format)
+  - Storage Type: {storage_type}
+  - OS Type: {ostype}
+  - Network: virtio (bridge={network_bridge})
+  - QEMU Agent: Enabled{cloudinit_note}
 
-🔧 Task ID: {task_result}
-🧾 Job ID: {job["job_id"] if job else "n/a"}
+Task ID: {task_result}
+Job ID: {job["job_id"] if job else "n/a"}
 
-💡 Next steps:
+Next steps:
   1. Upload an ISO to install the operating system
   2. Start the VM using start_vm tool
   3. Access the console to complete OS installation"""
@@ -330,7 +330,7 @@ class VMTools(ProxmoxTool):
             current_status = vm_status.get("status")
             
             if current_status == "running":
-                result_text = f"🟢 VM {vmid} is already running"
+                result_text = f"VM {vmid} is already running"
             else:
                 # Start the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.start.post()
@@ -345,7 +345,7 @@ class VMTools(ProxmoxTool):
                     cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
                 )
                 result_text = (
-                    f"🚀 VM {vmid} start initiated successfully\n"
+                    f"VM {vmid} start initiated successfully\n"
                     f"Task ID: {task_result}\n"
                     f"Job ID: {job['job_id'] if job else 'n/a'}"
                 )
@@ -377,7 +377,7 @@ class VMTools(ProxmoxTool):
             current_status = vm_status.get("status")
             
             if current_status == "stopped":
-                result_text = f"🔴 VM {vmid} is already stopped"
+                result_text = f"VM {vmid} is already stopped"
             else:
                 # Stop the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
@@ -392,7 +392,7 @@ class VMTools(ProxmoxTool):
                     cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
                 )
                 result_text = (
-                    f"🛑 VM {vmid} stop initiated successfully\n"
+                    f"VM {vmid} stop initiated successfully\n"
                     f"Task ID: {task_result}\n"
                     f"Job ID: {job['job_id'] if job else 'n/a'}"
                 )
@@ -424,7 +424,7 @@ class VMTools(ProxmoxTool):
             current_status = vm_status.get("status")
             
             if current_status == "stopped":
-                result_text = f"🔴 VM {vmid} is already stopped"
+                result_text = f"VM {vmid} is already stopped"
             else:
                 # Shutdown the VM gracefully
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.shutdown.post()
@@ -439,7 +439,7 @@ class VMTools(ProxmoxTool):
                     cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
                 )
                 result_text = (
-                    f"💤 VM {vmid} graceful shutdown initiated\n"
+                    f"VM {vmid} graceful shutdown initiated\n"
                     f"Task ID: {task_result}\n"
                     f"Job ID: {job['job_id'] if job else 'n/a'}"
                 )
@@ -471,7 +471,7 @@ class VMTools(ProxmoxTool):
             current_status = vm_status.get("status")
             
             if current_status == "stopped":
-                result_text = f"⚠️ Cannot reset VM {vmid}: VM is currently stopped\nUse start_vm to start it first"
+                result_text = f"Cannot reset VM {vmid}: VM is currently stopped\nUse start_vm to start it first"
             else:
                 # Reset the VM
                 task_result = self.proxmox.nodes(node).qemu(vmid).status.reset.post()
@@ -486,7 +486,7 @@ class VMTools(ProxmoxTool):
                     cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
                 )
                 result_text = (
-                    f"🔄 VM {vmid} reset initiated successfully\n"
+                    f"VM {vmid} reset initiated successfully\n"
                     f"Task ID: {task_result}\n"
                     f"Job ID: {job['job_id'] if job else 'n/a'}"
                 )
@@ -608,9 +608,9 @@ class VMTools(ProxmoxTool):
                 else:
                     # Force stop the VM first
                     self.proxmox.nodes(node).qemu(vmid).status.stop.post()
-                    result_text = f"🛑 Stopping VM {vmid} ({vm_name}) before deletion...\n"
+                    result_text = f"Stopping VM {vmid} ({vm_name}) before deletion...\n"
             else:
-                result_text = f"🗑️ Deleting VM {vmid} ({vm_name})...\n"
+                result_text = f"Deleting VM {vmid} ({vm_name})...\n"
             
             # Delete the VM
             task_result = self.proxmox.nodes(node).qemu(vmid).delete()
@@ -625,18 +625,18 @@ class VMTools(ProxmoxTool):
                 cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
             )
             
-            result_text += f"""🗑️ VM {vmid} ({vm_name}) deletion initiated successfully!
+            result_text += f"""VM {vmid} ({vm_name}) deletion initiated successfully
 
-⚠️ WARNING: This operation will permanently remove:
-  • VM configuration
-  • All virtual disks
-  • All snapshots
-  • Cannot be undone!
+WARNING: This operation will permanently remove:
+  - VM configuration
+  - All virtual disks
+  - All snapshots
+  - Cannot be undone
 
-🔧 Task ID: {task_result}
-🧾 Job ID: {job["job_id"] if job else "n/a"}
+Task ID: {task_result}
+Job ID: {job["job_id"] if job else "n/a"}
 
-✅ VM {vmid} ({vm_name}) is being deleted from node {node}"""
+VM {vmid} ({vm_name}) is being deleted from node {node}"""
             
             return [Content(type="text", text=result_text)]
             

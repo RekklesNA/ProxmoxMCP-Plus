@@ -69,7 +69,7 @@ class SnapshotTools(ProxmoxTool):
                 )]
 
             lines = [
-                f"📸 Snapshots for {vm_type.upper()} {vmid} on {node}",
+                f"Snapshots for {vm_type.upper()} {vmid} on {node}",
                 ""
             ]
 
@@ -84,7 +84,7 @@ class SnapshotTools(ProxmoxTool):
                 if name == "current":
                     continue
 
-                lines.append(f"  📷 {name}")
+                lines.append(f"{name}")
                 if description:
                     lines.append(f"     Description: {description}")
                 if snaptime:
@@ -155,16 +155,16 @@ class SnapshotTools(ProxmoxTool):
             )
 
             lines = [
-                "📸 Snapshot Created Successfully",
+                "Snapshot Created Successfully",
                 "",
-                f"  • Name: {snapname}",
-                f"  • {vm_type.upper()} ID: {vmid}",
-                f"  • Node: {node}",
+                f"  - Name: {snapname}",
+                f"  - {vm_type.upper()} ID: {vmid}",
+                f"  - Node: {node}",
             ]
             if description:
-                lines.append(f"  • Description: {description}")
+                lines.append(f"  - Description: {description}")
             if vmstate and vm_type == "qemu":
-                lines.append("  • RAM State: Included")
+                lines.append("  - RAM State: Included")
 
             lines.extend([
                 "",
@@ -172,8 +172,8 @@ class SnapshotTools(ProxmoxTool):
                 f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "Next steps:",
-                f"  • List snapshots: list_snapshots node='{node}' vmid='{vmid}' vm_type='{vm_type}'",
-                f"  • Rollback: rollback_snapshot node='{node}' vmid='{vmid}' snapname='{snapname}' vm_type='{vm_type}'",
+                f"  - List snapshots: list_snapshots node='{node}' vmid='{vmid}' vm_type='{vm_type}'",
+                f"  - Rollback: rollback_snapshot node='{node}' vmid='{vmid}' snapname='{snapname}' vm_type='{vm_type}'",
             ])
 
             return [Content(type="text", text="\n".join(lines))]
@@ -222,11 +222,11 @@ class SnapshotTools(ProxmoxTool):
             )
 
             lines = [
-                "🗑️ Snapshot Deleted",
+                "Snapshot Deleted",
                 "",
-                f"  • Name: {snapname}",
-                f"  • {vm_type.upper()} ID: {vmid}",
-                f"  • Node: {node}",
+                f"  - Name: {snapname}",
+                f"  - {vm_type.upper()} ID: {vmid}",
+                f"  - Node: {node}",
                 "",
                 f"Task ID: {result}",
                 f"Job ID: {job['job_id'] if job else 'n/a'}",
@@ -306,19 +306,19 @@ class SnapshotTools(ProxmoxTool):
             )
 
             lines = [
-                "⏪ Snapshot Rollback Initiated",
+                "Snapshot Rollback Initiated",
                 "",
-                f"  • Restoring to: {snapname}",
-                f"  • {vm_type.upper()} ID: {vmid}",
-                f"  • Node: {node}",
+                f"  - Restoring to: {snapname}",
+                f"  - {vm_type.upper()} ID: {vmid}",
+                f"  - Node: {node}",
             ]
 
             if deleted_snaps:
-                lines.append(f"  • Deleted newer snapshots: {', '.join(deleted_snaps)}")
+                lines.append(f"  - Deleted newer snapshots: {', '.join(deleted_snaps)}")
 
             lines.extend([
                 "",
-                "⚠️  WARNING: VM/container will be stopped during rollback!",
+                "  WARNING: VM/container will be stopped during rollback!",
                 "",
                 f"Task ID: {result}",
                 f"Job ID: {job['job_id'] if job else 'n/a'}",

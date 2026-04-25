@@ -130,7 +130,7 @@ class BackupTools(ProxmoxTool):
             # Sort by creation time (newest first)
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
-            lines = ["💾 Available Backups", ""]
+            lines = ["Available Backups", ""]
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
@@ -152,7 +152,7 @@ class BackupTools(ProxmoxTool):
                     except Exception:
                         time_str = str(ctime)
 
-                lines.append(f"  💾 VM/CT {backup_vmid} - {time_str}")
+                lines.append(f"VM/CT {backup_vmid} - {time_str}")
                 lines.append(f"     Size: {_b2h(size)}")
                 lines.append(f"     Format: {fmt}")
                 lines.append(f"     Storage: {storage_name} @ {node_name}")
@@ -160,7 +160,7 @@ class BackupTools(ProxmoxTool):
                 if notes:
                     lines.append(f"     Notes: {notes}")
                 if protected:
-                    lines.append("     🔒 Protected")
+                    lines.append("      Protected")
                 lines.append("")
 
             lines.append("Use the Volume ID with restore_backup to restore.")
@@ -216,17 +216,17 @@ class BackupTools(ProxmoxTool):
             )
 
             lines = [
-                "💾 Backup Started",
+                "Backup Started",
                 "",
-                f"  • VM/CT ID: {vmid}",
-                f"  • Node: {node}",
-                f"  • Storage: {storage}",
-                f"  • Compression: {compress}",
-                f"  • Mode: {mode}",
+                f"  - VM/CT ID: {vmid}",
+                f"  - Node: {node}",
+                f"  - Storage: {storage}",
+                f"  - Compression: {compress}",
+                f"  - Mode: {mode}",
             ]
 
             if notes:
-                lines.append(f"  • Notes: {notes}")
+                lines.append(f"  - Notes: {notes}")
 
             lines.extend([
                 "",
@@ -301,17 +301,17 @@ class BackupTools(ProxmoxTool):
             )
 
             lines = [
-                f"♻️ {vm_type} Restore Started",
+                f"{vm_type} Restore Started",
                 "",
-                f"  • New ID: {vmid}",
-                f"  • From: {archive}",
-                f"  • Target Node: {node}",
+                f"  - New ID: {vmid}",
+                f"  - From: {archive}",
+                f"  - Target Node: {node}",
             ]
 
             if storage:
-                lines.append(f"  • Target Storage: {storage}")
+                lines.append(f"  - Target Storage: {storage}")
 
-            lines.append(f"  • Unique MACs: {'Yes' if unique else 'No'}")
+            lines.append(f"  - Unique MACs: {'Yes' if unique else 'No'}")
 
             lines.extend([
                 "",
@@ -377,11 +377,11 @@ class BackupTools(ProxmoxTool):
             )
 
             lines = [
-                "🗑️ Backup Deleted",
+                "Backup Deleted",
                 "",
-                f"  • Volume: {volid}",
-                f"  • Storage: {storage}",
-                f"  • Node: {node}",
+                f"  - Volume: {volid}",
+                f"  - Storage: {storage}",
+                f"  - Node: {node}",
             ]
 
             if result:

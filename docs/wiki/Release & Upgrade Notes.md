@@ -18,6 +18,24 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.0`
+
+- Release date: 2026-04-25
+- Summary: production-readiness pass for release packaging, Docker runtime size, dependency consistency, OpenAPI security visibility, and client-safe text output.
+- Changed behavior:
+  - runtime output now uses ASCII-safe labels and bullets instead of emoji glyphs
+  - Docker installs only production package dependencies and runs as a non-root user
+  - OpenAPI `/health` includes `security_warnings`
+- Config changes:
+  - no required config changes
+  - production OpenAPI deployments should set `PROXMOX_API_KEY`, `PROXMOX_STRICT_AUTH=true`, and a specific `MCPO_CORS_ALLOW_ORIGINS`
+- Docs updated:
+  - `docs/releases/v0.4.0.md`
+- Upgrade steps:
+  - rebuild Docker images from this release
+  - review OpenAPI security warnings after startup
+  - verify clients do not rely on emoji prefixes in tool output
+
 ### Version `0.3.0`
 
 - Release date: 2026-04-24

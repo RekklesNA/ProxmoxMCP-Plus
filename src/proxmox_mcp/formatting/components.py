@@ -98,7 +98,7 @@ class ProxmoxComponents:
         filled = int(width * percentage / 100)
         color = ProxmoxColors.metric_color(percentage)
         
-        bar = "█" * filled + "░" * (width - filled)
+        bar = "#" * filled + "-" * (width - filled)
         return f"{ProxmoxColors.colorize(bar, color)} {percentage:.1f}%"
     
     @staticmethod
