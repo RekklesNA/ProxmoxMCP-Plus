@@ -164,7 +164,7 @@ class ContainerTools(ProxmoxTool):
         return raw_status, raw_config
 
     def _render_pretty(self, rows: List[Dict]) -> List[Content]:
-        lines: List[str] = ["📦 Containers", ""]
+        lines: List[str] = ["Containers", ""]
         for r in rows:
             name = r.get("name") or f"ct-{r.get('vmid')}"
             vmid = r.get("vmid")
@@ -177,20 +177,20 @@ class ContainerTools(ProxmoxTool):
             mem_pct = r.get("mem_pct")
             unlimited = bool(r.get("unlimited_memory", False))
 
-            lines.append(f"📦 {name} (ID: {vmid})")
-            lines.append(f"  • Status: {status}")
-            lines.append(f"  • Node: {node}")
-            lines.append(f"  • CPU: {cpu_pct:.1f}%")
-            lines.append(f"  • CPU Cores: {cores if cores is not None else 'N/A'}")
+            lines.append(f"{name} (ID: {vmid})")
+            lines.append(f"  - Status: {status}")
+            lines.append(f"  - Node: {node}")
+            lines.append(f"  - CPU: {cpu_pct:.1f}%")
+            lines.append(f"  - CPU Cores: {cores if cores is not None else 'N/A'}")
 
             if unlimited:
-                lines.append(f"  • Memory: {_b2h(mem_bytes)} (unlimited)")
+                lines.append(f"  - Memory: {_b2h(mem_bytes)} (unlimited)")
             else:
                 if maxmem_bytes > 0:
                     pct_str = f" ({mem_pct:.1f}%)" if isinstance(mem_pct, (int, float)) else ""
-                    lines.append(f"  • Memory: {_b2h(mem_bytes)} / {_b2h(maxmem_bytes)}{pct_str}")
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / {_b2h(maxmem_bytes)}{pct_str}")
                 else:
-                    lines.append(f"  • Memory: {_b2h(mem_bytes)} / 0.00 B")
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / 0.00 B")
             lines.append("")
         return [Content(type="text", text="\n".join(lines).rstrip())]
 
@@ -391,9 +391,9 @@ class ContainerTools(ProxmoxTool):
 
     def _render_action_result(self, title: str, results: List[Dict[str, Any]]) -> List[Content]:
         """Pretty-print an action result; JSON stays raw."""
-        lines = [f"📦 {title}", ""]
+        lines = [title, ""]
         for r in results:
-            status = "✅ OK" if r.get("ok") else "❌ FAIL"
+            status = "OK" if r.get("ok") else "FAIL"
             node = r.get("node")
             vmid = r.get("vmid")
             name = r.get("name") or f"ct-{vmid}"
@@ -456,8 +456,8 @@ class ContainerTools(ProxmoxTool):
                        format_style: str = "pretty") -> List[Content]:
         """
         Stop LXC containers.
-        graceful=True → POST .../status/shutdown (graceful stop)
-        graceful=False → POST .../status/stop (force stop)
+        graceful=True -> POST .../status/shutdown (graceful stop)
+        graceful=False -> POST .../status/stop (force stop)
         """
         try:
             targets = self._resolve_targets(selector)
@@ -691,28 +691,28 @@ class ContainerTools(ProxmoxTool):
 
             # Format success response
             lines = [
-                "📦 Container Created Successfully",
+                " Container Created Successfully",
                 "",
-                f"  • VMID: {vmid}",
-                f"  • Hostname: {hostname}",
-                f"  • Node: {node}",
-                f"  • Template: {ostemplate}",
-                f"  • CPU Cores: {cores}",
-                f"  • Memory: {memory} MiB",
-                f"  • Swap: {swap} MiB",
-                f"  • Disk: {disk_size} GB on {storage}",
-                f"  • Network: {network_bridge} (DHCP)",
-                f"  • Unprivileged: {'Yes' if unprivileged else 'No'}",
-                f"  • Auto-start: {'Yes' if start_after_create else 'No'}",
-                f"  • Start on boot: {'Yes' if onboot else 'No'}",
-                f"  • Nesting enabled: {'Yes' if nesting else 'No'}",
+                f"  - VMID: {vmid}",
+                f"  - Hostname: {hostname}",
+                f"  - Node: {node}",
+                f"  - Template: {ostemplate}",
+                f"  - CPU Cores: {cores}",
+                f"  - Memory: {memory} MiB",
+                f"  - Swap: {swap} MiB",
+                f"  - Disk: {disk_size} GB on {storage}",
+                f"  - Network: {network_bridge} (DHCP)",
+                f"  - Unprivileged: {'Yes' if unprivileged else 'No'}",
+                f"  - Auto-start: {'Yes' if start_after_create else 'No'}",
+                f"  - Start on boot: {'Yes' if onboot else 'No'}",
+                f"  - Nesting enabled: {'Yes' if nesting else 'No'}",
                 "",
                 f"Task ID: {result}",
                 f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "Next steps:",
-                f"  • Start container: start_container selector='{vmid}'",
-                "  • Check status: get_containers",
+                f"  - Start container: start_container selector='{vmid}'",
+                "  - Check status: get_containers",
             ]
             return [Content(type="text", text="\n".join(lines))]
 
@@ -810,7 +810,7 @@ class ContainerTools(ProxmoxTool):
         """Execute a shell command inside a running LXC container via SSH + pct exec.
 
         Parameters:
-            selector: Container selector (single target only — e.g. '101', 'pve1:101', 'name')
+            selector: Container selector (single target only - e.g. '101', 'pve1:101', 'name')
             command:  Shell command to run inside the container
 
         Returns:
@@ -920,7 +920,7 @@ class ContainerTools(ProxmoxTool):
     ) -> List[Content]:
         """Inject or replace SSH authorized_keys for root in an LXC container.
 
-        Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+        Uses pct exec via SSH to the Proxmox host - requires SSH to be configured.
 
         Parameters:
             node:        Proxmox node name.
@@ -954,7 +954,7 @@ class ContainerTools(ProxmoxTool):
                     RuntimeError(f"mkdir /root/.ssh failed: {mkdir_data.get('output')}"),
                 )
 
-            # Write keys — use a Python-safe delimiter to avoid shell quoting issues
+            # Write keys - use a Python-safe delimiter to avoid shell quoting issues
             joined = "\n".join(keys)
             # Build a here-doc-style printf command; escape single quotes in keys
             escaped = joined.replace("'", "'\\''")

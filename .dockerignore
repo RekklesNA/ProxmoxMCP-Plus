@@ -12,4 +12,7 @@ __pycache__
 dist
 assets
 proxmox_mcp.log
+*.log
+*.sqlite3
 proxmox-config/config.json
+proxmox-config/config.live.json

@@ -77,6 +77,21 @@ def test_health_endpoint_includes_auth_and_rate_limit_details():
     assert '"enabled":false' in payload
 
 
+def test_health_endpoint_reports_security_warnings_for_unsafe_defaults():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+    )
+    endpoint = _get_route_endpoint(app, "/health")
+    response = asyncio.run(endpoint())
+    payload = response.body.decode("utf-8")
+
+    assert "OpenAPI proxy is running without PROXMOX_API_KEY" in payload
+    assert "CORS allows all origins" in payload
+
+
 def test_metrics_endpoint_renders_labeled_series():
     app = create_app(
         server_command=["python", "-c", "print('ok')"],
