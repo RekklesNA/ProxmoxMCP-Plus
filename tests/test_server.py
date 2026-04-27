@@ -132,6 +132,7 @@ async def test_list_tools(server):
     assert "get_vms" in tool_names
     assert "get_containers" in tool_names
     assert "execute_vm_command" in tool_names
+    assert "clone_vm" in tool_names
     assert "update_container_resources" in tool_names
     assert "execute_container_command" not in tool_names
     assert "update_container_ssh_keys" not in tool_names
@@ -602,6 +603,45 @@ async def test_start_vm(server, mock_proxmox):
 
     response = await server.mcp.call_tool("start_vm", {"node": "node1", "vmid": "100"})
     assert "start initiated successfully" in response[0].text
+
+
+@pytest.mark.asyncio
+async def test_clone_vm(server, mock_proxmox):
+    """Test clone_vm tool."""
+    proxmox = mock_proxmox.return_value
+
+    source_vm_api = Mock()
+    source_vm_api.status.current.get.return_value = {"status": "stopped", "name": "template-9000"}
+    source_vm_api.clone.post.return_value = "UPID:clone-100"
+
+    target_vm_api = Mock()
+    target_vm_api.config.get.side_effect = Exception("does not exist")
+
+    node_api = Mock()
+
+    def qemu_side_effect(vmid):
+        if str(vmid) == "9000":
+            return source_vm_api
+        if str(vmid) == "9100":
+            return target_vm_api
+        return Mock()
+
+    node_api.qemu.side_effect = qemu_side_effect
+    proxmox.nodes.return_value = node_api
+
+    response = await server.mcp.call_tool(
+        "clone_vm",
+        {
+            "node": "node1",
+            "source_vmid": "9000",
+            "target_vmid": "9100",
+            "name": "cloned-vm",
+            "full": True,
+        },
+    )
+
+    assert "clone initiated successfully" in response[0].text
+    source_vm_api.clone.post.assert_called_once_with(newid=9100, full=1, name="cloned-vm")
 
 
 

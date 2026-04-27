@@ -103,6 +103,10 @@
             "description": "Create a new virtual machine with specified resources"
         },
         {
+            "name": "clone_vm",
+            "description": "Clone an existing virtual machine"
+        },
+        {
             "name": "execute_vm_command",
             "description": "Execute a shell command in a VM using QEMU Guest Agent"
         },
