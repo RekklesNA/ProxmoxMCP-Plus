@@ -63,6 +63,8 @@ coverage.xml
 # Local configuration
 config/config.json
 proxmox-config/config.json
+proxmox-config/config.live.json
+proxmox-jobs.sqlite3
 **/config.json
 
 # MCP Bundle artifacts

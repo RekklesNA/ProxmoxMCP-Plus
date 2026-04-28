@@ -28,15 +28,17 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 - ISO and template workflows
 - cluster, node, and storage inspection
 - SSH-backed container command execution
+- persistent job tracking with retry, cancel, and audit history
 - OpenAPI bridging for the MCP tool surface
 
 ## Architecture Summary
 
 - `main.py` starts the MCP server entrypoint
 - `src/proxmox_mcp/server.py` registers MCP tools
-- `src/proxmox_mcp/openapi_proxy.py` exposes `/`, `/docs`, `/openapi.json`, and `/health`
+- `src/proxmox_mcp/openapi_proxy.py` exposes `/`, `/docs`, `/openapi.json`, `/health`, `/metrics`, and `/jobs`
 - `src/proxmox_mcp/config/` validates configuration and runtime settings
 - `src/proxmox_mcp/security/command_policy.py` applies allow and deny rules for execution requests
+- `src/proxmox_mcp/services/jobs.py` persists long-running job state in SQLite
 - `docs/container-command-execution.md` explains the SSH-backed LXC command path
 
 ## Validation Summary
@@ -57,7 +59,7 @@ Primary validation entry points:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
-- `test_scripts/run_real_e2e.py`
+- `tests/scripts/run_real_e2e.py`
 
 ## External References
 

@@ -1,8 +1,8 @@
-# ProxmoxMCP-Plus installation notes for AI agents
+# ProxmoxMCP-Plus Installation Notes For AI Agents
 
-These instructions are written for MCP-capable IDEs and agents such as Cline, Claude Desktop, Cursor, and VS Code.
+These instructions are written for MCP-capable IDEs and agents such as Claude Desktop, Cursor, Cline, and VS Code.
 
-## What this server does
+## What This Server Does
 
 `ProxmoxMCP-Plus` exposes Proxmox VE operations for:
 
@@ -13,11 +13,9 @@ These instructions are written for MCP-capable IDEs and agents such as Cline, Cl
 - storage and cluster inspection
 - optional SSH-backed container command execution
 
-## Recommended install path
+## Recommended Install Path
 
 Use the published PyPI package with `uvx`.
-
-Command:
 
 ```bash
 uvx proxmox-mcp-plus
@@ -30,7 +28,7 @@ pip install proxmox-mcp-plus
 proxmox-mcp-plus
 ```
 
-## Required runtime inputs
+## Required Runtime Inputs
 
 Minimum required environment variables when not using a JSON config file:
 
@@ -51,7 +49,7 @@ Alternative:
 
 - `PROXMOX_MCP_CONFIG` can point to a JSON config file. If that file exists, it is loaded before env-var fallback.
 
-## Safe default client config
+## Safe Default Client Config
 
 Use this when the user wants env-var based setup:
 
@@ -76,7 +74,7 @@ Use this when the user wants env-var based setup:
 }
 ```
 
-## Self-signed lab setup
+## Self-Signed Lab Setup
 
 If the Proxmox endpoint uses a self-signed certificate, set both of these:
 
@@ -89,7 +87,7 @@ If the Proxmox endpoint uses a self-signed certificate, set both of these:
 
 Do not use this combination for production environments.
 
-## Config-file based setup
+## Config-File Based Setup
 
 If the repository is cloned locally and a JSON config file already exists, prefer:
 

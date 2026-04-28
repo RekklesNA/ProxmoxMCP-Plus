@@ -130,7 +130,7 @@ class BackupTools(ProxmoxTool):
             # Sort by creation time (newest first)
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
-            lines = ["💾 Available Backups", ""]
+            lines = ["Available Backups", ""]
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
@@ -152,7 +152,7 @@ class BackupTools(ProxmoxTool):
                     except Exception:
                         time_str = str(ctime)
 
-                lines.append(f"  💾 VM/CT {backup_vmid} - {time_str}")
+                lines.append(f"VM/CT {backup_vmid} - {time_str}")
                 lines.append(f"     Size: {_b2h(size)}")
                 lines.append(f"     Format: {fmt}")
                 lines.append(f"     Storage: {storage_name} @ {node_name}")
@@ -160,7 +160,7 @@ class BackupTools(ProxmoxTool):
                 if notes:
                     lines.append(f"     Notes: {notes}")
                 if protected:
-                    lines.append("     🔒 Protected")
+                    lines.append("      Protected")
                 lines.append("")
 
             lines.append("Use the Volume ID with restore_backup to restore.")
@@ -204,23 +204,34 @@ class BackupTools(ProxmoxTool):
                 params["notes-template"] = notes
 
             result = self.proxmox.nodes(node).vzdump.post(**params)
+            job = self._register_background_job(
+                tool_name="create_backup",
+                summary=f"Create backup for {vmid} on {node}",
+                node=node,
+                upid=result,
+                metadata={"vmid": vmid, "storage": storage},
+                retry_spec={"kind": "backup.create", "params": {"node": node, "request": params}},
+                retry_factory=lambda: self.proxmox.nodes(node).vzdump.post(**params),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             lines = [
-                "💾 Backup Started",
+                "Backup Started",
                 "",
-                f"  • VM/CT ID: {vmid}",
-                f"  • Node: {node}",
-                f"  • Storage: {storage}",
-                f"  • Compression: {compress}",
-                f"  • Mode: {mode}",
+                f"  - VM/CT ID: {vmid}",
+                f"  - Node: {node}",
+                f"  - Storage: {storage}",
+                f"  - Compression: {compress}",
+                f"  - Mode: {mode}",
             ]
 
             if notes:
-                lines.append(f"  • Notes: {notes}")
+                lines.append(f"  - Notes: {notes}")
 
             lines.extend([
                 "",
                 f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "The backup is running in the background.",
                 "Use list_backups to verify when complete.",
@@ -238,6 +249,7 @@ class BackupTools(ProxmoxTool):
         vmid: str,
         storage: Optional[str] = None,
         unique: bool = True,
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Restore a VM or container from a backup.
 
@@ -251,6 +263,7 @@ class BackupTools(ProxmoxTool):
         Returns:
             List[Content] with restore result
         """
+        _ = approval_token
         try:
             # Determine if this is a VM or container backup
             is_lxc = "/ct/" in archive.lower() or "vzdump-lxc" in archive.lower()
@@ -272,23 +285,38 @@ class BackupTools(ProxmoxTool):
             else:
                 result = self.proxmox.nodes(node).qemu.post(**params)
                 vm_type = "VM"
+            job = self._register_background_job(
+                tool_name="restore_backup",
+                summary=f"Restore {vm_type.lower()} backup to {vmid} on {node}",
+                node=node,
+                upid=result,
+                metadata={"archive": archive, "vmid": vmid, "storage": storage},
+                retry_spec={"kind": "backup.restore", "params": {"node": node, "request": params, "is_lxc": is_lxc}},
+                retry_factory=(
+                    (lambda: self.proxmox.nodes(node).lxc.post(**params))
+                    if is_lxc
+                    else (lambda: self.proxmox.nodes(node).qemu.post(**params))
+                ),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             lines = [
-                f"♻️ {vm_type} Restore Started",
+                f"{vm_type} Restore Started",
                 "",
-                f"  • New ID: {vmid}",
-                f"  • From: {archive}",
-                f"  • Target Node: {node}",
+                f"  - New ID: {vmid}",
+                f"  - From: {archive}",
+                f"  - Target Node: {node}",
             ]
 
             if storage:
-                lines.append(f"  • Target Storage: {storage}")
+                lines.append(f"  - Target Storage: {storage}")
 
-            lines.append(f"  • Unique MACs: {'Yes' if unique else 'No'}")
+            lines.append(f"  - Unique MACs: {'Yes' if unique else 'No'}")
 
             lines.extend([
                 "",
                 f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "The restore is running in the background.",
                 f"The {vm_type.lower()} will be available once the task completes.",
@@ -304,6 +332,7 @@ class BackupTools(ProxmoxTool):
         node: str,
         storage: str,
         volid: str,
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Delete a backup file from storage.
 
@@ -315,6 +344,7 @@ class BackupTools(ProxmoxTool):
         Returns:
             List[Content] with deletion result
         """
+        _ = approval_token
         try:
             # Check if backup is protected
             content = _as_list(
@@ -335,17 +365,27 @@ class BackupTools(ProxmoxTool):
                 )]
 
             result = self.proxmox.nodes(node).storage(storage).content(volid).delete()
+            job = self._register_background_job(
+                tool_name="delete_backup",
+                summary=f"Delete backup {volid} from {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "volid": volid},
+                retry_spec={"kind": "backup.delete", "params": {"node": node, "storage": storage, "volid": volid}},
+                retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
 
             lines = [
-                "🗑️ Backup Deleted",
+                "Backup Deleted",
                 "",
-                f"  • Volume: {volid}",
-                f"  • Storage: {storage}",
-                f"  • Node: {node}",
+                f"  - Volume: {volid}",
+                f"  - Storage: {storage}",
+                f"  - Node: {node}",
             ]
 
             if result:
-                lines.extend(["", f"Task ID: {result}"])
+                lines.extend(["", f"Task ID: {result}", f"Job ID: {job['job_id'] if job else 'n/a'}"])
 
             return [Content(type="text", text="\n".join(lines))]
 

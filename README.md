@@ -3,10 +3,10 @@
 <!-- mcp-name: io.github.RekklesNA/proxmox-mcp-plus -->
 
 <div align="center">
-  <img src="assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
+  <img src="docs/assets/logo-proxmoxmcp-plus.png" alt="ProxmoxMCP-Plus Logo" width="160"/>
 </div>
 
-<p align="center"><strong>Control Proxmox VE from LLMs, AI agents, MCP clients, and OpenAPI tooling with one safer interface for VMs, LXCs, backups, snapshots, ISOs, and container commands.</strong></p>
+<p align="center"><strong>Control Proxmox VE from LLMs, AI agents, MCP clients, and OpenAPI tooling with one safer interface for VMs, LXCs, backups, snapshots, ISOs, container commands, and persistent long-running jobs.</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/proxmox-mcp-plus/"><img alt="PyPI" src="https://img.shields.io/pypi/v/proxmox-mcp-plus"></a>
@@ -25,7 +25,7 @@
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![ProxmoxMCP-Plus architecture and control flow](assets/proxmoxmcp-drawio-hero-main-refresh.svg)
+![ProxmoxMCP-Plus architecture and control flow](docs/assets/proxmoxmcp-drawio-hero-main-refresh.svg)
 
 ## Platform Overview
 
@@ -42,6 +42,7 @@ Instead of stitching together raw Proxmox API calls, shell scripts, and custom g
 - ISO download and cleanup
 - node, storage, and cluster inspection
 - SSH-backed container command execution with guardrails
+- persistent job tracking for async Proxmox tasks
 
 ## Design Priorities
 
@@ -50,6 +51,7 @@ ProxmoxMCP-Plus is designed for the gap between low-level Proxmox primitives and
 - `Dual-surface architecture`: MCP for conversational workflows, OpenAPI for standard automation
 - `Operator-oriented scope`: focused on day-2 tasks, not just raw low-level endpoints
 - `Safer-by-default execution`: auth, command policy, and explicit execution paths
+- `Observable long-running workflows`: stable `Job ID`s, progress polling, retry, cancel, and audit history
 - `Operationally grounded`: documented workflows are backed by live-environment verification
 
 ## Quick Start
@@ -63,7 +65,13 @@ Read the official Proxmox docs first if you are setting up a fresh lab:
 - [Proxmox VE administration guide](https://pve.proxmox.com/pve-docs/pve-admin-guide.html)
 - [Linux Container guide](https://pve.proxmox.com/wiki/Linux_Container)
 
-At minimum, `proxmox-config/config.json` needs:
+Create it from the example first:
+
+```bash
+cp proxmox-config/config.example.json proxmox-config/config.json
+```
+
+Then edit `proxmox-config/config.json` with your environment. At minimum, it needs:
 
 - `proxmox.host`
 - `proxmox.port`
@@ -72,6 +80,20 @@ At minimum, `proxmox-config/config.json` needs:
 - `auth.token_value`
 
 Add an `ssh` section as well if you want container command execution.
+Add a `jobs` section if you want job state persisted somewhere other than the default local SQLite file.
+
+For real live verification, use a separate `proxmox-config/config.live.json` created from `proxmox-config/config.live.example.json`.
+Do not point live e2e at a placeholder or local-only `config.json` unless you intentionally run a local API tunnel there.
+
+Minimal job persistence config:
+
+```json
+{
+  "jobs": {
+    "sqlite_path": "proxmox-jobs.sqlite3"
+  }
+}
+```
 
 ### 2. Choose one runtime path
 
@@ -138,9 +160,9 @@ Client-specific examples for Claude Desktop and Open WebUI are in the [Integrati
 
 This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live MCP session in English against a local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
 
-![Recorded demo gif](assets/proxmoxmcp-demo.gif)
+![Recorded demo gif](docs/assets/proxmoxmcp-demo.gif)
 
-[Watch the MP4 version](assets/proxmoxmcp-demo.mp4)
+[Watch the MP4 version](docs/assets/proxmoxmcp-demo.mp4)
 
 ## Core Platform Capabilities
 
@@ -157,6 +179,9 @@ Supported workflow areas:
 | LXC create / start / stop / delete | Available |
 | Container SSH-backed command execution | Available |
 | Container authorized_keys update | Available |
+| Persistent job store for long tasks | Available |
+| MCP job control tools (`list_jobs`, `get_job`, `poll_job`, `cancel_job`, `retry_job`) | Available |
+| OpenAPI `/jobs` endpoints with explicit status codes | Available |
 | Local OpenAPI `/health` and schema | Available |
 | Docker image build and `/health` | Available |
 
@@ -164,7 +189,57 @@ Validation and contract entry points in this repository:
 
 - `pytest -q`
 - `tests/integration/test_real_contract.py`
-- `test_scripts/run_real_e2e.py`
+- `tests/scripts/run_real_e2e.py`
+
+`tests/scripts/run_real_e2e.py` now prefers `proxmox-config/config.live.json` or `PROXMOX_MCP_E2E_CONFIG`.
+This avoids accidentally running live checks against a machine-specific default `config.json`.
+
+## Long-Running Jobs
+
+Many Proxmox mutations are asynchronous. ProxmoxMCP-Plus now wraps those tasks in a persistent job layer so MCP and OpenAPI clients can track them through a stable `Job ID`.
+
+Long-running tools such as VM create/start/stop, container create/start/stop, snapshot changes, backup/restore, and ISO download/delete now return both:
+
+- `task_id`: the raw Proxmox `UPID`
+- `job_id`: the stable server-side job record
+
+The job record stores:
+
+- current status and progress
+- retry count and prior `UPID`s
+- latest result payload or failure reason
+- audit history for create, poll, retry, and cancel actions
+
+By default the job store persists to `proxmox-jobs.sqlite3`, so restart does not lose in-flight or completed job metadata.
+
+### MCP Job Tools
+
+- `list_jobs`
+- `get_job`
+- `poll_job`
+- `cancel_job`
+- `retry_job`
+
+### OpenAPI Job Routes
+
+When the OpenAPI proxy is enabled and a local `JobStore` is available, these routes are exposed directly:
+
+| Path | Method | Purpose | Success Codes |
+| --- | --- | --- | --- |
+| `/jobs` | `GET` | list persisted jobs | `200` |
+| `/jobs/{job_id}` | `GET` | fetch one job, optional `refresh=true` | `200` |
+| `/jobs/{job_id}/poll` | `POST` | refresh status from Proxmox | `200` |
+| `/jobs/{job_id}/cancel` | `POST` | request cancellation | `202` |
+| `/jobs/{job_id}/retry` | `POST` | replay a stored retry recipe | `202` |
+
+Common error codes:
+
+- `404`: unknown `job_id`
+- `409`: the job exists but that operation is not valid now
+- `503`: the OpenAPI proxy was started without a local `JobStore`
+
+`tests/scripts/run_real_e2e.py` now prefers `proxmox-config/config.live.json` or `PROXMOX_MCP_E2E_CONFIG`.
+This avoids accidentally running live checks against a machine-specific default `config.json`.
 
 ## Positioning Against Common Approaches
 
@@ -174,17 +249,18 @@ Validation and contract entry points in this repository:
 | OpenAPI surface for standard HTTP tooling | No | Usually no | Yes |
 | VM and LXC operations in one interface | Low-level only | Depends | Yes |
 | Snapshot, backup, and restore workflows | Low-level only | Depends | Yes |
+| Persistent async job tracking and retry | No | Rare | Yes |
 | Container command execution with policy controls | No | Custom only | Yes |
 | Docker distribution path | No | Rare | Yes |
 | Repository-level live-environment verification | N/A | Rare | Yes |
 
 ## Scenario Templates
 
-Ready-to-copy examples live in [`examples/`](examples/README.md):
+Ready-to-copy examples live in [`docs/examples/`](docs/examples/README.md):
 
-- [Create a test VM](examples/create-test-vm.md)
-- [Roll back a risky change with snapshots](examples/rollback-snapshot.md)
-- [Download an ISO and create an LXC](examples/download-iso-and-create-lxc.md)
+- [Create a test VM](docs/examples/create-test-vm.md)
+- [Roll back a risky change with snapshots](docs/examples/rollback-snapshot.md)
+- [Download an ISO and create an LXC](docs/examples/download-iso-and-create-lxc.md)
 
 These are written for both human operators and LLM-driven usage.
 
@@ -197,7 +273,8 @@ The README is intentionally optimized for fast GitHub comprehension. Longer oper
 | Understand the project and deployment flow | [Wiki Home](docs/wiki/Home.md) |
 | Configure and run against a Proxmox environment | [Operator Guide](docs/wiki/Operator%20Guide.md) |
 | Connect Claude Desktop or Open WebUI | [Integrations Guide](docs/wiki/Integrations%20Guide.md) |
-| Install from MCP-aware IDEs and agents | [llms-installation.md](llms-installation.md) |
+| Install from MCP-aware IDEs and agents | [Agent Installation](docs/agent-installation.md) |
+| Enable LXC command execution over SSH | [Container Command Execution](docs/container-command-execution.md) |
 | Review security and command policy | [Security Guide](docs/wiki/Security%20Guide.md) |
 | Inspect tool parameters, prerequisites, and behavior | [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md) |
 | Debug startup, auth, or health issues | [Troubleshooting](docs/wiki/Troubleshooting.md) |
@@ -215,9 +292,9 @@ Published wiki:
 - `docker-compose.yml`: HTTP/OpenAPI runtime
 - `requirements/`: auxiliary dependency sources and runtime install lists
 - `scripts/`: helper startup scripts for local workflows
-- `test_scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
+- `tests/scripts/run_real_e2e.py`: live Proxmox and Docker/OpenAPI path
 - `tests/`: unit and integration coverage
-- `examples/`: scenario-driven prompts and HTTP examples
+- `docs/examples/`: scenario-driven prompts and HTTP examples
 - `docs/wiki/`: longer-form operator, integration, and reference docs
 
 ## Development Checks
@@ -225,7 +302,7 @@ Published wiki:
 ```bash
 pytest -q
 ruff check .
-mypy src tests main.py test_scripts/run_real_e2e.py
+mypy src tests main.py tests/scripts/run_real_e2e.py
 python -m build
 ```
 

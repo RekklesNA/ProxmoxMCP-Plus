@@ -22,6 +22,7 @@ class _SSHConfig:
     use_sudo = False
     known_hosts_file = None
     strict_host_key_checking = False
+    prefer_ssh_client = False
 
 
 @pytest.fixture
@@ -84,6 +85,34 @@ def test_execute_command_success(MockSSHClient, manager):
     assert "/usr/sbin/pct exec" in cmd
     assert "101" in cmd
     assert "uname -a" in cmd
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.RejectPolicy")
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_paramiko_always_rejects_unknown_host_keys(MockSSHClient, MockRejectPolicy, manager, ssh_cfg):
+    ssh_cfg.strict_host_key_checking = False
+    mock_client = _make_ssh_client(stdout_data=b"ok\n", exit_code=0)
+    MockSSHClient.return_value = mock_client
+    MockRejectPolicy.return_value = object()
+
+    manager.execute_command("pve1", "101", "echo ok")
+
+    mock_client.load_system_host_keys.assert_called_once()
+    mock_client.set_missing_host_key_policy.assert_called_once_with(MockRejectPolicy.return_value)
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.RejectPolicy")
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_paramiko_loads_explicit_known_hosts_file(MockSSHClient, MockRejectPolicy, manager, ssh_cfg):
+    ssh_cfg.known_hosts_file = "~/known_hosts.custom"
+    mock_client = _make_ssh_client(stdout_data=b"ok\n", exit_code=0)
+    MockSSHClient.return_value = mock_client
+    MockRejectPolicy.return_value = object()
+
+    manager.execute_command("pve1", "101", "echo ok")
+
+    mock_client.load_host_keys.assert_called_once()
+    mock_client.set_missing_host_key_policy.assert_called_once_with(MockRejectPolicy.return_value)
 
 
 @patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
@@ -159,3 +188,17 @@ def test_password_auth_used_when_no_key(MockSSHClient, manager, ssh_cfg):
     connect_kwargs = mock_client.connect.call_args[1]
     assert connect_kwargs.get("password") == "s3cr3t"
     assert "key_filename" not in connect_kwargs
+
+
+@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
+    ssh_cfg.prefer_ssh_client = True
+    ssh_cfg.host_overrides = {"pve1": "ahg1"}
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+    result = manager.execute_command("pve1", "101", "echo ok")
+
+    assert result["success"] is True
+    ssh_command = mock_run.call_args[0][0]
+    assert ssh_command[-2] == "ahg1"
+    assert "/usr/sbin/pct exec" in ssh_command[-1]

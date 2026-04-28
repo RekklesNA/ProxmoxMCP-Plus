@@ -2,6 +2,33 @@
 Tool descriptions for Proxmox MCP tools.
 """
 
+LIST_JOBS_DESC = """List tracked long-running jobs created by MCP tools.
+
+Parameters:
+status - Filter by job status (optional)
+tool_name - Filter by originating tool (optional)
+limit - Maximum rows to return (default: 100)
+"""
+
+GET_JOB_DESC = """Get the current state of a tracked job by job_id.
+
+Parameters:
+job_id* - Stable job identifier returned by long-running tools
+refresh - Poll Proxmox before returning the job state (default: false)
+"""
+
+POLL_JOB_DESC = """Poll the backing Proxmox task for a tracked job and refresh status/progress."""
+
+CANCEL_JOB_DESC = """Best-effort cancel for a tracked long-running job.
+
+This uses the stored Proxmox task UPID when cancellation is supported.
+"""
+
+RETRY_JOB_DESC = """Retry a tracked long-running job using its stored retry recipe.
+
+The same job_id is preserved and its attempt counter is incremented.
+"""
+
 # Node tool descriptions
 GET_NODES_DESC = """List all nodes in the Proxmox cluster with their status, CPU, memory, and role information.
 
@@ -104,7 +131,7 @@ Reset VPN-Server with ID 101 on node pve"""
 
 DELETE_VM_DESC = """Delete/remove a virtual machine completely.
 
-⚠️ WARNING: This operation permanently deletes the VM and all its data!
+ WARNING: This operation permanently deletes the VM and all its data!
 
 Parameters:
 node* - Host node name (e.g. 'pve')
@@ -207,7 +234,7 @@ Examples:
 
 EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
 
-No guest agent required — connects to the Proxmox node via SSH and uses `pct exec`.
+No guest agent required - connects to the Proxmox node via SSH and uses `pct exec`.
 
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name'
@@ -398,7 +425,7 @@ Example:
 
 GET_CONTAINER_IP_DESC = """Get the current IP address(es) of a running LXC container.
 
-Queries /nodes/{node}/lxc/{vmid}/interfaces — works with DHCP (no static IP needed).
+Queries /nodes/{node}/lxc/{vmid}/interfaces - works with DHCP (no static IP needed).
 
 Parameters:
 node* - Proxmox node name (e.g. 'pve')
@@ -410,7 +437,7 @@ Returns:
 
 UPDATE_CONTAINER_SSH_KEYS_DESC = """Inject or replace SSH authorized_keys for root in an LXC container.
 
-Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+Uses pct exec via SSH to the Proxmox host - requires SSH to be configured.
 
 Parameters:
 node*        - Proxmox node name (e.g. 'pve')

@@ -47,6 +47,18 @@ class ProxmoxConfig(BaseModel):
     verify_ssl: bool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
 
+
+class APITunnelConfig(BaseModel):
+    """Optional SSH local-forward config for the Proxmox API."""
+
+    enabled: bool = False
+    ssh_host: str
+    local_host: str = "127.0.0.1"
+    local_port: int = 8006
+    remote_host: str = "127.0.0.1"
+    remote_port: int = 8006
+    connect_timeout: int = 15
+
 class AuthConfig(BaseModel):
     """Model for Proxmox authentication configuration.
     
@@ -82,6 +94,7 @@ class SSHConfig(BaseModel):
     use_sudo: bool = False  # prefix pct with sudo (for non-root SSH users)
     known_hosts_file: Optional[str] = None
     strict_host_key_checking: bool = True
+    prefer_ssh_client: bool = False
 
 
 class SecurityConfig(BaseModel):
@@ -98,6 +111,26 @@ class CommandPolicyConfig(BaseModel):
     )
     require_approval_token: bool = False
     approval_token: Optional[str] = None
+    high_risk_mode: Literal["disabled", "audit_only", "enforce"] = "audit_only"
+    high_risk_operations: List[str] = Field(
+        default_factory=lambda: [
+            "delete_vm",
+            "delete_container",
+            "delete_snapshot",
+            "rollback_snapshot",
+            "restore_backup",
+            "delete_backup",
+            "delete_iso",
+        ]
+    )
+    high_risk_require_approval_token: bool = False
+    high_risk_approval_token: Optional[str] = None
+
+
+class JobsConfig(BaseModel):
+    """Persistent job tracking configuration."""
+
+    sqlite_path: str = "proxmox-jobs.sqlite3"
 
 class MCPConfig(BaseModel):
     """Model for MCP server configuration.
@@ -128,9 +161,11 @@ class Config(BaseModel):
     proper server operation.
     """
     proxmox: ProxmoxConfig  # Required: Proxmox connection settings
+    api_tunnel: Optional[APITunnelConfig] = None
     auth: AuthConfig  # Required: Authentication credentials
     logging: LoggingConfig  # Required: Logging configuration
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     ssh: Optional[SSHConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     command_policy: CommandPolicyConfig = Field(default_factory=CommandPolicyConfig)
+    jobs: JobsConfig = Field(default_factory=JobsConfig)

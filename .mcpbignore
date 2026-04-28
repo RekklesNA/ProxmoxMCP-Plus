@@ -5,7 +5,6 @@
 ProxmoxMCP-Plus.mcpb
 uv.lock
 tests/
-test_scripts/
 Dockerfile
 docker-compose.yml
 requirements.txt

@@ -105,7 +105,7 @@ class ProxmoxFormatters:
         """
         emoji = ProxmoxTheme.get_section_emoji(section_type)
         header = f"{emoji} {title}"
-        border = "═" * len(header)
+        border = "=" * len(header)
         return f"\n{header}\n{border}\n"
     
     @staticmethod
@@ -144,8 +144,8 @@ class ProxmoxFormatters:
         """
         result = [
             f"{ProxmoxTheme.ACTIONS['command']} Console Command Result",
-            f"  • Status: {'SUCCESS' if success else 'FAILED'}",
-            f"  • Command: {command}",
+            f"  - Status: {'SUCCESS' if success else 'FAILED'}",
+            f"  - Command: {command}",
             "",
             "Output:",
             output.strip()

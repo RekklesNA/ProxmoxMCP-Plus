@@ -41,6 +41,12 @@ jobs:
       run: |
         mypy src --ignore-missing-imports
 
+    - name: Build package
+      run: |
+        python -m build
+        python -m pip install --upgrade twine
+        twine check dist/*
+
     - name: pip-audit
       run: |
         pip-audit -r requirements.txt

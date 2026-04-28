@@ -8,9 +8,6 @@ paths:
 
 paths-ignore:
   - tests
-  - test_scripts
   - docs
-  - examples
-  - assets
   - dist
   - proxmox-config

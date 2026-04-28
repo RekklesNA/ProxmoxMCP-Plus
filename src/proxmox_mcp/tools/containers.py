@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Tuple, Any, Union
+from typing import List, Dict, Optional, Tuple, Any, Union, Callable
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
@@ -66,8 +66,10 @@ class ContainerTools(ProxmoxTool):
         proxmox_api: Any,
         ssh_config: Any = None,
         command_policy: Any = None,
+        metrics: Any = None,
+        job_store: Any = None,
     ) -> None:
-        super().__init__(proxmox_api)
+        super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
@@ -162,7 +164,7 @@ class ContainerTools(ProxmoxTool):
         return raw_status, raw_config
 
     def _render_pretty(self, rows: List[Dict]) -> List[Content]:
-        lines: List[str] = ["📦 Containers", ""]
+        lines: List[str] = ["Containers", ""]
         for r in rows:
             name = r.get("name") or f"ct-{r.get('vmid')}"
             vmid = r.get("vmid")
@@ -175,20 +177,20 @@ class ContainerTools(ProxmoxTool):
             mem_pct = r.get("mem_pct")
             unlimited = bool(r.get("unlimited_memory", False))
 
-            lines.append(f"📦 {name} (ID: {vmid})")
-            lines.append(f"  • Status: {status}")
-            lines.append(f"  • Node: {node}")
-            lines.append(f"  • CPU: {cpu_pct:.1f}%")
-            lines.append(f"  • CPU Cores: {cores if cores is not None else 'N/A'}")
+            lines.append(f"{name} (ID: {vmid})")
+            lines.append(f"  - Status: {status}")
+            lines.append(f"  - Node: {node}")
+            lines.append(f"  - CPU: {cpu_pct:.1f}%")
+            lines.append(f"  - CPU Cores: {cores if cores is not None else 'N/A'}")
 
             if unlimited:
-                lines.append(f"  • Memory: {_b2h(mem_bytes)} (unlimited)")
+                lines.append(f"  - Memory: {_b2h(mem_bytes)} (unlimited)")
             else:
                 if maxmem_bytes > 0:
                     pct_str = f" ({mem_pct:.1f}%)" if isinstance(mem_pct, (int, float)) else ""
-                    lines.append(f"  • Memory: {_b2h(mem_bytes)} / {_b2h(maxmem_bytes)}{pct_str}")
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / {_b2h(maxmem_bytes)}{pct_str}")
                 else:
-                    lines.append(f"  • Memory: {_b2h(mem_bytes)} / 0.00 B")
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / 0.00 B")
             lines.append("")
         return [Content(type="text", text="\n".join(lines).rstrip())]
 
@@ -389,9 +391,9 @@ class ContainerTools(ProxmoxTool):
 
     def _render_action_result(self, title: str, results: List[Dict[str, Any]]) -> List[Content]:
         """Pretty-print an action result; JSON stays raw."""
-        lines = [f"📦 {title}", ""]
+        lines = [title, ""]
         for r in results:
-            status = "✅ OK" if r.get("ok") else "❌ FAIL"
+            status = "OK" if r.get("ok") else "FAIL"
             node = r.get("node")
             vmid = r.get("vmid")
             name = r.get("name") or f"ct-{vmid}"
@@ -414,7 +416,32 @@ class ContainerTools(ProxmoxTool):
             for node, vmid, label in targets:
                 try:
                     resp = self.proxmox.nodes(node).lxc(vmid).status.start.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+
+                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).status.start.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+
+                    job = self._register_background_job(
+                        tool_name="start_container",
+                        summary=f"Start container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.start", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -429,8 +456,8 @@ class ContainerTools(ProxmoxTool):
                        format_style: str = "pretty") -> List[Content]:
         """
         Stop LXC containers.
-        graceful=True → POST .../status/shutdown (graceful stop)
-        graceful=False → POST .../status/stop (force stop)
+        graceful=True -> POST .../status/shutdown (graceful stop)
+        graceful=False -> POST .../status/stop (force stop)
         """
         try:
             targets = self._resolve_targets(selector)
@@ -444,7 +471,37 @@ class ContainerTools(ProxmoxTool):
                         resp = self.proxmox.nodes(node).lxc(vmid).status.shutdown.post(timeout=timeout_seconds)
                     else:
                         resp = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+
+                    retry_factory: Callable[[], Any]
+                    if graceful:
+                        def retry_factory(node_name: str = node, vmid_value: int = vmid, timeout_value: int = timeout_seconds) -> Any:
+                            return self.proxmox.nodes(node_name).lxc(vmid_value).status.shutdown.post(timeout=timeout_value)
+                    else:
+                        def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                            return self.proxmox.nodes(node_name).lxc(vmid_value).status.stop.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+
+                    job = self._register_background_job(
+                        tool_name="stop_container",
+                        summary=f"Stop container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid, "graceful": graceful},
+                        retry_spec={"kind": "ct.stop", "params": {"node": node, "vmid": vmid, "graceful": graceful, "timeout_seconds": timeout_seconds}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -469,7 +526,32 @@ class ContainerTools(ProxmoxTool):
             for node, vmid, label in targets:
                 try:
                     resp = self.proxmox.nodes(node).lxc(vmid).status.reboot.post()
-                    results.append({"ok": True, "node": node, "vmid": vmid, "name": label, "message": resp})
+
+                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).status.reboot.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+
+                    job = self._register_background_job(
+                        tool_name="restart_container",
+                        summary=f"Restart container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.restart", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
                 except Exception as e:
                     results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
 
@@ -590,29 +672,47 @@ class ContainerTools(ProxmoxTool):
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)
 
+            def retry_factory() -> Any:
+                return self.proxmox.nodes(node).lxc.create(**ct_config)
+
+            def cancel_factory(upid: str) -> Any:
+                return self.proxmox.nodes(node).tasks(upid).status.stop.post()
+
+            job = self._register_background_job(
+                tool_name="create_container",
+                summary=f"Create container {vmid} ({hostname}) on {node}",
+                node=node,
+                upid=result,
+                metadata={"vmid": vmid, "hostname": hostname},
+                retry_spec={"kind": "ct.create", "params": {"node": node, "ct_config": ct_config}},
+                retry_factory=retry_factory,
+                cancel_factory=cancel_factory,
+            )
+
             # Format success response
             lines = [
-                "📦 Container Created Successfully",
+                " Container Created Successfully",
                 "",
-                f"  • VMID: {vmid}",
-                f"  • Hostname: {hostname}",
-                f"  • Node: {node}",
-                f"  • Template: {ostemplate}",
-                f"  • CPU Cores: {cores}",
-                f"  • Memory: {memory} MiB",
-                f"  • Swap: {swap} MiB",
-                f"  • Disk: {disk_size} GB on {storage}",
-                f"  • Network: {network_bridge} (DHCP)",
-                f"  • Unprivileged: {'Yes' if unprivileged else 'No'}",
-                f"  • Auto-start: {'Yes' if start_after_create else 'No'}",
-                f"  • Start on boot: {'Yes' if onboot else 'No'}",
-                f"  • Nesting enabled: {'Yes' if nesting else 'No'}",
+                f"  - VMID: {vmid}",
+                f"  - Hostname: {hostname}",
+                f"  - Node: {node}",
+                f"  - Template: {ostemplate}",
+                f"  - CPU Cores: {cores}",
+                f"  - Memory: {memory} MiB",
+                f"  - Swap: {swap} MiB",
+                f"  - Disk: {disk_size} GB on {storage}",
+                f"  - Network: {network_bridge} (DHCP)",
+                f"  - Unprivileged: {'Yes' if unprivileged else 'No'}",
+                f"  - Auto-start: {'Yes' if start_after_create else 'No'}",
+                f"  - Start on boot: {'Yes' if onboot else 'No'}",
+                f"  - Nesting enabled: {'Yes' if nesting else 'No'}",
                 "",
                 f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
                 "",
                 "Next steps:",
-                f"  • Start container: start_container selector='{vmid}'",
-                "  • Check status: get_containers",
+                f"  - Start container: start_container selector='{vmid}'",
+                "  - Check status: get_containers",
             ]
             return [Content(type="text", text="\n".join(lines))]
 
@@ -624,6 +724,7 @@ class ContainerTools(ProxmoxTool):
         selector: str,
         force: bool = False,
         format_style: str = "pretty",
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Delete one or more LXC containers.
 
@@ -635,6 +736,7 @@ class ContainerTools(ProxmoxTool):
         Returns:
             List[Content] with deletion results
         """
+        _ = approval_token
         try:
             targets = self._resolve_targets(selector)
             if not targets:
@@ -668,6 +770,24 @@ class ContainerTools(ProxmoxTool):
                     task_result = self.proxmox.nodes(node).lxc(vmid).delete()
                     rec["task_id"] = str(task_result)
 
+                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).delete()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+
+                    job = self._register_background_job(
+                        tool_name="delete_container",
+                        summary=f"Delete container {vmid} on {node}",
+                        node=node,
+                        upid=task_result,
+                        metadata={"vmid": vmid, "force": force},
+                        retry_spec={"kind": "ct.delete", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    rec["job_id"] = job["job_id"] if job else None
+
                 except Exception as e:
                     rec["ok"] = False
                     rec["error"] = str(e)
@@ -690,7 +810,7 @@ class ContainerTools(ProxmoxTool):
         """Execute a shell command inside a running LXC container via SSH + pct exec.
 
         Parameters:
-            selector: Container selector (single target only — e.g. '101', 'pve1:101', 'name')
+            selector: Container selector (single target only - e.g. '101', 'pve1:101', 'name')
             command:  Shell command to run inside the container
 
         Returns:
@@ -800,7 +920,7 @@ class ContainerTools(ProxmoxTool):
     ) -> List[Content]:
         """Inject or replace SSH authorized_keys for root in an LXC container.
 
-        Uses pct exec via SSH to the Proxmox host — requires SSH to be configured.
+        Uses pct exec via SSH to the Proxmox host - requires SSH to be configured.
 
         Parameters:
             node:        Proxmox node name.
@@ -834,7 +954,7 @@ class ContainerTools(ProxmoxTool):
                     RuntimeError(f"mkdir /root/.ssh failed: {mkdir_data.get('output')}"),
                 )
 
-            # Write keys — use a Python-safe delimiter to avoid shell quoting issues
+            # Write keys - use a Python-safe delimiter to avoid shell quoting issues
             joined = "\n".join(keys)
             # Build a here-doc-style printf command; escape single quotes in keys
             escaped = joined.replace("'", "'\\''")

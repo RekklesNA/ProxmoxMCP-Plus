@@ -29,10 +29,13 @@ export PROXMOX_PORT=8006
 export PROXMOX_USER=user@pam
 export PROXMOX_TOKEN_NAME=your-token-name
 export PROXMOX_TOKEN_VALUE=your-token-secret-value
-export PROXMOX_VERIFY_SSL=false
+export PROXMOX_VERIFY_SSL=true
+export PROXMOX_DEV_MODE=false
 export PROXMOX_SERVICE=PVE
 export LOG_LEVEL=INFO
 ```
+
+For a self-signed lab certificate, set both `PROXMOX_VERIFY_SSL=false` and `PROXMOX_DEV_MODE=true`.
 
 ### 3. How MCP Loads Environment
 

@@ -35,11 +35,13 @@ cp proxmox-config/config.example.json proxmox-config/config.json
 The main sections are:
 
 - `proxmox`: host, port, TLS verification, service type
+- `api_tunnel`: optional SSH local forward for the Proxmox API
 - `auth`: Proxmox API user and token
 - `logging`: log level, format, optional log file
 - `mcp`: MCP host, port, and transport
 - `security`: currently includes `dev_mode`
-- `command_policy`: rules for `execute_*` tools
+- `jobs`: SQLite path for persistent job tracking
+- `command_policy`: rules for `execute_*` tools and high-risk mutating operations
 - `ssh`: optional SSH settings for LXC command execution
 
 ## Environment Variable Fallback
@@ -61,6 +63,7 @@ Common variables:
 - `MCP_TRANSPORT`
 - `PROXMOX_DEV_MODE`
 - `COMMAND_POLICY_MODE`
+- `PROXMOX_JOBS_SQLITE_PATH`
 
 ## Minimal Local Start
 
@@ -87,6 +90,8 @@ Available routes:
 - `/docs` serves Swagger UI
 - `/openapi.json` serves the generated schema
 - `/health` returns `503` until the proxy is connected to the MCP backend, then `200`
+- `/metrics` exposes Prometheus-style request metrics
+- `/jobs` exposes direct job query and control routes when a local `JobStore` is available
 
 ## Docker Compose Deployment
 
@@ -116,6 +121,8 @@ Before exposing the service to users:
 - Set an API key when exposing the OpenAPI endpoint outside a private dev machine
 - Restrict ingress to networks you control
 - Monitor the `/health` endpoint if you run the OpenAPI proxy
+- Monitor `/metrics` if you scrape the service with Prometheus-compatible tooling
+- Persist the configured `jobs.sqlite_path` on durable storage if job history matters across restarts
 - Store logs somewhere persistent if you need auditability
 
 ## Command Execution Features
@@ -127,7 +134,25 @@ There are two command execution paths:
 
 Container command execution is optional and only appears when an `ssh` section exists in the config.
 
-For setup details, see [Container Command Execution Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/blob/main/docs/container-command-execution.md).
+For setup details, see [Container Command Execution](Container-Command-Execution).
+
+## Long-Running Job Operations
+
+Asynchronous Proxmox actions now register a persistent job record. This applies to operations such as:
+
+- VM create, start, stop, shutdown, reset, and delete
+- container create, start, stop, restart, and delete
+- snapshot create, delete, and rollback
+- backup create, restore, and delete
+- ISO download and delete
+
+Operational guidance:
+
+- Treat `job_id` as the stable identifier you hand back to users, agents, and automation systems.
+- Treat `task_id` or `UPID` as Proxmox internals that may change after a retry.
+- Keep `jobs.sqlite_path` on a persistent volume in Docker or any long-lived service deployment.
+- Use `/jobs/{job_id}/poll` or MCP `poll_job` to refresh progress from Proxmox.
+- Use `/jobs/{job_id}/retry` only after reviewing `last_error`, `result`, and `audit_log`.
 
 ## First Verification Flow
 
@@ -136,17 +161,20 @@ After deployment, test in this order:
 1. Start the service and confirm there are no config validation errors
 2. Call read-only tools first: `get_nodes`, `get_vms`, `get_storage`, `get_cluster_status`
 3. In OpenAPI mode, confirm `/health` and `/docs` both respond
-4. If you enabled SSH-backed container commands, confirm `execute_container_command` appears in the tool list
-5. Only then test mutating tools such as create, start, delete, snapshot, or backup
+4. Confirm `/jobs` responds if you expect persistent job tracking
+5. If you enabled SSH-backed container commands, confirm `execute_container_command` appears in the tool list
+6. Only then test mutating tools such as create, start, delete, snapshot, or backup
 
 ## Logs and Health
 
 - Application logging is configured under the `logging` section
 - `main.py` prints early startup messages to stderr to make bootstrap failures visible
 - The OpenAPI wrapper reports `degraded` until it is connected to the MCP subprocess
+- `/health` reports whether direct job routes are enabled in the OpenAPI process
 
 ## Related Pages
 
 - [Security Guide](Security-Guide)
+- [Container Command Execution](Container-Command-Execution)
 - [Integrations Guide](Integrations-Guide)
 - [Troubleshooting](Troubleshooting)
