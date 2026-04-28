@@ -18,6 +18,19 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.4`
+
+- Release date: 2026-04-28
+- Summary: updates GitHub Actions workflow dependencies to current Node 24-compatible major versions.
+- Changed behavior:
+  - no runtime behavior changes
+- Config changes:
+  - no required config changes
+- Docs updated:
+  - `docs/releases/v0.4.4.md`
+- Upgrade steps:
+  - no migration required
+
 ### Version `0.4.3`
 
 - Release date: 2026-04-28
