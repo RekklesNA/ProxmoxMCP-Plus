@@ -310,6 +310,81 @@ Next steps:
         except Exception as e:
             self._handle_error(f"create VM {vmid}", e)
 
+    def clone_vm(
+        self,
+        node: str,
+        source_vmid: str,
+        target_vmid: str,
+        name: Optional[str] = None,
+        target_node: Optional[str] = None,
+        full: bool = True,
+        storage: Optional[str] = None,
+        pool: Optional[str] = None,
+        snapname: Optional[str] = None,
+    ) -> List[Content]:
+        """Clone an existing virtual machine."""
+        destination_node = target_node or node
+
+        try:
+            source_status = self.proxmox.nodes(node).qemu(source_vmid).status.current.get()
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"Source VM {source_vmid} not found on node {node}")
+            self._handle_error(f"lookup source VM {source_vmid}", e)
+
+        source_name = source_status.get("name", f"VM-{source_vmid}")
+
+        try:
+            self.proxmox.nodes(destination_node).qemu(target_vmid).config.get()
+            raise ValueError(f"Target VM ID {target_vmid} already exists on node {destination_node}")
+        except ValueError:
+            raise
+        except Exception as e:
+            if "does not exist" not in str(e).lower() and "not found" not in str(e).lower():
+                self._handle_error(f"check target VM {target_vmid}", e)
+
+        clone_payload: dict[str, Any] = {
+            "newid": int(target_vmid),
+            "full": 1 if full else 0,
+        }
+        if name:
+            clone_payload["name"] = name
+        if target_node:
+            clone_payload["target"] = target_node
+        if storage:
+            clone_payload["storage"] = storage
+        if pool:
+            clone_payload["pool"] = pool
+        if snapname:
+            clone_payload["snapname"] = snapname
+
+        try:
+            task_result = self.proxmox.nodes(node).qemu(source_vmid).clone.post(**clone_payload)
+        except Exception as e:
+            self._handle_error(f"clone VM {source_vmid} -> {target_vmid}", e)
+
+        result_text = f"""📑 VM clone initiated successfully!
+
+📋 Clone Configuration:
+  • Source VM: {source_vmid} ({source_name})
+  • Source Node: {node}
+  • Target VM ID: {target_vmid}
+  • Target Node: {destination_node}
+  • Clone Type: {"full" if full else "linked"}"""
+
+        if name:
+            result_text += f"\n  • Target Name: {name}"
+        if storage:
+            result_text += f"\n  • Storage: {storage}"
+        if pool:
+            result_text += f"\n  • Pool: {pool}"
+        if snapname:
+            result_text += f"\n  • Snapshot: {snapname}"
+
+        result_text += f"\n\n🔧 Task ID: {task_result}"
+
+        return [Content(type="text", text=result_text)]
+
     def start_vm(self, node: str, vmid: str) -> List[Content]:
         """Start a virtual machine.
         

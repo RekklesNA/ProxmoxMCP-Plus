@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from proxmox_mcp.tools.definitions import (
     CANCEL_JOB_DESC,
+    CLONE_VM_DESC,
     CREATE_BACKUP_DESC,
     CREATE_CONTAINER_DESC,
     CREATE_SNAPSHOT_DESC,
@@ -231,6 +232,30 @@ class VMToolsPlugin(RegistryPluginBase):
                 storage,
                 ostype,
                 network_bridge,
+            )
+
+        @server.mcp.tool(description=CLONE_VM_DESC)
+        def clone_vm(
+            node: Annotated[str, Field(description="Source host node name (e.g. 'pve')")],
+            source_vmid: Annotated[str, Field(description="Source VM ID number (e.g. '9000')", pattern=r"^\d+$")],
+            target_vmid: Annotated[str, Field(description="New VM ID number for the clone (e.g. '201')", pattern=r"^\d+$")],
+            name: Annotated[Optional[str], Field(description="New VM name (optional)", default=None)] = None,
+            target_node: Annotated[Optional[str], Field(description="Destination node name (optional)", default=None)] = None,
+            full: Annotated[bool, Field(description="Create full clone (True) or linked clone (False)", default=True)] = True,
+            storage: Annotated[Optional[str], Field(description="Target storage (optional)", default=None)] = None,
+            pool: Annotated[Optional[str], Field(description="Target resource pool (optional)", default=None)] = None,
+            snapname: Annotated[Optional[str], Field(description="Snapshot name to clone from (optional)", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "clone_vm", server.vm_tools.clone_vm)(
+                node=node,
+                source_vmid=source_vmid,
+                target_vmid=target_vmid,
+                name=name,
+                target_node=target_node,
+                full=full,
+                storage=storage,
+                pool=pool,
+                snapname=snapname,
             )
 
         @server.mcp.tool(description=EXECUTE_VM_COMMAND_DESC)
