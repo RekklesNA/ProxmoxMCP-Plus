@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/rekklesna-proxmoxmcp-plus-badge.png)](https://mseep.ai/app/rekklesna-proxmoxmcp-plus)
+
 # ProxmoxMCP-Plus
 
 <!-- mcp-name: io.github.RekklesNA/proxmox-mcp-plus -->
