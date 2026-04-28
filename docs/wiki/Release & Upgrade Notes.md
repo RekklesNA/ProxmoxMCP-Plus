@@ -18,6 +18,22 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.3`
+
+- Release date: 2026-04-28
+- Summary: adds the `clone_vm` MCP tool for cloning existing Proxmox QEMU virtual machines.
+- New tools or endpoints:
+  - MCP tool: `clone_vm`
+- Changed behavior:
+  - no behavior changes to existing tools
+- Config changes:
+  - no required config changes
+- Docs updated:
+  - `docs/releases/v0.4.3.md`
+- Upgrade steps:
+  - no migration required
+  - confirm the configured Proxmox API token has VM clone permissions before using `clone_vm`
+
 ### Version `0.4.2`
 
 - Release date: 2026-04-28
