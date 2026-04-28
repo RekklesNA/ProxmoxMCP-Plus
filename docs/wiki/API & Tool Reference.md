@@ -208,5 +208,6 @@ When adding or changing a tool, update all of the following:
 
 - [Operator Guide](Operator-Guide)
 - [Security Guide](Security-Guide)
+- [Container Command Execution](Container-Command-Execution)
 - [Integrations Guide](Integrations-Guide)
 - [Troubleshooting](Troubleshooting)

@@ -18,6 +18,23 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.2`
+
+- Release date: 2026-04-28
+- Summary: restores and updates the LXC container command execution setup guide for the current SSH-backed `pct exec` implementation.
+- Changed behavior:
+  - no runtime behavior changes
+- Config changes:
+  - `proxmox-config/config.example.json` now shows the recommended `mcp-agent` SSH user, `use_sudo=true`, and `known_hosts_file` setup
+- Docs updated:
+  - `docs/container-command-execution.md`
+  - `docs/wiki/Container Command Execution.md`
+  - `README.md`
+  - `docs/releases/v0.4.2.md`
+- Upgrade steps:
+  - no migration required
+  - if enabling container command execution, review the updated SSH and `command_policy` setup
+
 ### Version `0.4.1`
 
 - Release date: 2026-04-25

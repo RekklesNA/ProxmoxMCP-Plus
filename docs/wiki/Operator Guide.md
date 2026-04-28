@@ -134,7 +134,7 @@ There are two command execution paths:
 
 Container command execution is optional and only appears when an `ssh` section exists in the config.
 
-For setup details, see [Container Command Execution Guide](https://github.com/RekklesNA/ProxmoxMCP-Plus/blob/main/docs/container-command-execution.md).
+For setup details, see [Container Command Execution](Container-Command-Execution).
 
 ## Long-Running Job Operations
 
@@ -175,5 +175,6 @@ After deployment, test in this order:
 ## Related Pages
 
 - [Security Guide](Security-Guide)
+- [Container Command Execution](Container-Command-Execution)
 - [Integrations Guide](Integrations-Guide)
 - [Troubleshooting](Troubleshooting)

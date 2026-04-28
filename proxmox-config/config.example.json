@@ -46,13 +46,15 @@
         "approval_token": null
     },
     "ssh": {
-        "user": "root",
+        "user": "mcp-agent",
         "port": 22,
-        "key_file": "~/.ssh/id_rsa",
+        "key_file": "~/.ssh/proxmox_key",
+        "use_sudo": true,
+        "known_hosts_file": "~/.ssh/known_hosts",
         "host_overrides": {
-            "pve": "your-ssh-alias"
+            "pve": "your-proxmox-node-ip-or-ssh-alias"
         },
         "strict_host_key_checking": true,
-        "prefer_ssh_client": true
+        "prefer_ssh_client": false
     }
 }
