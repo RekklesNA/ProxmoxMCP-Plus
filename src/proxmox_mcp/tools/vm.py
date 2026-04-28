@@ -343,7 +343,7 @@ Next steps:
             if "does not exist" not in str(e).lower() and "not found" not in str(e).lower():
                 self._handle_error(f"check target VM {target_vmid}", e)
 
-        clone_payload = {
+        clone_payload: dict[str, Any] = {
             "newid": int(target_vmid),
             "full": 1 if full else 0,
         }
