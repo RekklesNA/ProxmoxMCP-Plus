@@ -105,7 +105,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
-| `get_containers` | Read-only | `payload` body | `node`, `include_stats=true`, `include_raw=false`, `format_style=pretty\|json` | Proxmox API reachable | invalid payload shape, auth failure |
+| `get_containers` | Read-only | none | `node`, `include_stats=true`, `include_raw=false`, `format_style=pretty\|json`, legacy `payload` object | Proxmox API reachable | invalid payload shape, auth failure |
 | `start_container` | Mutating | `selector` | `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, start failure from Proxmox |
 | `stop_container` | Mutating | `selector` | `graceful=true`, `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, timeout on graceful shutdown, container already stopped |
 | `restart_container` | Mutating | `selector` | `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, reboot failure |
@@ -119,7 +119,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 ### Container Notes
 
-- `get_containers` uses a request body model rather than a flat parameter list.
+- `get_containers` exposes flat top-level parameters for stricter MCP clients. The legacy `payload` object is still accepted for existing callers.
 - `update_container_resources.disk_gb` is an additional resize amount for the selected disk, not a full replacement size target.
 - `create_container.start_after_create` controls immediate startup after provisioning.
 - `create_container.nesting` and `create_container.unprivileged` change container execution characteristics and should match your Proxmox policy.

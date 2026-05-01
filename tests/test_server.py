@@ -11,6 +11,15 @@ from mcp.server.fastmcp.exceptions import ToolError
 from proxmox_mcp.server import ProxmoxMCPServer
 from proxmox_mcp.config.loader import load_config
 
+
+def _schema_contains_key(value, key):
+    if isinstance(value, dict):
+        return key in value or any(_schema_contains_key(item, key) for item in value.values())
+    if isinstance(value, list):
+        return any(_schema_contains_key(item, key) for item in value)
+    return False
+
+
 @pytest.fixture
 def mock_env_vars(tmp_path):
     """Fixture to set up test environment variables."""
@@ -142,6 +151,20 @@ async def test_list_tools(server):
 
 
 @pytest.mark.asyncio
+async def test_get_containers_schema_avoids_refs(server):
+    """Home Assistant's MCP client rejects nested payload schemas with $ref/$defs."""
+    tools = await server.mcp.list_tools()
+    get_containers = next(tool for tool in tools if tool.name == "get_containers")
+    schema = get_containers.inputSchema
+
+    assert "$defs" not in schema
+    assert not _schema_contains_key(schema, "$ref")
+    assert {"node", "include_stats", "include_raw", "format_style"}.issubset(schema["properties"])
+    assert "payload" in schema["properties"]
+    assert "payload" not in schema.get("required", [])
+
+
+@pytest.mark.asyncio
 async def test_list_tools_with_ssh_config(mock_proxmox, tmp_path):
     """execute_container_command is registered only when an ssh section is present."""
     config_path = tmp_path / "config_ssh.json"
@@ -267,11 +290,25 @@ async def test_get_containers(server, mock_proxmox):
         {"vmid": "201", "name": "container2", "status": "stopped"}
     ]
 
-    response = await server.mcp.call_tool("get_containers", {"payload": {"format_style": "json"}})
+    response = await server.mcp.call_tool("get_containers", {"format_style": "json"})
     result = json.loads(response[0].text)
     assert len(result) > 0
     assert result[0]["name"] == "container1"
     assert result[1]["name"] == "container2"
+
+
+@pytest.mark.asyncio
+async def test_get_containers_accepts_legacy_payload(server, mock_proxmox):
+    """Existing clients may still send the pre-0.4.5 nested payload shape."""
+    mock_proxmox.return_value.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    mock_proxmox.return_value.nodes.return_value.lxc.get.return_value = [
+        {"vmid": "200", "name": "container1", "status": "running"},
+    ]
+
+    response = await server.mcp.call_tool("get_containers", {"payload": {"format_style": "json"}})
+    result = json.loads(response[0].text)
+    assert result[0]["name"] == "container1"
+
 
 @pytest.mark.asyncio
 async def test_get_containers_skips_offline_node(server, mock_proxmox):

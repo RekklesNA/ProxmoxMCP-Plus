@@ -18,6 +18,21 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.5`
+
+- Release date: 2026-05-01
+- Summary: fixes Home Assistant MCP compatibility for `get_containers` by removing the nested `$ref` payload schema while retaining legacy payload calls.
+- Changed behavior:
+  - `get_containers` now exposes flat top-level MCP arguments
+  - legacy `payload` object input remains accepted for existing clients
+- Config changes:
+  - no required config changes
+- Docs updated:
+  - `docs/releases/v0.4.5.md`
+  - `docs/wiki/API & Tool Reference.md`
+- Upgrade steps:
+  - no migration required
+
 ### Version `0.4.4`
 
 - Release date: 2026-04-28

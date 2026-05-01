@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from typing import Annotated, Any, Awaitable, Callable, Literal, Optional
 
-from fastapi import Body
 from pydantic import BaseModel, Field
 
 from proxmox_mcp.tools.definitions import (
@@ -319,13 +318,28 @@ class ContainerToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
         @server.mcp.tool(description=GET_CONTAINERS_DESC)
         def get_containers(
-            payload: GetContainersPayload = Body(..., embed=True, description="Container query options")
+            node: Annotated[Optional[str], Field(description="Optional node name (e.g. 'pve1')")] = None,
+            include_stats: Annotated[bool, Field(description="Include live stats and fallbacks")] = True,
+            include_raw: Annotated[bool, Field(description="Include raw status/config")] = False,
+            format_style: Annotated[Literal["pretty", "json"], Field(description="'pretty' or 'json'")] = "pretty",
+            payload: Annotated[Optional[dict[str, Any]], Field(description="Legacy container query options")] = None,
         ) -> Any:
+            if payload is not None:
+                legacy_payload = GetContainersPayload.model_validate(payload)
+                if "node" in legacy_payload.model_fields_set:
+                    node = legacy_payload.node
+                if "include_stats" in legacy_payload.model_fields_set:
+                    include_stats = legacy_payload.include_stats
+                if "include_raw" in legacy_payload.model_fields_set:
+                    include_raw = legacy_payload.include_raw
+                if "format_style" in legacy_payload.model_fields_set:
+                    format_style = legacy_payload.format_style
+
             return self._wrap_sync(server, "get_containers", server.container_tools.get_containers)(
-                node=payload.node,
-                include_stats=payload.include_stats,
-                include_raw=payload.include_raw,
-                format_style=payload.format_style,
+                node=node,
+                include_stats=include_stats,
+                include_raw=include_raw,
+                format_style=format_style,
             )
 
         @server.mcp.tool(description=START_CONTAINER_DESC)
