@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -10,6 +11,7 @@ import pytest
 
 from proxmox_mcp.services.jobs import JobConflictError, JobStore
 from proxmox_mcp.server import ProxmoxMCPServer
+from proxmox_mcp.tools.containers import ContainerTools
 
 
 @pytest.fixture
@@ -126,6 +128,27 @@ def test_job_store_persists_to_sqlite(tmp_path: Path):
     assert loaded["retry_spec"]["kind"] == "iso.delete"
 
 
+def test_job_store_refreshes_records_written_by_another_instance(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+
+    reader = JobStore(proxmox, sqlite_path=str(db_path))
+    writer = JobStore(proxmox, sqlite_path=str(db_path))
+    created = writer.register_task(
+        tool_name="start_vm",
+        summary="Start VM",
+        node="pve",
+        upid="UPID:created-after-reader-started",
+        retry_spec={"kind": "vm.start", "params": {"node": "pve", "vmid": "101"}},
+    )
+
+    jobs = reader.list_jobs()
+    loaded = reader.get_job(created["job_id"])
+
+    assert [job["job_id"] for job in jobs] == [created["job_id"]]
+    assert loaded["upid"] == "UPID:created-after-reader-started"
+
+
 def test_job_store_retry_uses_persisted_retry_spec(tmp_path: Path):
     proxmox = Mock()
     proxmox.nodes.return_value.qemu.return_value.status.start.post.return_value = "UPID:retry-from-sqlite"
@@ -159,6 +182,36 @@ def test_job_store_retry_raises_conflict_without_recipe(tmp_path: Path):
 
     with pytest.raises(JobConflictError):
         store.retry_job(created["job_id"])
+
+
+def test_create_container_does_not_persist_secret_retry_spec(tmp_path: Path):
+    proxmox = Mock()
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    proxmox.nodes.return_value.lxc.get.return_value = []
+    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-secret"
+
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+    tools = ContainerTools(proxmox, job_store=store)
+
+    tools.create_container(
+        node="node1",
+        vmid="200",
+        ostemplate="local:vztmpl/alpine.tar.xz",
+        password="super-secret",
+        ssh_public_keys="ssh-ed25519 AAAA-secret-key",
+    )
+
+    persisted = sqlite3.connect(db_path).execute("SELECT retry_spec_json FROM jobs").fetchone()[0]
+    job = store.list_jobs()[0]
+
+    assert persisted is None
+    assert job["retry_spec"] is None
+    proxmox.nodes.return_value.lxc.create.assert_called_once()
+    create_kwargs = proxmox.nodes.return_value.lxc.create.call_args.kwargs
+    assert create_kwargs["password"] == "super-secret"
+    assert create_kwargs["ssh-public-keys"] == "ssh-ed25519 AAAA-secret-key"
 
 
 @pytest.mark.asyncio

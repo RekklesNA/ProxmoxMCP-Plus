@@ -152,6 +152,7 @@ class JobStore:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         with self._lock:
+            self._refresh_records_from_db()
             rows = list(self._jobs.values())
         rows.sort(key=lambda item: item.created_at, reverse=True)
         filtered: list[JobRecord] = []
@@ -164,10 +165,13 @@ class JobStore:
         return [item.as_dict() for item in filtered[:limit]]
 
     def get_job(self, job_id: str) -> dict[str, Any]:
-        return self._get_record(job_id).as_dict()
+        with self._lock:
+            self._refresh_records_from_db()
+            return self._get_record(job_id).as_dict()
 
     def poll_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             if not record.upid or not record.node:
                 record.add_audit("poll_skipped", reason="missing_upid_or_node")
@@ -182,6 +186,7 @@ class JobStore:
         status, last_error, completed_at = self._normalize_status(status_payload)
 
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             record.progress = progress
             record.status = status
@@ -199,6 +204,7 @@ class JobStore:
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             if not record.upid or not record.node:
                 raise JobConflictError(f"Job {job_id} has no task UPID to cancel")
@@ -212,6 +218,7 @@ class JobStore:
             self.proxmox.nodes(node).tasks(upid).status.stop.post()
 
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             record.status = "cancel_requested"
             record.add_audit("cancel_requested", upid=upid)
@@ -220,6 +227,7 @@ class JobStore:
 
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             retry_factory = record.retry_factory
             retry_spec = dict(record.retry_spec or {})
@@ -239,6 +247,7 @@ class JobStore:
             new_upid = handler(params)
 
         with self._lock:
+            self._refresh_records_from_db()
             record = self._get_record(job_id)
             if record.upid:
                 record.previous_upids.append(record.upid)
@@ -289,36 +298,45 @@ class JobStore:
 
     def _load_records(self) -> None:
         with self._lock:
-            rows = self._conn.execute("SELECT * FROM jobs").fetchall()
-            for row in rows:
-                record = JobRecord(
-                    job_id=str(row["job_id"]),
-                    tool_name=str(row["tool_name"]),
-                    summary=str(row["summary"]),
-                    node=row["node"],
-                    upid=row["upid"],
-                    created_at=str(row["created_at"]),
-                    updated_at=str(row["updated_at"]),
-                    status=str(row["status"]),
-                    progress=row["progress"],
-                    attempts=int(row["attempts"]),
-                    retry_count=int(row["retry_count"]),
-                    last_error=row["last_error"],
-                    completed_at=row["completed_at"],
-                    result=json.loads(row["result_json"]) if row["result_json"] else None,
-                    metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
-                    previous_upids=json.loads(row["previous_upids_json"]) if row["previous_upids_json"] else [],
-                    audit_log=[
-                        JobAuditEvent(
-                            timestamp=item["timestamp"],
-                            event=item["event"],
-                            details=item.get("details", {}),
-                        )
-                        for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
-                    ],
-                    retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
-                )
-                self._jobs[record.job_id] = record
+            self._refresh_records_from_db()
+
+    def _refresh_records_from_db(self) -> None:
+        rows = self._conn.execute("SELECT * FROM jobs").fetchall()
+        refreshed: dict[str, JobRecord] = {}
+        for row in rows:
+            job_id = str(row["job_id"])
+            existing = self._jobs.get(job_id)
+            record = JobRecord(
+                job_id=job_id,
+                tool_name=str(row["tool_name"]),
+                summary=str(row["summary"]),
+                node=row["node"],
+                upid=row["upid"],
+                created_at=str(row["created_at"]),
+                updated_at=str(row["updated_at"]),
+                status=str(row["status"]),
+                progress=row["progress"],
+                attempts=int(row["attempts"]),
+                retry_count=int(row["retry_count"]),
+                last_error=row["last_error"],
+                completed_at=row["completed_at"],
+                result=json.loads(row["result_json"]) if row["result_json"] else None,
+                metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
+                previous_upids=json.loads(row["previous_upids_json"]) if row["previous_upids_json"] else [],
+                audit_log=[
+                    JobAuditEvent(
+                        timestamp=item["timestamp"],
+                        event=item["event"],
+                        details=item.get("details", {}),
+                    )
+                    for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
+                ],
+                retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
+                retry_factory=existing.retry_factory if existing is not None else None,
+                cancel_factory=existing.cancel_factory if existing is not None else None,
+            )
+            refreshed[record.job_id] = record
+        self._jobs = refreshed
 
     def _save_record(self, record: JobRecord) -> None:
         self._conn.execute(

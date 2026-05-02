@@ -104,6 +104,30 @@ def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):
     assert http_server.mcp.settings.port == 9000
 
 
+def test_server_uses_local_api_tunnel_endpoint(mock_proxmox, tmp_path):
+    """API tunnel config should redirect ProxmoxAPI to the local forward."""
+    config_path = tmp_path / "config_tunnel.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "remote.proxmox.test", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "api_tunnel": {
+            "enabled": True,
+            "ssh_host": "jump-host",
+            "local_host": "127.0.0.1",
+            "local_port": 18006,
+            "remote_host": "10.0.0.10",
+            "remote_port": 8006,
+        },
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+    }))
+
+    with patch("proxmox_mcp.core.ssh_tunnel.SSHTunnelManager.ensure_tunnel"):
+        ProxmoxMCPServer(str(config_path))
+
+    assert mock_proxmox.call_args.kwargs["host"] == "127.0.0.1"
+    assert mock_proxmox.call_args.kwargs["port"] == 18006
+
+
 def test_loader_blocks_insecure_tls_in_prod(tmp_path):
     config_path = tmp_path / "config_insecure.json"
     config_path.write_text(json.dumps({
@@ -443,6 +467,39 @@ async def test_get_storage(server, mock_proxmox):
     assert "local" in text
     assert "ceph" in text
 
+
+@pytest.mark.asyncio
+async def test_get_storage_uses_real_online_node(server, mock_proxmox):
+    """Storage status should be queried through an actual node, not localhost."""
+    proxmox = mock_proxmox.return_value
+    proxmox.storage.get.return_value = [
+        {"storage": "local", "type": "dir", "content": "iso,backup"},
+    ]
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+
+    node_api = Mock()
+    node_api.storage.return_value.status.get.return_value = {
+        "used": 1024,
+        "total": 4096,
+        "avail": 3072,
+    }
+    queried_nodes = []
+
+    def nodes_side_effect(node_name=None):
+        queried_nodes.append(node_name)
+        return node_api
+
+    proxmox.nodes.side_effect = nodes_side_effect
+
+    response = await server.mcp.call_tool("get_storage", {})
+    text = response[0].text
+
+    assert queried_nodes == ["node1"]
+    assert "localhost" not in queried_nodes
+    assert "local" in text
+    assert "4.00 KB" in text
+
+
 @pytest.mark.asyncio
 async def test_list_isos_skips_offline_node(server, mock_proxmox):
     """Test list_isos skips nodes that error."""
@@ -679,6 +736,26 @@ async def test_clone_vm(server, mock_proxmox):
 
     assert "clone initiated successfully" in response[0].text
     source_vm_api.clone.post.assert_called_once_with(newid=9100, full=1, name="cloned-vm")
+
+
+@pytest.mark.asyncio
+async def test_rollback_snapshot_refuses_to_delete_child_snapshots(server, mock_proxmox):
+    """Rollback must not implicitly delete newer child snapshots."""
+    snapshot_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value.snapshot
+    snapshot_api.get.return_value = [
+        {"name": "base"},
+        {"name": "after-base", "parent": "base"},
+        {"name": "current", "parent": "after-base"},
+    ]
+
+    with pytest.raises(ToolError, match="newer child snapshots"):
+        await server.mcp.call_tool(
+            "rollback_snapshot",
+            {"node": "node1", "vmid": "100", "snapname": "base", "vm_type": "qemu"},
+        )
+
+    snapshot_api.return_value.delete.assert_not_called()
+    snapshot_api.return_value.rollback.post.assert_not_called()
 
 
 

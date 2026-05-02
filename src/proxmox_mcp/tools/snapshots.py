@@ -248,7 +248,9 @@ class SnapshotTools(ProxmoxTool):
         """Rollback to a snapshot.
 
         WARNING: This will stop the VM/container and restore to the snapshot state!
-        NOTE: For ZFS storage, this will delete any snapshots newer than the target.
+        NOTE: For storage backends that require deleting newer child snapshots
+        first, this tool refuses to continue. Delete those snapshots explicitly
+        before retrying the rollback.
 
         Parameters:
             node: Host node name
@@ -261,31 +263,24 @@ class SnapshotTools(ProxmoxTool):
         """
         _ = approval_token
         try:
-            # For ZFS-based storage, we may need to delete newer snapshots first
-            # Get current snapshots to check if target is most recent
             if vm_type == "lxc":
                 snapshots = _as_list(self.proxmox.nodes(node).lxc(vmid).snapshot.get())
             else:
                 snapshots = _as_list(self.proxmox.nodes(node).qemu(vmid).snapshot.get())
 
-            # Find snapshots that are children of our target (newer snapshots)
-            # These need to be deleted for ZFS rollback to work
-            deleted_snaps = []
+            child_snaps = []
             for snap in snapshots:
                 parent = _get(snap, "parent", "")
                 snap_name = _get(snap, "name", "")
                 if snap_name != "current" and parent == snapname:
-                    # This snapshot is a child of our target, delete it
-                    try:
-                        if vm_type == "lxc":
-                            self.proxmox.nodes(node).lxc(vmid).snapshot(snap_name).delete()
-                        else:
-                            self.proxmox.nodes(node).qemu(vmid).snapshot(snap_name).delete()
-                        deleted_snaps.append(snap_name)
-                    except Exception:
-                        pass
+                    child_snaps.append(str(snap_name))
+            if child_snaps:
+                raise ValueError(
+                    "Refusing to rollback because snapshot "
+                    f"'{snapname}' has newer child snapshots: {', '.join(child_snaps)}. "
+                    "Delete those snapshots explicitly first, then retry rollback."
+                )
 
-            # Now perform the rollback
             if vm_type == "lxc":
                 result = self.proxmox.nodes(node).lxc(vmid).snapshot(snapname).rollback.post()
             else:
@@ -312,9 +307,6 @@ class SnapshotTools(ProxmoxTool):
                 f"  - {vm_type.upper()} ID: {vmid}",
                 f"  - Node: {node}",
             ]
-
-            if deleted_snaps:
-                lines.append(f"  - Deleted newer snapshots: {', '.join(deleted_snaps)}")
 
             lines.extend([
                 "",
