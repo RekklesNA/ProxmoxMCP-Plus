@@ -44,6 +44,7 @@ class ProxmoxManager:
             auth_config: Authentication configuration
         """
         self.logger = logging.getLogger("proxmox-mcp.proxmox")
+        self.api_tunnel_config = api_tunnel_config
         self.tunnel_manager = SSHTunnelManager(api_tunnel_config, ssh_config) if api_tunnel_config is not None else None
         if self.tunnel_manager is not None:
             self.tunnel_manager.ensure_tunnel()
@@ -67,9 +68,20 @@ class ProxmoxManager:
         Returns:
             Dictionary containing merged configuration ready for API initialization
         """
+        host = proxmox_config.host
+        port = proxmox_config.port
+        if self.api_tunnel_config is not None and getattr(self.api_tunnel_config, "enabled", False):
+            host = self.api_tunnel_config.local_host
+            port = self.api_tunnel_config.local_port
+            self.logger.info(
+                "Using local Proxmox API tunnel endpoint: %s:%s",
+                host,
+                port,
+            )
+
         return {
-            'host': proxmox_config.host,
-            'port': proxmox_config.port,
+            'host': host,
+            'port': port,
             'timeout': proxmox_config.timeout,
             'user': auth_config.user,
             'token_name': auth_config.token_name,

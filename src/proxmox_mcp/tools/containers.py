@@ -671,6 +671,10 @@ class ContainerTools(ProxmoxTool):
 
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)
+            secret_fields = {"password", "ssh-public-keys"}
+            retry_spec = None
+            if not secret_fields.intersection(ct_config):
+                retry_spec = {"kind": "ct.create", "params": {"node": node, "ct_config": dict(ct_config)}}
 
             def retry_factory() -> Any:
                 return self.proxmox.nodes(node).lxc.create(**ct_config)
@@ -684,7 +688,7 @@ class ContainerTools(ProxmoxTool):
                 node=node,
                 upid=result,
                 metadata={"vmid": vmid, "hostname": hostname},
-                retry_spec={"kind": "ct.create", "params": {"node": node, "ct_config": ct_config}},
+                retry_spec=retry_spec,
                 retry_factory=retry_factory,
                 cancel_factory=cancel_factory,
             )

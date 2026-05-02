@@ -18,6 +18,24 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.6`
+
+- Release date: 2026-05-02
+- Summary: fixes API tunnel routing, cross-process job visibility, secret persistence in LXC retry specs, snapshot rollback safety, and storage status node selection.
+- Changed behavior:
+  - `api_tunnel.enabled=true` now routes Proxmox API calls to the local tunnel endpoint
+  - OpenAPI `/jobs` refreshes persisted SQLite records before reads and job controls
+  - `create_container` no longer persists retry recipes when container passwords or SSH public keys are present
+  - `rollback_snapshot` refuses to continue when newer child snapshots exist instead of deleting them implicitly
+  - `get_storage` queries status through real Proxmox nodes instead of `localhost`
+- Config changes:
+  - no required config changes
+- Docs updated:
+  - `docs/releases/v0.4.6.md`
+- Upgrade steps:
+  - no migration required
+  - if you use snapshot rollback, explicitly delete newer child snapshots before retrying rollback
+
 ### Version `0.4.5`
 
 - Release date: 2026-05-01
