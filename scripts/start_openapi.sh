@@ -7,7 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-HOST="${OPENAPI_HOST:-localhost}"
+# Bind to loopback by default. To expose the proxy on all interfaces, set
+# OPENAPI_HOST=0.0.0.0 explicitly. Using 127.0.0.1 (rather than "localhost")
+# avoids surprises from /etc/hosts or IPv6 resolution differences.
+HOST="${OPENAPI_HOST:-127.0.0.1}"
 PORT="${OPENAPI_PORT:-8811}"
 VENV_DIR="${REPO_ROOT}/.venv"
 CONFIG_FILE="${REPO_ROOT}/proxmox-config/config.json"
@@ -42,5 +45,5 @@ echo
 export PROXMOX_MCP_CONFIG="${CONFIG_FILE}"
 
 cd "${REPO_ROOT}"
-python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port "${PORT}" -- \
+python -m proxmox_mcp.openapi_proxy --host "${HOST}" --port "${PORT}" -- \
   /bin/bash -c "cd '${REPO_ROOT}' && source '${VENV_DIR}/bin/activate' && python -c 'from proxmox_mcp.server import main; main()'"

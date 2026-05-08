@@ -37,7 +37,10 @@ class ContainerConsoleManager:
             ssh_cmd.extend(["-i", os.path.expanduser(key_file)])
         if getattr(self.ssh_cfg, "port", None):
             ssh_cmd.extend(["-p", str(self.ssh_cfg.port)])
-        ssh_cmd.extend([target, cmd])
+        # `--` ends OpenSSH option processing so a target accidentally starting
+        # with "-" (e.g. a misconfigured host_overrides value) cannot be
+        # reinterpreted as a flag like -oProxyCommand=...
+        ssh_cmd.extend(["--", target, cmd])
 
         self.logger.debug("Executing via OpenSSH client: %s", " ".join(shlex.quote(p) for p in ssh_cmd))
         completed = subprocess.run(  # noqa: S603
