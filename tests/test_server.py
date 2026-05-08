@@ -104,6 +104,26 @@ def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):
     assert http_server.mcp.settings.port == 9000
 
 
+def test_mcp_env_overrides_file_transport_for_docker(tmp_path, monkeypatch):
+    """Docker can select native MCP HTTP without editing a mounted config file."""
+    config_path = tmp_path / "config_stdio.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {"host": "127.0.0.1", "port": 8000, "transport": "STDIO"},
+    }))
+    monkeypatch.setenv("MCP_HOST", "0.0.0.0")
+    monkeypatch.setenv("MCP_PORT", "9001")
+    monkeypatch.setenv("MCP_TRANSPORT", "STREAMABLE_HTTP")
+
+    config = load_config(str(config_path))
+
+    assert config.mcp.host == "0.0.0.0"
+    assert config.mcp.port == 9001
+    assert config.mcp.transport == "STREAMABLE"
+
+
 def test_server_uses_local_api_tunnel_endpoint(mock_proxmox, tmp_path):
     """API tunnel config should redirect ProxmoxAPI to the local forward."""
     config_path = tmp_path / "config_tunnel.json"
