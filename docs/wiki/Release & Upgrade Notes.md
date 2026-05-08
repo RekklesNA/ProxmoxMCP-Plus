@@ -18,6 +18,29 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.7`
+
+- Release date: 2026-05-08
+- Summary: adds a Docker-native MCP Streamable HTTP runtime so remote MCP clients can connect to `/mcp` without going through the OpenAPI bridge.
+- New tools or endpoints:
+  - Docker Compose profile `mcp-http` exposes native MCP Streamable HTTP at `http://<host>:8000/mcp`
+- Changed behavior:
+  - the Docker image now starts through `proxmox_mcp.docker_entrypoint`
+  - OpenAPI mode remains the default Docker runtime on port `8811`
+  - `MCP_HOST`, `MCP_PORT`, and `MCP_TRANSPORT` can override the `mcp` section from a mounted config file
+- Config changes:
+  - optional `PROXMOX_MCP_MODE=mcp-http` selects native MCP HTTP mode in Docker
+- Docs updated:
+  - `README.md`
+  - `docs/releases/v0.4.7.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Integrations Guide.md`
+  - `docs/wiki/Operator Guide.md`
+- Upgrade steps:
+  - no migration required
+  - continue using the default Docker mode for OpenAPI clients
+  - use `docker compose --profile mcp-http up -d proxmox-mcp-http` for Streamable HTTP MCP clients
+
 ### Version `0.4.6`
 
 - Release date: 2026-05-02

@@ -5,9 +5,10 @@ This guide covers the main ways to connect clients and platforms to ProxmoxMCP-P
 ## Integration Patterns
 
 - `Direct MCP`: a client launches the server locally and talks over stdio
+- `Native MCP HTTP`: a client connects to the Streamable HTTP MCP endpoint at `/mcp`
 - `HTTP/OpenAPI`: a client talks to the FastAPI proxy over HTTP
 
-Use direct MCP when the client already supports MCP. Use OpenAPI when the client only understands HTTP or Swagger-style APIs.
+Use direct MCP when the client launches local stdio servers. Use native MCP HTTP when the client supports Streamable HTTP and the server runs elsewhere, such as Docker on another host. Use OpenAPI when the client only understands HTTP or Swagger-style APIs.
 
 ## Claude Desktop
 
@@ -47,6 +48,22 @@ Typical requirements:
 - Python environment with project dependencies installed
 - `PYTHONPATH` pointing to `src` when running from source
 - `PROXMOX_MCP_CONFIG` or equivalent environment variables
+
+## Streamable HTTP MCP Clients
+
+For remote MCP clients, run the native MCP HTTP Docker mode:
+
+```bash
+docker compose --profile mcp-http up -d proxmox-mcp-http
+```
+
+Then connect the client to:
+
+```text
+http://<docker-host>:8000/mcp
+```
+
+The default OpenAPI service on port `8811` is not an MCP Streamable HTTP endpoint; MCP HTTP clients should use `/mcp` on the native MCP service.
 
 ## OpenAPI Clients
 

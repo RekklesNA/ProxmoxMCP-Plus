@@ -17,11 +17,11 @@ RUN useradd --create-home --shell /usr/sbin/nologin proxmoxmcp \
 
 USER proxmoxmcp
 
-EXPOSE 8811
+EXPOSE 8811 8000
 
 ENV PROXMOX_MCP_CONFIG="/app/proxmox-config/config.json"
+ENV PROXMOX_MCP_MODE="openapi"
 ENV API_HOST="0.0.0.0"
 ENV API_PORT="8811"
 
-CMD ["python", "-m", "proxmox_mcp.openapi_proxy", "--host", "0.0.0.0", "--port", "8811", "--", \
-     "python", "-m", "proxmox_mcp.server"]
+CMD ["python", "-m", "proxmox_mcp.docker_entrypoint"]

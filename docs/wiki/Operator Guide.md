@@ -7,6 +7,7 @@ This guide covers how to configure, run, and operate ProxmoxMCP-Plus.
 ProxmoxMCP-Plus can be used in two main ways:
 
 - `MCP stdio mode`: assistants launch the server directly and call tools over MCP
+- `MCP Streamable HTTP mode`: the server exposes a native MCP endpoint at `/mcp`
 - `OpenAPI mode`: FastAPI wraps the MCP server and exposes HTTP endpoints for other clients
 
 The core tool set is the same in both modes. The difference is only the transport.
@@ -76,6 +77,22 @@ python main.py
 
 If startup succeeds, the server stays attached to stdio and waits for MCP clients.
 
+## Native MCP Streamable HTTP Mode
+
+Set the MCP transport to `STREAMABLE_HTTP` and bind to an address reachable by the client:
+
+```bash
+MCP_HOST=0.0.0.0 MCP_PORT=8000 MCP_TRANSPORT=STREAMABLE_HTTP python -m proxmox_mcp.server
+```
+
+The MCP endpoint is:
+
+```text
+http://<host>:8000/mcp
+```
+
+This is the correct target for MCP clients that support Streamable HTTP. It is separate from the OpenAPI service on port `8811`.
+
 ## OpenAPI Mode
 
 You can run the OpenAPI wrapper directly:
@@ -102,6 +119,7 @@ Default Compose behavior:
 - Builds the local image
 - Mounts `./proxmox-config` read-only into `/app/proxmox-config`
 - Exposes `8811`
+- Keeps OpenAPI mode as the default Docker runtime
 - Sets `PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json`
 - Adds a container health check against `http://localhost:8811/health`
 
@@ -109,6 +127,26 @@ Start it with:
 
 ```bash
 docker compose up -d --build
+```
+
+To run the native MCP Streamable HTTP service from Docker Compose:
+
+```bash
+docker compose --profile mcp-http up -d proxmox-mcp-http
+```
+
+Then connect Streamable HTTP MCP clients to `http://<docker-host>:8000/mcp`.
+
+The same image can also be run directly:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e PROXMOX_MCP_MODE=mcp-http \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_PORT=8000 \
+  -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
+  ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
 
 ## Operating Checklist

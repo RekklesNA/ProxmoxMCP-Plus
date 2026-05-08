@@ -112,11 +112,27 @@ proxmox-mcp-plus
 
 #### Docker / GHCR
 
+OpenAPI mode remains the default Docker runtime:
+
 ```bash
 docker run --rm -p 8811:8811 \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
+
+Native MCP Streamable HTTP mode is available from the same image:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e PROXMOX_MCP_MODE=mcp-http \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_PORT=8000 \
+  -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
+  ghcr.io/rekklesna/proxmoxmcp-plus:latest
+```
+
+Point MCP clients that support Streamable HTTP at `http://<docker-host>:8000/mcp`.
 
 #### Source
 
@@ -136,7 +152,21 @@ curl -f http://localhost:8811/health
 curl http://localhost:8811/openapi.json
 ```
 
-### 4. Point an MCP client at the server
+### 4. Run the native MCP Streamable HTTP surface
+
+```bash
+docker compose --profile mcp-http up -d proxmox-mcp-http
+```
+
+Connect a Streamable HTTP MCP client to:
+
+```text
+http://localhost:8000/mcp
+```
+
+The `8811` service is the OpenAPI/REST bridge. The `8000` service is the native MCP HTTP endpoint.
+
+### 5. Point a stdio MCP client at the server
 
 Minimal MCP client shape:
 
@@ -183,6 +213,7 @@ Supported workflow areas:
 | MCP job control tools (`list_jobs`, `get_job`, `poll_job`, `cancel_job`, `retry_job`) | Available |
 | OpenAPI `/jobs` endpoints with explicit status codes | Available |
 | Local OpenAPI `/health` and schema | Available |
+| Docker native MCP Streamable HTTP at `/mcp` | Available |
 | Docker image build and `/health` | Available |
 
 Validation and contract entry points in this repository:

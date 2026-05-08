@@ -15,6 +15,31 @@ import os
 from typing import Any, Dict, Optional
 from proxmox_mcp.config.models import Config
 
+
+def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
+    """Allow deployment-specific MCP transport settings to override file config."""
+    env_map = {
+        "MCP_HOST": ("host", str),
+        "MCP_PORT": ("port", int),
+        "MCP_TRANSPORT": ("transport", str),
+    }
+    overrides = {
+        key: (coerce(os.environ[env_name]) if coerce is not str else os.environ[env_name])
+        for env_name, (key, coerce) in env_map.items()
+        if env_name in os.environ
+    }
+    if not overrides:
+        return
+
+    mcp_config = config_data.setdefault("mcp", {})
+    if not isinstance(mcp_config, dict):
+        raise ValueError("mcp config must be a JSON object when MCP_* overrides are used")
+
+    if "transport" in overrides and isinstance(overrides["transport"], str):
+        overrides["transport"] = overrides["transport"].strip().upper()
+    mcp_config.update(overrides)
+
+
 def load_config(config_path: Optional[str] = None) -> Config:
     """Load and validate configuration from JSON file.
 
@@ -112,10 +137,6 @@ def load_config(config_path: Optional[str] = None) -> Config:
             },
         }
         
-        # Handle the internal "STREAMABLE" vs "STREAMABLE_HTTP" naming
-        mcp_config = config_data.get("mcp")
-        if isinstance(mcp_config, dict) and mcp_config.get("transport") == "STREAMABLE_HTTP":
-            mcp_config["transport"] = "STREAMABLE"
         api_tunnel_config = config_data.get("api_tunnel")
         if isinstance(api_tunnel_config, dict) and not api_tunnel_config.get("ssh_host"):
             config_data.pop("api_tunnel", None)
@@ -129,6 +150,8 @@ def load_config(config_path: Optional[str] = None) -> Config:
             raise ValueError(f"Invalid JSON in config file: {e}")
         except Exception as e:
             raise ValueError(f"Failed to load config: {e}")
+
+    _apply_mcp_env_overrides(config_data)
 
     # Final validation check
     if not config_data.get('proxmox', {}).get('host'):

@@ -20,6 +20,24 @@ services:
     networks:
       - proxmox-network
 
+  proxmox-mcp-http:
+    build: .
+    profiles:
+      - mcp-http
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./proxmox-config:/app/proxmox-config:ro
+    environment:
+      - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
+      - PROXMOX_MCP_MODE=mcp-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - MCP_TRANSPORT=STREAMABLE_HTTP
+    restart: unless-stopped
+    networks:
+      - proxmox-network
+
 networks:
   proxmox-network:
     driver: bridge 

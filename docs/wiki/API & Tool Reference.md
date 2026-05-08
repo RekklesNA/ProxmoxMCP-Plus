@@ -1,6 +1,6 @@
 # API & Tool Reference
 
-This page is the reference index for the ProxmoxMCP-Plus tool surface and the OpenAPI wrapper that exposes it over HTTP.
+This page is the reference index for the ProxmoxMCP-Plus tool surface, the native MCP Streamable HTTP endpoint, and the OpenAPI wrapper that exposes tools as REST-style HTTP routes.
 
 Use this page when you need exact tool names, input shapes, prerequisites, or common failure patterns. Use the [Operator Guide](Operator-Guide) for deployment and runtime setup, and the [Security Guide](Security-Guide) for policy and access controls.
 
@@ -9,7 +9,18 @@ Use this page when you need exact tool names, input shapes, prerequisites, or co
 - `Read-only` tools inspect Proxmox state and should be your first call when validating reachability or inventory.
 - `Mutating` tools create, start, stop, change, restore, or delete infrastructure.
 - Tool availability depends on runtime configuration. In particular, some command-execution tools are only registered when `ssh` config is present.
-- HTTP mode is a bridge over the same MCP tool surface. The generated schema at `/openapi.json` is the source of truth for the exact request and response shape exposed by the running server.
+- MCP Streamable HTTP mode exposes the native MCP endpoint at `/mcp`.
+- OpenAPI mode is a bridge over the same MCP tool surface. The generated schema at `/openapi.json` is the source of truth for the exact request and response shape exposed by the running server.
+
+## Native MCP Streamable HTTP Endpoint
+
+When `mcp.transport` is `STREAMABLE_HTTP` or `STREAMABLE`, the server exposes the MCP endpoint at:
+
+| Path | Purpose | Notes |
+| --- | --- | --- |
+| `/mcp` | MCP Streamable HTTP endpoint | use this for remote MCP clients that support Streamable HTTP |
+
+The Docker Compose `mcp-http` profile exposes this endpoint on port `8000`.
 
 ## OpenAPI Service Endpoints
 
