@@ -99,6 +99,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | --- | --- | --- | --- | --- | --- |
 | `get_vms` | Read-only | none | none | Proxmox API reachable | partial node-query failures may reduce returned coverage |
 | `create_vm` | Mutating | `node`, `vmid`, `name`, `cpus`, `memory`, `disk_size` | `storage`, `ostype`, `network_bridge` | target node exists and selected storage is valid | duplicate `vmid`, invalid storage, insufficient resources |
+| `clone_vm` | Mutating | `node`, `source_vmid`, `target_vmid` | `name`, `target_node`, `full=true`, `storage`, `pool`, `snapname` | source VM exists and target VM ID is free | duplicate target VM ID, clone permission failure, invalid storage or snapshot |
 | `start_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
 | `stop_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, stop failure from Proxmox |
 | `shutdown_vm` | Mutating | `node`, `vmid` | none | VM exists | guest shutdown unavailable or timeout on guest side |
@@ -110,13 +111,13 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `stop_vm` is the force-stop path. Use `shutdown_vm` for graceful guest shutdown when supported.
 - `execute_vm_command` is not a generic SSH shell. It is mediated through QEMU Guest Agent and command-policy checks.
-- `create_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
+- `create_vm`, `clone_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
 
 ## Container Tools
 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
-| `get_containers` | Read-only | none | `node`, `include_stats=true`, `include_raw=false`, `format_style=pretty\|json`, legacy `payload` object | Proxmox API reachable | invalid payload shape, auth failure |
+| `get_containers` | Read-only | none | `node`, `include_stats=false`, `include_raw=false`, `format_style=pretty\|json`, legacy `payload` object | Proxmox API reachable | invalid payload shape, auth failure |
 | `start_container` | Mutating | `selector` | `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, start failure from Proxmox |
 | `stop_container` | Mutating | `selector` | `graceful=true`, `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, timeout on graceful shutdown, container already stopped |
 | `restart_container` | Mutating | `selector` | `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, reboot failure |

@@ -152,7 +152,7 @@ GET_CONTAINERS_DESC = """List LXC containers across the cluster (or filter by no
 
 Parameters:
 - node (optional): Node name to filter (e.g. 'pve1')
-- include_stats (bool, default true): Include live CPU/memory stats
+- include_stats (bool, default false): Fetch per-container live CPU/memory stats
 - include_raw (bool, default false): Include raw Proxmox API payloads for debugging
 - format_style ('pretty'|'json', default 'pretty'): Pretty text or raw JSON list
 

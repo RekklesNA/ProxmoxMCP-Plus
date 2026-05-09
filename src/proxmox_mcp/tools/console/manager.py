@@ -14,6 +14,7 @@ The module implements a robust command execution system with:
 - Comprehensive error handling
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -41,6 +42,54 @@ class VMConsoleManager:
         """
         self.proxmox = proxmox_api
         self.logger = logging.getLogger("proxmox-mcp.vm-console")
+
+    async def _wait_for_exec_status(
+        self,
+        endpoint: Any,
+        pid: int,
+        *,
+        timeout_seconds: int = 60,
+        poll_interval_seconds: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Poll QEMU guest-agent exec-status until completion or timeout."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        last_status: Dict[str, Any] = {}
+
+        while True:
+            try:
+                self.logger.debug(f"Getting status for PID {pid}...")
+                console = endpoint("exec-status").get(pid=pid)
+                self.logger.debug(f"Raw exec-status response: {console}")
+                if not console:
+                    raise RuntimeError("No response from exec-status")
+                if not isinstance(console, dict):
+                    return {
+                        "out-data": str(console),
+                        "err-data": "",
+                        "exitcode": 0,
+                        "exited": 1,
+                    }
+                last_status = console
+            except Exception as e:
+                self.logger.error(f"Failed to get command status: {str(e)}")
+                raise RuntimeError(f"Failed to get command status: {str(e)}")
+
+            if last_status.get("exited", 0):
+                return last_status
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                timed_out = dict(last_status)
+                timed_out["timed_out"] = True
+                timed_out.setdefault("exitcode", -1)
+                timed_out.setdefault(
+                    "err-data",
+                    f"Command did not complete within {timeout_seconds} seconds",
+                )
+                return timed_out
+
+            await asyncio.sleep(min(poll_interval_seconds, remaining))
 
     async def execute_command(self, node: str, vmid: str, command: str) -> Dict[str, Any]:
         """Execute a command in a VM's console via QEMU guest agent.
@@ -119,20 +168,7 @@ class VMConsoleManager:
                 pid = exec_result['pid']
                 self.logger.info(f"Waiting for command completion (PID: {pid})...")
 
-                # Add a small delay to allow command to complete
-                import asyncio
-                await asyncio.sleep(1)
-
-                # Get command output using exec-status
-                try:
-                    self.logger.debug(f"Getting status for PID {pid}...")
-                    console = endpoint("exec-status").get(pid=pid)
-                    self.logger.debug(f"Raw exec-status response: {console}")
-                    if not console:
-                        raise RuntimeError("No response from exec-status")
-                except Exception as e:
-                    self.logger.error(f"Failed to get command status: {str(e)}")
-                    raise RuntimeError(f"Failed to get command status: {str(e)}")
+                console = await self._wait_for_exec_status(endpoint, pid)
                 self.logger.info(f"Command completed with status: {console}")
             except Exception as e:
                 self.logger.error(f"API call failed: {str(e)}")
@@ -147,8 +183,11 @@ class VMConsoleManager:
                 error = console.get("err-data", "")
                 exit_code = console.get("exitcode", 0)
                 exited = console.get("exited", 0)
+                timed_out = bool(console.get("timed_out", False))
                 
-                if not exited:
+                if timed_out:
+                    self.logger.warning("Command did not complete before timeout")
+                elif not exited:
                     self.logger.warning("Command may not have completed")
             else:
                 # Some versions might return data differently
@@ -156,18 +195,26 @@ class VMConsoleManager:
                 output = str(console)
                 error = ""
                 exit_code = 0
+                exited = 1
+                timed_out = False
             
             self.logger.debug(f"Processed output: {output}")
             self.logger.debug(f"Processed error: {error}")
             self.logger.debug(f"Processed exit code: {exit_code}")
             
             self.logger.debug(f"Executed command '{command}' on VM {vmid} (node: {node})")
+            try:
+                exit_code_int = int(exit_code)
+            except (TypeError, ValueError):
+                exit_code_int = -1
 
             return {
-                "success": True,
+                "success": bool(exited) and exit_code_int == 0 and not timed_out,
                 "output": output,
                 "error": error,
-                "exit_code": exit_code
+                "exit_code": exit_code_int,
+                "exited": bool(exited),
+                "timed_out": timed_out,
             }
 
         except ValueError:

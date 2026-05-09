@@ -102,11 +102,28 @@ class JobStore:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.RLock()
         self._retry_handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}
-        self._conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
+        self._conn = sqlite3.connect(self.sqlite_path, check_same_thread=False, timeout=30.0)
         self._conn.row_factory = sqlite3.Row
+        self._configure_connection()
         self._init_db()
         self._register_builtin_retry_handlers()
         self._load_records()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> "JobStore":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def register_retry_handler(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         self._retry_handlers[kind] = handler
@@ -152,27 +169,16 @@ class JobStore:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         with self._lock:
-            self._refresh_records_from_db()
-            rows = list(self._jobs.values())
-        rows.sort(key=lambda item: item.created_at, reverse=True)
-        filtered: list[JobRecord] = []
-        for item in rows:
-            if status and item.status != status:
-                continue
-            if tool_name and item.tool_name != tool_name:
-                continue
-            filtered.append(item)
-        return [item.as_dict() for item in filtered[:limit]]
+            rows = self._query_records(status=status, tool_name=tool_name, limit=limit)
+            return [item.as_dict() for item in rows]
 
     def get_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
-            self._refresh_records_from_db()
-            return self._get_record(job_id).as_dict()
+            return self._load_record_from_db(job_id).as_dict()
 
     def poll_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             if not record.upid or not record.node:
                 record.add_audit("poll_skipped", reason="missing_upid_or_node")
                 self._save_record(record)
@@ -186,8 +192,7 @@ class JobStore:
         status, last_error, completed_at = self._normalize_status(status_payload)
 
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             record.progress = progress
             record.status = status
             record.last_error = last_error
@@ -204,8 +209,7 @@ class JobStore:
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             if not record.upid or not record.node:
                 raise JobConflictError(f"Job {job_id} has no task UPID to cancel")
             upid = record.upid
@@ -218,8 +222,7 @@ class JobStore:
             self.proxmox.nodes(node).tasks(upid).status.stop.post()
 
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             record.status = "cancel_requested"
             record.add_audit("cancel_requested", upid=upid)
             self._save_record(record)
@@ -227,8 +230,7 @@ class JobStore:
 
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             retry_factory = record.retry_factory
             retry_spec = dict(record.retry_spec or {})
 
@@ -247,8 +249,7 @@ class JobStore:
             new_upid = handler(params)
 
         with self._lock:
-            self._refresh_records_from_db()
-            record = self._get_record(job_id)
+            record = self._load_record_from_db(job_id)
             if record.upid:
                 record.previous_upids.append(record.upid)
             record.upid = str(new_upid)
@@ -269,7 +270,21 @@ class JobStore:
         except KeyError as exc:
             raise JobNotFoundError(f"Unknown job_id: {job_id}") from exc
 
+    def _configure_connection(self) -> None:
+        self._conn.execute("PRAGMA busy_timeout = 5000")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
+        self._conn.execute("PRAGMA foreign_keys = ON")
+
     def _init_db(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
@@ -294,49 +309,87 @@ class JobStore:
             )
             """
         )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs (status, created_at DESC)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tool_created_at ON jobs (tool_name, created_at DESC)")
+        self._conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (1, _utcnow()),
+        )
         self._conn.commit()
 
     def _load_records(self) -> None:
         with self._lock:
-            self._refresh_records_from_db()
+            for record in self._query_records(limit=500):
+                self._jobs[record.job_id] = record
 
-    def _refresh_records_from_db(self) -> None:
-        rows = self._conn.execute("SELECT * FROM jobs").fetchall()
-        refreshed: dict[str, JobRecord] = {}
-        for row in rows:
-            job_id = str(row["job_id"])
-            existing = self._jobs.get(job_id)
-            record = JobRecord(
-                job_id=job_id,
-                tool_name=str(row["tool_name"]),
-                summary=str(row["summary"]),
-                node=row["node"],
-                upid=row["upid"],
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
-                status=str(row["status"]),
-                progress=row["progress"],
-                attempts=int(row["attempts"]),
-                retry_count=int(row["retry_count"]),
-                last_error=row["last_error"],
-                completed_at=row["completed_at"],
-                result=json.loads(row["result_json"]) if row["result_json"] else None,
-                metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
-                previous_upids=json.loads(row["previous_upids_json"]) if row["previous_upids_json"] else [],
-                audit_log=[
-                    JobAuditEvent(
-                        timestamp=item["timestamp"],
-                        event=item["event"],
-                        details=item.get("details", {}),
-                    )
-                    for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
-                ],
-                retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
-                retry_factory=existing.retry_factory if existing is not None else None,
-                cancel_factory=existing.cancel_factory if existing is not None else None,
-            )
-            refreshed[record.job_id] = record
-        self._jobs = refreshed
+    def _row_to_record(self, row: sqlite3.Row) -> JobRecord:
+        job_id = str(row["job_id"])
+        existing = self._jobs.get(job_id)
+        return JobRecord(
+            job_id=job_id,
+            tool_name=str(row["tool_name"]),
+            summary=str(row["summary"]),
+            node=row["node"],
+            upid=row["upid"],
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            status=str(row["status"]),
+            progress=row["progress"],
+            attempts=int(row["attempts"]),
+            retry_count=int(row["retry_count"]),
+            last_error=row["last_error"],
+            completed_at=row["completed_at"],
+            result=json.loads(row["result_json"]) if row["result_json"] else None,
+            metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
+            previous_upids=json.loads(row["previous_upids_json"]) if row["previous_upids_json"] else [],
+            audit_log=[
+                JobAuditEvent(
+                    timestamp=item["timestamp"],
+                    event=item["event"],
+                    details=item.get("details", {}),
+                )
+                for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
+            ],
+            retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
+            retry_factory=existing.retry_factory if existing is not None else None,
+            cancel_factory=existing.cancel_factory if existing is not None else None,
+        )
+
+    def _load_record_from_db(self, job_id: str) -> JobRecord:
+        row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        if row is None:
+            self._jobs.pop(job_id, None)
+            raise JobNotFoundError(f"Unknown job_id: {job_id}")
+        record = self._row_to_record(row)
+        self._jobs[record.job_id] = record
+        return record
+
+    def _query_records(
+        self,
+        *,
+        status: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[JobRecord]:
+        safe_limit = max(1, min(int(limit), 500))
+        where: list[str] = []
+        params: list[Any] = []
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if tool_name:
+            where.append("tool_name = ?")
+            params.append(tool_name)
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+        records = [self._row_to_record(row) for row in rows]
+        for record in records:
+            self._jobs[record.job_id] = record
+        return records
 
     def _save_record(self, record: JobRecord) -> None:
         self._conn.execute(
@@ -408,6 +461,10 @@ class JobStore:
 
     def _register_builtin_retry_handlers(self) -> None:
         self.register_retry_handler("vm.create", lambda params: self.proxmox.nodes(params["node"]).qemu.create(**params["vm_config"]))
+        self.register_retry_handler(
+            "vm.clone",
+            lambda params: self.proxmox.nodes(params["node"]).qemu(params["source_vmid"]).clone.post(**params["clone_payload"]),
+        )
         self.register_retry_handler("vm.start", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.start.post())
         self.register_retry_handler("vm.stop", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.stop.post())
         self.register_retry_handler("vm.shutdown", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.shutdown.post())

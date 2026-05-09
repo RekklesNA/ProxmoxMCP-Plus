@@ -84,8 +84,40 @@ class ContainerTools(ProxmoxTool):
         self._handle_error(action, e)
 
     # ---------- helpers ----------
+    def _cluster_ct_pairs(self, node: Optional[str]) -> Optional[List[Tuple[str, Dict]]]:
+        try:
+            resources = self.proxmox.cluster.resources.get(type="vm")
+        except Exception as error:
+            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", error)
+            return None
+        if not isinstance(resources, list):
+            return None
+
+        out: List[Tuple[str, Dict]] = []
+        for item in resources:
+            if not isinstance(item, dict) or item.get("type") != "lxc":
+                continue
+            node_name = _get(item, "node")
+            if not node_name:
+                continue
+            if node and node_name != node:
+                continue
+            vmid = _get(item, "vmid")
+            if vmid is None:
+                resource_id = str(_get(item, "id", ""))
+                if "/" in resource_id:
+                    vmid = resource_id.rsplit("/", 1)[-1]
+            if vmid is None:
+                continue
+            out.append((node_name, dict(item, vmid=vmid)))
+        return out if out else None
+
     def _list_ct_pairs(self, node: Optional[str]) -> List[Tuple[str, Dict]]:
         """Yield (node_name, ct_dict). Coerce odd shapes into dicts with vmid."""
+        cluster_pairs = self._cluster_ct_pairs(node)
+        if cluster_pairs is not None:
+            return cluster_pairs
+
         out: List[Tuple[str, Dict]] = []
         if node:
             try:
@@ -198,14 +230,14 @@ class ContainerTools(ProxmoxTool):
     def get_containers(
         self,
         node: Optional[str] = None,
-        include_stats: bool = True,
+        include_stats: bool = False,
         include_raw: bool = False,
         format_style: str = "pretty",
     ) -> List[Content]:
         """
         List containers cluster-wide or by node.
 
-        - `include_stats=True` fetches live CPU/mem from /status/current
+        - `include_stats=True` fetches per-container CPU/mem from /status/current
         - RRD fallback is used if live returns zeros
         - `format_style='json'` returns raw JSON list (sanitized)
         - `format_style='pretty'` renders a human-friendly table
@@ -229,6 +261,30 @@ class ContainerTools(ProxmoxTool):
                     "node": nname,
                     "status": _get(ct, "status"),
                 }
+                base_cpu = _get(ct, "cpu")
+                base_mem = _get(ct, "mem")
+                base_maxmem = _get(ct, "maxmem")
+                base_maxcpu = _get(ct, "maxcpu")
+                if base_cpu is not None:
+                    try:
+                        rec["cpu_pct"] = round(float(base_cpu) * 100.0, 2)
+                    except Exception:
+                        pass
+                if base_mem is not None:
+                    try:
+                        rec["mem_bytes"] = int(base_mem)
+                    except Exception:
+                        pass
+                if base_maxmem is not None:
+                    try:
+                        maxmem_int = int(base_maxmem)
+                        rec["maxmem_bytes"] = maxmem_int
+                        mem_int = int(rec.get("mem_bytes") or 0)
+                        rec["mem_pct"] = round((mem_int / maxmem_int * 100.0), 2) if maxmem_int > 0 else None
+                    except Exception:
+                        pass
+                if base_maxcpu is not None:
+                    rec["cores"] = base_maxcpu
 
                 if include_stats and vmid_int is not None:
                     raw_status, raw_config = self._status_and_config(nname, vmid_int)

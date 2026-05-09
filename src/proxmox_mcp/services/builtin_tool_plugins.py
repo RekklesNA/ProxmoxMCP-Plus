@@ -53,9 +53,14 @@ from proxmox_mcp.tools.definitions import (
 from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
 
 
+def _log_safe(value: object, max_length: int = 200) -> str:
+    text = str(value).replace("\r", "").replace("\n", "")
+    return text[:max_length]
+
+
 class GetContainersPayload(BaseModel):
     node: Optional[str] = Field(None, description="Optional node name (e.g. 'pve1')")
-    include_stats: bool = Field(True, description="Include live stats and fallbacks")
+    include_stats: bool = Field(False, description="Fetch per-container live stats and fallbacks")
     include_raw: bool = Field(False, description="Include raw status/config")
     format_style: Literal["pretty", "json"] = Field("pretty", description="'pretty' or 'json'")
 
@@ -78,7 +83,30 @@ class RegistryPluginBase(ToolRegistryPlugin):
             approval_token=approval_token,
         )
         if decision.code == "OP_POLICY_AUDIT_ALLOW":
-            server.logger.warning("High-risk tool invoked in audit-only mode: %s", tool_name)
+            server.logger.warning("High-risk tool invoked in audit-only mode: %s", _log_safe(tool_name))
+        if not decision.allowed:
+            raise ValueError(decision.message)
+
+    def _enforce_job_retry_policy(
+        self,
+        server: Any,
+        job_id: str,
+        approval_token: str | None,
+    ) -> None:
+        job = server.job_store.get_job(job_id)
+        operation_name = str(job.get("tool_name") or "")
+        decision = server.command_policy.evaluate_operation(
+            operation_name,
+            approval_token=approval_token,
+        )
+        if decision.code == "OP_POLICY_AUDIT_ALLOW":
+            safe_job_id = _log_safe(job_id)
+            safe_operation_name = _log_safe(operation_name)
+            server.logger.warning(
+                "Retrying high-risk job in audit-only mode: %s (%s)",
+                safe_job_id,
+                safe_operation_name,
+            )
         if not decision.allowed:
             raise ValueError(decision.message)
 
@@ -199,8 +227,17 @@ class JobsToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=RETRY_JOB_DESC)
         def retry_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
+            approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk job retries", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "retry_job", server.jobs_tools.retry_job)(job_id=job_id)
+            def guarded_retry(job_id: str) -> Any:
+                self._enforce_job_retry_policy(
+                    server,
+                    job_id,
+                    approval_token if isinstance(approval_token, str) else None,
+                )
+                return server.jobs_tools.retry_job(job_id=job_id)
+
+            return self._wrap_sync(server, "retry_job", guarded_retry)(job_id=job_id)
 
 
 class VMToolsPlugin(RegistryPluginBase):
@@ -319,7 +356,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         @server.mcp.tool(description=GET_CONTAINERS_DESC)
         def get_containers(
             node: Annotated[Optional[str], Field(description="Optional node name (e.g. 'pve1')")] = None,
-            include_stats: Annotated[bool, Field(description="Include live stats and fallbacks")] = True,
+            include_stats: Annotated[bool, Field(description="Fetch per-container live stats and fallbacks")] = False,
             include_raw: Annotated[bool, Field(description="Include raw status/config")] = False,
             format_style: Annotated[Literal["pretty", "json"], Field(description="'pretty' or 'json'")] = "pretty",
             payload: Annotated[Optional[dict[str, Any]], Field(description="Legacy container query options")] = None,

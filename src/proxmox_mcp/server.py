@@ -101,12 +101,16 @@ class ProxmoxMCPServer:
         self.tool_registry.add(BackupToolsPlugin())
         self.tool_registry.register_all(self)
 
+    def close(self) -> None:
+        self.job_store.close()
+
     def start(self) -> None:
         """Start the MCP server with the configured transport."""
         import anyio
 
         def signal_handler(signum: int, frame: object) -> None:
             self.logger.info("Received signal to shutdown...")
+            self.close()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
@@ -130,6 +134,8 @@ class ProxmoxMCPServer:
         except Exception as e:
             self.logger.error("Server execution failed: %s", e)
             sys.exit(1)
+        finally:
+            self.close()
 
 
 def main() -> None:

@@ -57,7 +57,10 @@ The repository includes live-environment verification entry points for:
 
 Primary validation entry points:
 
-- `pytest -q`
+- `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
+- `ruff check .`
+- `mypy src --ignore-missing-imports`
+- `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
