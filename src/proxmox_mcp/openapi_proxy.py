@@ -23,6 +23,11 @@ from proxmox_mcp.services.jobs import JobConflictError, JobNotFoundError
 LOGGER = logging.getLogger(__name__)
 
 
+def _log_safe(value: object, max_length: int = 200) -> str:
+    text = str(value).replace("\r", "").replace("\n", "")
+    return text[:max_length]
+
+
 def _parse_cors_allow_origins(value: Optional[str]) -> list[str]:
     if not value:
         return ["*"]
@@ -228,10 +233,12 @@ def create_app(
             approval_token=approval_token,
         )
         if decision.code == "OP_POLICY_AUDIT_ALLOW":
+            safe_job_id = _log_safe(job_id)
+            safe_operation_name = _log_safe(operation_name)
             LOGGER.warning(
                 "Retrying high-risk job in audit-only mode: %s (%s)",
-                job_id,
-                operation_name,
+                safe_job_id,
+                safe_operation_name,
             )
         if not decision.allowed:
             raise PermissionError(decision.message)

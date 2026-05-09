@@ -53,6 +53,11 @@ from proxmox_mcp.tools.definitions import (
 from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
 
 
+def _log_safe(value: object, max_length: int = 200) -> str:
+    text = str(value).replace("\r", "").replace("\n", "")
+    return text[:max_length]
+
+
 class GetContainersPayload(BaseModel):
     node: Optional[str] = Field(None, description="Optional node name (e.g. 'pve1')")
     include_stats: bool = Field(False, description="Fetch per-container live stats and fallbacks")
@@ -78,7 +83,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
             approval_token=approval_token,
         )
         if decision.code == "OP_POLICY_AUDIT_ALLOW":
-            server.logger.warning("High-risk tool invoked in audit-only mode: %s", tool_name)
+            server.logger.warning("High-risk tool invoked in audit-only mode: %s", _log_safe(tool_name))
         if not decision.allowed:
             raise ValueError(decision.message)
 
@@ -95,10 +100,12 @@ class RegistryPluginBase(ToolRegistryPlugin):
             approval_token=approval_token,
         )
         if decision.code == "OP_POLICY_AUDIT_ALLOW":
+            safe_job_id = _log_safe(job_id)
+            safe_operation_name = _log_safe(operation_name)
             server.logger.warning(
                 "Retrying high-risk job in audit-only mode: %s (%s)",
-                job_id,
-                operation_name,
+                safe_job_id,
+                safe_operation_name,
             )
         if not decision.allowed:
             raise ValueError(decision.message)

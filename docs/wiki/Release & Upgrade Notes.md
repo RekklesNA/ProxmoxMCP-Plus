@@ -18,6 +18,26 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.9`
+
+- Release date: 2026-05-09
+- Summary: supersedes `v0.4.8` with the same reliability hardening plus a CodeQL-blocking log-injection fix for high-risk retry audit logs.
+- New tools or endpoints:
+  - no new tools
+- Changed behavior:
+  - high-risk retry audit logs sanitize job IDs and persisted tool names before logging
+  - all `v0.4.8` production reliability changes are included
+- Config changes:
+  - no required config migration
+- Docs updated:
+  - `docs/releases/v0.4.9.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - prefer `v0.4.9` over `v0.4.8`
+  - continue passing `include_stats=true` to `get_containers` if callers require detailed stats by default
+- Rollback notes:
+  - use `v0.4.7` rather than `v0.4.8` if rollback is required for the log-sanitization fix
+
 ### Version `0.4.8`
 
 - Release date: 2026-05-09
