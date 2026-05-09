@@ -53,6 +53,39 @@ class VMTools(ProxmoxTool):
         self.console_manager = VMConsoleManager(proxmox_api)
         self.command_policy = command_policy
 
+    def _get_cluster_vm_inventory(self) -> Optional[list[dict[str, Any]]]:
+        try:
+            resources = self.proxmox.cluster.resources.get(type="vm")
+        except Exception as error:
+            self.logger.debug("Cluster VM inventory unavailable, falling back to node scan: %s", error)
+            return None
+        if not isinstance(resources, list):
+            return None
+
+        result: list[dict[str, Any]] = []
+        for vm in resources:
+            if not isinstance(vm, dict) or vm.get("type") != "qemu":
+                continue
+            vmid = vm.get("vmid")
+            if vmid is None:
+                resource_id = str(vm.get("id", ""))
+                if "/" in resource_id:
+                    vmid = resource_id.rsplit("/", 1)[-1]
+            if vmid is None:
+                continue
+            result.append({
+                "vmid": vmid,
+                "name": vm.get("name") or f"VM-{vmid}",
+                "status": vm.get("status", "unknown"),
+                "node": vm.get("node", "unknown"),
+                "cpus": vm.get("maxcpu", vm.get("cpus", "N/A")),
+                "memory": {
+                    "used": vm.get("mem", 0),
+                    "total": vm.get("maxmem", 0),
+                },
+            })
+        return result if result else None
+
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
 
@@ -84,6 +117,10 @@ class VMTools(ProxmoxTool):
         Raises:
             RuntimeError: If the cluster-wide VM query fails
         """
+        cluster_inventory = self._get_cluster_vm_inventory()
+        if cluster_inventory is not None:
+            return self._format_response(cluster_inventory, "vms")
+
         try:
             nodes = self.proxmox.nodes.get()
         except Exception as e:
@@ -363,25 +400,43 @@ Next steps:
         except Exception as e:
             self._handle_error(f"clone VM {source_vmid} -> {target_vmid}", e)
 
-        result_text = f"""📑 VM clone initiated successfully!
+        job = self._register_background_job(
+            tool_name="clone_vm",
+            summary=f"Clone VM {source_vmid} to {target_vmid} on {node}",
+            node=node,
+            upid=task_result,
+            metadata={
+                "source_vmid": source_vmid,
+                "target_vmid": target_vmid,
+                "source_node": node,
+                "target_node": destination_node,
+                "full": full,
+                "name": name,
+            },
+            retry_spec={"kind": "vm.clone", "params": {"node": node, "source_vmid": source_vmid, "clone_payload": clone_payload}},
+            retry_factory=lambda: self.proxmox.nodes(node).qemu(source_vmid).clone.post(**clone_payload),
+            cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+        )
 
-📋 Clone Configuration:
-  • Source VM: {source_vmid} ({source_name})
-  • Source Node: {node}
-  • Target VM ID: {target_vmid}
-  • Target Node: {destination_node}
-  • Clone Type: {"full" if full else "linked"}"""
+        result_text = f"""VM clone initiated successfully
+
+Clone Configuration:
+  - Source VM: {source_vmid} ({source_name})
+  - Source Node: {node}
+  - Target VM ID: {target_vmid}
+  - Target Node: {destination_node}
+  - Clone Type: {"full" if full else "linked"}"""
 
         if name:
-            result_text += f"\n  • Target Name: {name}"
+            result_text += f"\n  - Target Name: {name}"
         if storage:
-            result_text += f"\n  • Storage: {storage}"
+            result_text += f"\n  - Storage: {storage}"
         if pool:
-            result_text += f"\n  • Pool: {pool}"
+            result_text += f"\n  - Pool: {pool}"
         if snapname:
-            result_text += f"\n  • Snapshot: {snapname}"
+            result_text += f"\n  - Snapshot: {snapname}"
 
-        result_text += f"\n\n🔧 Task ID: {task_result}"
+        result_text += f"\n\nTask ID: {task_result}\nJob ID: {job['job_id'] if job else 'n/a'}"
 
         return [Content(type="text", text=result_text)]
 

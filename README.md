@@ -218,7 +218,10 @@ Supported workflow areas:
 
 Validation and contract entry points in this repository:
 
-- `pytest -q`
+- `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
+- `ruff check .`
+- `mypy src --ignore-missing-imports`
+- `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
@@ -331,11 +334,14 @@ Published wiki:
 ## Development Checks
 
 ```bash
-pytest -q
+pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60
 ruff check .
-mypy src tests main.py tests/scripts/run_real_e2e.py
+mypy src --ignore-missing-imports
+pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405
 python -m build
 ```
+
+The Paramiko audit exception is temporary. It is tracked in `docs/security/paramiko-cve-2026-44405.md` until a patched PyPI release is available.
 
 ## License
 

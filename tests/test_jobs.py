@@ -128,6 +128,80 @@ def test_job_store_persists_to_sqlite(tmp_path: Path):
     assert loaded["retry_spec"]["kind"] == "iso.delete"
 
 
+def test_job_store_configures_sqlite_for_concurrency(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+
+    journal_mode = store._conn.execute("PRAGMA journal_mode").fetchone()[0]
+    busy_timeout = store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    schema_version = store._conn.execute("SELECT version FROM schema_migrations").fetchone()[0]
+    indexes = {
+        row[1]
+        for row in store._conn.execute("PRAGMA index_list('jobs')").fetchall()
+    }
+
+    assert journal_mode.lower() == "wal"
+    assert busy_timeout == 5000
+    assert schema_version == 1
+    assert "idx_jobs_status_created_at" in indexes
+    assert "idx_jobs_tool_created_at" in indexes
+
+
+def test_job_store_list_jobs_filters_and_limits_in_sql_order(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+
+    first = store.register_task(
+        tool_name="start_vm",
+        summary="Start first",
+        node="pve",
+        upid="UPID:first",
+    )
+    second = store.register_task(
+        tool_name="delete_vm",
+        summary="Delete second",
+        node="pve",
+        upid="UPID:second",
+    )
+    third = store.register_task(
+        tool_name="start_vm",
+        summary="Start third",
+        node="pve",
+        upid="UPID:third",
+    )
+
+    store._conn.execute(
+        "UPDATE jobs SET status = 'failed', created_at = '2024-01-01T00:00:00+00:00' WHERE job_id = ?",
+        (first["job_id"],),
+    )
+    store._conn.execute(
+        "UPDATE jobs SET created_at = '2024-01-02T00:00:00+00:00' WHERE job_id = ?",
+        (second["job_id"],),
+    )
+    store._conn.execute(
+        "UPDATE jobs SET created_at = '2024-01-03T00:00:00+00:00' WHERE job_id = ?",
+        (third["job_id"],),
+    )
+    store._conn.commit()
+
+    running_start_jobs = store.list_jobs(status="running", tool_name="start_vm", limit=1)
+
+    assert [job["job_id"] for job in running_start_jobs] == [third["job_id"]]
+
+
+def test_job_store_close_releases_connection(tmp_path: Path):
+    proxmox = Mock()
+    store = JobStore(proxmox, sqlite_path=str(tmp_path / "jobs.sqlite3"))
+
+    store.close()
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        store._conn.execute("SELECT 1")
+
+
 def test_job_store_refreshes_records_written_by_another_instance(tmp_path: Path):
     proxmox = Mock()
     db_path = tmp_path / "jobs.sqlite3"
@@ -167,6 +241,38 @@ def test_job_store_retry_uses_persisted_retry_spec(tmp_path: Path):
     retried = second.retry_job(created["job_id"])
 
     assert retried["upid"] == "UPID:retry-from-sqlite"
+    assert retried["attempts"] == 2
+
+
+def test_job_store_retry_vm_clone_from_persisted_recipe(tmp_path: Path):
+    proxmox = Mock()
+    source_vm_api = proxmox.nodes.return_value.qemu.return_value
+    source_vm_api.clone.post.return_value = "UPID:clone-retry"
+    db_path = tmp_path / "jobs.sqlite3"
+
+    first = JobStore(proxmox, sqlite_path=str(db_path))
+    created = first.register_task(
+        tool_name="clone_vm",
+        summary="Clone VM",
+        node="pve",
+        upid="UPID:clone-original",
+        retry_spec={
+            "kind": "vm.clone",
+            "params": {
+                "node": "pve",
+                "source_vmid": "9000",
+                "clone_payload": {"newid": 9100, "full": 1, "name": "cloned-vm"},
+            },
+        },
+    )
+
+    second = JobStore(proxmox, sqlite_path=str(db_path))
+    retried = second.retry_job(created["job_id"])
+
+    proxmox.nodes.assert_called_with("pve")
+    proxmox.nodes.return_value.qemu.assert_called_with("9000")
+    source_vm_api.clone.post.assert_called_once_with(newid=9100, full=1, name="cloned-vm")
+    assert retried["upid"] == "UPID:clone-retry"
     assert retried["attempts"] == 2
 
 

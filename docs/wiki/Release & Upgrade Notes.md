@@ -18,6 +18,37 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.4.8`
+
+- Release date: 2026-05-09
+- Summary: production reliability and release-quality hardening for persistent jobs, inventory reads, OpenAPI job controls, metrics, Paramiko tracking, and `clone_vm`.
+- New tools or endpoints:
+  - no new tools
+- Changed behavior:
+  - `clone_vm` now registers persistent jobs and returns a stable Job ID
+  - high-risk job retries now pass through the same approval-token policy checks as direct tool execution
+  - VM guest-agent commands poll until exit and report non-zero exit codes as failures
+  - `get_vms` and default `get_containers` use cluster resource inventory to avoid large N+1 scans
+  - `get_containers` defaults `include_stats=false`; detailed per-container status/config/RRD remains opt-in
+  - OpenAPI metrics use route templates instead of raw paths for request labels
+  - `JobStore` SQLite uses WAL, busy timeout, migration tracking, indexes, SQL filtering/limits, and explicit close lifecycle
+- Config changes:
+  - no required config migration
+  - runtime dependency support now allows `paramiko>=4.0.0,<5.0.0`
+- Docs updated:
+  - `README.md`
+  - `docs/releases/v0.4.8.md`
+  - `docs/security/paramiko-cve-2026-44405.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Developer Guide.md`
+  - `docs/wiki/Home.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - pass `include_stats=true` to `get_containers` if callers require detailed stats by default
+  - monitor Paramiko releases and remove the temporary `CVE-2026-44405` audit exception once a fixed PyPI release exists
+- Rollback notes:
+  - downgrade to `v0.4.7` if clients depend on default container stats, but keep the Paramiko CVE tracking in mind
+
 ### Version `0.4.7`
 
 - Release date: 2026-05-08
@@ -208,9 +239,10 @@ After upgrading:
 
 ## Suggested Release Checklist
 
-- run `pytest`
-- run `ruff .`
-- run `mypy .`
+- run `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
+- run `ruff check .`
+- run `mypy src --ignore-missing-imports`
+- run `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
 - build the package
 - confirm `README.md` and `docs/wiki/` reflect the released behavior
 - note any user-visible changes here

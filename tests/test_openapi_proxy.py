@@ -1,6 +1,8 @@
 """Tests for OpenAPI proxy wrapper."""
 
 import asyncio
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from proxmox_mcp.openapi_proxy import create_app
@@ -109,6 +111,23 @@ def test_metrics_endpoint_renders_labeled_series():
     assert 'status="200"' in body
 
 
+def test_http_metrics_use_route_templates_for_dynamic_paths():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_store=_FakeJobStore(),
+    )
+    client = TestClient(app)
+
+    client.get("/jobs/job-1")
+    body = client.get("/metrics").text
+
+    assert 'route="/jobs/{job_id}"' in body
+    assert 'route="/jobs/job-1"' not in body
+
+
 class _FakeJobStore:
     def list_jobs(self, **kwargs):
         return [{"job_id": "job-1", "status": kwargs.get("status") or "running"}]
@@ -116,7 +135,8 @@ class _FakeJobStore:
     def get_job(self, job_id: str):
         if job_id == "missing":
             raise JobNotFoundError("missing")
-        return {"job_id": job_id, "status": "running"}
+        tool_name = "delete_vm" if job_id == "danger" else "start_vm"
+        return {"job_id": job_id, "status": "running", "tool_name": tool_name}
 
     def poll_job(self, job_id: str):
         return {"job_id": job_id, "status": "completed"}
@@ -128,6 +148,21 @@ class _FakeJobStore:
 
     def retry_job(self, job_id: str):
         return {"job_id": job_id, "status": "running", "attempts": 2}
+
+
+class _FakeCommandPolicy:
+    def __init__(self):
+        self.calls = []
+
+    def evaluate_operation(self, operation_name: str, *, approval_token: str | None = None):
+        self.calls.append((operation_name, approval_token))
+        if operation_name == "delete_vm" and approval_token != "approve-me":
+            return SimpleNamespace(
+                allowed=False,
+                code="OP_POLICY_APPROVAL_REQUIRED",
+                message="approval required",
+            )
+        return SimpleNamespace(allowed=True, code="OP_POLICY_ALLOW", message="allowed")
 
 
 def test_jobs_routes_return_expected_status_codes():
@@ -167,6 +202,31 @@ def test_jobs_routes_return_expected_status_codes():
     retry_response = client.post("/jobs/job-1/retry")
     assert retry_response.status_code == 202
     assert retry_response.json()["attempts"] == 2
+
+
+def test_retry_job_route_enforces_high_risk_policy():
+    policy = _FakeCommandPolicy()
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_store=_FakeJobStore(),
+        command_policy=policy,
+    )
+    client = TestClient(app)
+
+    denied_response = client.post("/jobs/danger/retry")
+    assert denied_response.status_code == 403
+    assert denied_response.json()["message"] == "Job operation requires approval"
+
+    approved_response = client.post("/jobs/danger/retry", params={"approval_token": "approve-me"})
+    assert approved_response.status_code == 202
+    assert approved_response.json()["attempts"] == 2
+    assert policy.calls == [
+        ("delete_vm", None),
+        ("delete_vm", "approve-me"),
+    ]
 
 
 def test_jobs_routes_hide_internal_error_details():

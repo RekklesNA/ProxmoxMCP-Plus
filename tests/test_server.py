@@ -52,6 +52,7 @@ def mock_env_vars(tmp_path):
         "PROXMOX_TOKEN_VALUE": "test_value",
         "LOG_LEVEL": "DEBUG",
         "COMMAND_POLICY_MODE": "audit_only",
+        "PROXMOX_JOBS_SQLITE_PATH": str(tmp_path / "jobs.sqlite3"),
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars
@@ -174,6 +175,22 @@ def test_loader_allows_insecure_tls_in_dev_mode(tmp_path):
     assert config.proxmox.verify_ssl is False
 
 
+def test_loader_env_preserves_policy_default_lists(monkeypatch):
+    monkeypatch.setenv("PROXMOX_HOST", "test.proxmox.com")
+    monkeypatch.setenv("PROXMOX_USER", "test@pve")
+    monkeypatch.setenv("PROXMOX_TOKEN_NAME", "test_token")
+    monkeypatch.setenv("PROXMOX_TOKEN_VALUE", "test_value")
+    monkeypatch.setenv("PROXMOX_VERIFY_SSL", "true")
+    monkeypatch.delenv("COMMAND_POLICY_DENY_PATTERNS", raising=False)
+    monkeypatch.delenv("COMMAND_POLICY_HIGH_RISK_OPERATIONS", raising=False)
+
+    config = load_config(None)
+
+    assert config.command_policy.deny_patterns
+    assert any("rm" in pattern for pattern in config.command_policy.deny_patterns)
+    assert "delete_vm" in config.command_policy.high_risk_operations
+
+
 @pytest.mark.asyncio
 async def test_list_tools(server):
     """Test listing available tools. Config has no ssh section, so execute_container_command must be absent."""
@@ -292,6 +309,41 @@ async def test_get_vms(server, mock_proxmox):
     assert "vm1" in text
     assert "vm2" in text
 
+
+@pytest.mark.asyncio
+async def test_get_vms_uses_cluster_resource_inventory(server, mock_proxmox):
+    """Cluster resources avoid per-VM config lookups for large inventories."""
+    proxmox = mock_proxmox.return_value
+    proxmox.cluster.resources.get.return_value = [
+        {
+            "type": "qemu",
+            "vmid": "100",
+            "name": "vm1",
+            "status": "running",
+            "node": "node1",
+            "maxcpu": 2,
+            "mem": 512,
+            "maxmem": 2048,
+        },
+        {
+            "type": "lxc",
+            "vmid": "200",
+            "name": "ct1",
+            "status": "running",
+            "node": "node1",
+        },
+    ]
+    proxmox.nodes.reset_mock()
+
+    response = await server.mcp.call_tool("get_vms", {})
+    text = response[0].text
+
+    assert "vm1" in text
+    assert "ct1" not in text
+    proxmox.cluster.resources.get.assert_called_once_with(type="vm")
+    proxmox.nodes.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_get_vms_skips_offline_node(server, mock_proxmox):
     """Test get_vms tool skips nodes that error."""
@@ -339,6 +391,42 @@ async def test_get_containers(server, mock_proxmox):
     assert len(result) > 0
     assert result[0]["name"] == "container1"
     assert result[1]["name"] == "container2"
+
+
+@pytest.mark.asyncio
+async def test_get_containers_uses_cluster_inventory_without_stats(server, mock_proxmox):
+    """Default container inventory should avoid node and per-container status scans."""
+    proxmox = mock_proxmox.return_value
+    proxmox.cluster.resources.get.return_value = [
+        {
+            "type": "lxc",
+            "vmid": "200",
+            "name": "container1",
+            "status": "running",
+            "node": "node1",
+            "cpu": 0.25,
+            "mem": 512,
+            "maxmem": 2048,
+            "maxcpu": 2,
+        },
+        {
+            "type": "qemu",
+            "vmid": "100",
+            "name": "vm1",
+            "status": "running",
+            "node": "node1",
+        },
+    ]
+    proxmox.nodes.reset_mock()
+
+    response = await server.mcp.call_tool("get_containers", {"format_style": "json"})
+    result = json.loads(response[0].text)
+
+    assert result[0]["name"] == "container1"
+    assert result[0]["cpu_pct"] == 25.0
+    assert result[0]["mem_pct"] == 25.0
+    proxmox.cluster.resources.get.assert_called_once_with(type="vm")
+    proxmox.nodes.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -636,6 +724,50 @@ async def test_execute_vm_command_success(server, mock_proxmox):
     assert "Status: SUCCESS" in text
     assert "command output" in text
 
+
+@pytest.mark.asyncio
+async def test_execute_vm_command_polls_until_command_exits(server, mock_proxmox, monkeypatch):
+    """VM command execution should keep polling exec-status until completion."""
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.status.current.get.return_value = {
+        "status": "running"
+    }
+    exec_endpoint = Mock()
+    exec_endpoint.post.return_value = {"pid": 321}
+    status_endpoint = Mock()
+    status_endpoint.get.side_effect = [
+        {
+            "out-data": "",
+            "err-data": "",
+            "exitcode": 0,
+            "exited": 0,
+        },
+        {
+            "out-data": "done",
+            "err-data": "",
+            "exitcode": 0,
+            "exited": 1,
+        },
+    ]
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.agent.side_effect = (
+        lambda action: exec_endpoint if action == "exec" else status_endpoint
+    )
+
+    async def fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("proxmox_mcp.tools.console.manager.asyncio.sleep", fast_sleep)
+
+    response = await server.mcp.call_tool("execute_vm_command", {
+        "node": "node1",
+        "vmid": "100",
+        "command": "sleep 2 && echo done"
+    })
+
+    assert status_endpoint.get.call_count == 2
+    assert "Status: SUCCESS" in response[0].text
+    assert "done" in response[0].text
+
+
 @pytest.mark.asyncio
 async def test_execute_vm_command_missing_parameters(server):
     """Test VM command execution with missing parameters."""
@@ -684,7 +816,7 @@ async def test_execute_vm_command_with_error(server, mock_proxmox):
     })
     text = response[0].text
     assert "Console Command Result" in text
-    assert "Status: SUCCESS" in text
+    assert "Status: FAILED" in text
     assert "command not found" in text
 
 
@@ -755,7 +887,21 @@ async def test_clone_vm(server, mock_proxmox):
     )
 
     assert "clone initiated successfully" in response[0].text
+    assert "Job ID:" in response[0].text
     source_vm_api.clone.post.assert_called_once_with(newid=9100, full=1, name="cloned-vm")
+
+    jobs = await server.mcp.call_tool("list_jobs", {"tool_name": "clone_vm", "limit": 1})
+    jobs_payload = json.loads(jobs[0].text)
+    assert len(jobs_payload) == 1
+    assert jobs_payload[0]["tool_name"] == "clone_vm"
+    assert jobs_payload[0]["retry_spec"] == {
+        "kind": "vm.clone",
+        "params": {
+            "node": "node1",
+            "source_vmid": "9000",
+            "clone_payload": {"newid": 9100, "full": 1, "name": "cloned-vm"},
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -987,3 +1133,44 @@ async def test_high_risk_operation_requires_approval_token(mock_proxmox, tmp_pat
             "delete_vm",
             {"node": "node1", "vmid": "100", "force": False},
         )
+
+
+@pytest.mark.asyncio
+async def test_high_risk_job_retry_requires_approval_token(mock_proxmox, tmp_path):
+    config_path = tmp_path / "config_high_risk_retry.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+        "command_policy": {
+            "mode": "audit_only",
+            "high_risk_mode": "enforce",
+            "high_risk_require_approval_token": True,
+            "high_risk_approval_token": "approve-me",
+        },
+    }))
+
+    policy_server = ProxmoxMCPServer(str(config_path))
+    retry_factory = Mock(return_value="UPID:retry-delete")
+    job = policy_server.job_store.register_task(
+        tool_name="delete_vm",
+        summary="Delete VM 100",
+        node="node1",
+        upid="UPID:delete-original",
+        retry_factory=retry_factory,
+    )
+
+    with pytest.raises(ToolError, match="requires an approval token"):
+        await policy_server.mcp.call_tool("retry_job", {"job_id": job["job_id"]})
+
+    retry_factory.assert_not_called()
+
+    response = await policy_server.mcp.call_tool(
+        "retry_job",
+        {"job_id": job["job_id"], "approval_token": "approve-me"},
+    )
+    payload = json.loads(response[0].text)
+
+    assert payload["upid"] == "UPID:retry-delete"
+    retry_factory.assert_called_once()

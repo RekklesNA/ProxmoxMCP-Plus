@@ -53,7 +53,9 @@ class ProxyMetricsMiddleware(BaseHTTPMiddleware):
         finally:
             latency_ms = (time.perf_counter() - start) * 1000.0
             status_code = response.status_code if response is not None else 500
-            metrics.observe(request.url.path, request.method, status_code, latency_ms)
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", None) or request.url.path
+            metrics.observe(route_path, request.method, status_code, latency_ms)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -102,6 +104,7 @@ def create_app(
     path_prefix: str = "/",
     root_path: str = "",
     rate_limit_rpm: int = 0,
+    command_policy: Any | None = None,
 ) -> FastAPI:
     """Create a FastAPI app that mirrors mcpo behavior and adds ops routes."""
     api_dependency = get_verify_api_key(api_key) if api_key else None
@@ -141,6 +144,7 @@ def create_app(
     app.state.api_key_configured = bool(api_key)
     app.state.strict_auth = strict_auth
     app.state.job_store = job_store
+    app.state.command_policy = command_policy
     app.state.security_warnings = _security_warnings(
         api_key=api_key,
         strict_auth=strict_auth,
@@ -205,11 +209,32 @@ def create_app(
         LOGGER.warning("Job route error: %s", error, exc_info=True)
         if isinstance(error, JobNotFoundError):
             return JSONResponse(status_code=404, content={"status": "not_found", "message": "Job was not found"})
+        if isinstance(error, PermissionError):
+            return JSONResponse(status_code=403, content={"status": "forbidden", "message": "Job operation requires approval"})
         if isinstance(error, JobConflictError):
             return JSONResponse(status_code=409, content={"status": "conflict", "message": "Job cannot perform that operation right now"})
         if isinstance(error, RuntimeError):
             return JSONResponse(status_code=503, content={"status": "unavailable", "message": "Job service is unavailable in this process"})
         return JSONResponse(status_code=400, content={"status": "error", "message": "Job request failed"})
+
+    def _enforce_job_retry_policy(job_id: str, approval_token: Optional[str]) -> None:
+        policy = getattr(app.state, "command_policy", None)
+        if policy is None:
+            return
+        job = _require_job_store().get_job(job_id)
+        operation_name = str(job.get("tool_name") or "")
+        decision = policy.evaluate_operation(
+            operation_name,
+            approval_token=approval_token,
+        )
+        if decision.code == "OP_POLICY_AUDIT_ALLOW":
+            LOGGER.warning(
+                "Retrying high-risk job in audit-only mode: %s (%s)",
+                job_id,
+                operation_name,
+            )
+        if not decision.allowed:
+            raise PermissionError(decision.message)
 
     @app.get("/jobs")
     async def list_jobs(
@@ -249,8 +274,9 @@ def create_app(
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/retry")
-    async def retry_job(job_id: str) -> JSONResponse:
+    async def retry_job(job_id: str, approval_token: Optional[str] = None) -> JSONResponse:
         try:
+            _enforce_job_retry_policy(job_id, approval_token)
             payload = _require_job_store().retry_job(job_id)
             return JSONResponse(status_code=202, content=payload)
         except Exception as exc:  # noqa: BLE001
@@ -318,14 +344,17 @@ def main() -> None:
         LOGGER.warning("OpenAPI security warning: %s", warning)
 
     job_store = None
+    command_policy = None
     config_path = os.getenv("PROXMOX_MCP_CONFIG")
     if config_path:
         try:
             from proxmox_mcp.config.loader import load_config
             from proxmox_mcp.core.proxmox import ProxmoxManager
+            from proxmox_mcp.security import CommandPolicyGate
             from proxmox_mcp.services import JobStore
 
             config = load_config(config_path)
+            command_policy = CommandPolicyGate(config.command_policy)
             proxmox = ProxmoxManager(
                 config.proxmox,
                 config.auth,
@@ -345,6 +374,7 @@ def main() -> None:
         path_prefix=args.path_prefix,
         root_path=args.root_path,
         rate_limit_rpm=args.rate_limit_rpm,
+        command_policy=command_policy,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 

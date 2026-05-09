@@ -16,6 +16,12 @@ from typing import Any, Dict, Optional
 from proxmox_mcp.config.models import Config
 
 
+def _parse_csv_env(name: str) -> list[str] | None:
+    if name not in os.environ:
+        return None
+    return [item.strip() for item in os.environ[name].split(",") if item.strip()]
+
+
 def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
     """Allow deployment-specific MCP transport settings to override file config."""
     env_map = {
@@ -88,6 +94,22 @@ def load_config(config_path: Optional[str] = None) -> Config:
     if not config_path or not os.path.exists(config_path):
         # Fallback to environment variables
         log_level_raw = os.getenv("LOG_LEVEL")
+        command_policy = {
+            'mode': os.getenv("COMMAND_POLICY_MODE", "deny_all"),
+            'allow_patterns': _parse_csv_env("COMMAND_POLICY_ALLOW_PATTERNS") or [],
+            'require_approval_token': os.getenv("COMMAND_POLICY_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
+            'approval_token': os.getenv("COMMAND_POLICY_APPROVAL_TOKEN"),
+            'high_risk_mode': os.getenv("COMMAND_POLICY_HIGH_RISK_MODE", "audit_only"),
+            'high_risk_require_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
+            'high_risk_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_APPROVAL_TOKEN"),
+        }
+        deny_patterns = _parse_csv_env("COMMAND_POLICY_DENY_PATTERNS")
+        if deny_patterns is not None:
+            command_policy["deny_patterns"] = deny_patterns
+        high_risk_operations = _parse_csv_env("COMMAND_POLICY_HIGH_RISK_OPERATIONS")
+        if high_risk_operations is not None:
+            command_policy["high_risk_operations"] = high_risk_operations
+
         config_data = {
             'proxmox': {
                 'host': os.getenv("PROXMOX_HOST"),
@@ -124,17 +146,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             'jobs': {
                 'sqlite_path': os.getenv("PROXMOX_JOBS_SQLITE_PATH", "proxmox-jobs.sqlite3"),
             },
-            'command_policy': {
-                'mode': os.getenv("COMMAND_POLICY_MODE", "deny_all"),
-                'allow_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_ALLOW_PATTERNS", "").split(",") if p.strip()],
-                'deny_patterns': [p.strip() for p in os.getenv("COMMAND_POLICY_DENY_PATTERNS", "").split(",") if p.strip()],
-                'require_approval_token': os.getenv("COMMAND_POLICY_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
-                'approval_token': os.getenv("COMMAND_POLICY_APPROVAL_TOKEN"),
-                'high_risk_mode': os.getenv("COMMAND_POLICY_HIGH_RISK_MODE", "audit_only"),
-                'high_risk_operations': [p.strip() for p in os.getenv("COMMAND_POLICY_HIGH_RISK_OPERATIONS", "").split(",") if p.strip()],
-                'high_risk_require_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_REQUIRE_APPROVAL_TOKEN", "false").lower() == "true",
-                'high_risk_approval_token': os.getenv("COMMAND_POLICY_HIGH_RISK_APPROVAL_TOKEN"),
-            },
+            'command_policy': command_policy,
         }
         
         api_tunnel_config = config_data.get("api_tunnel")
