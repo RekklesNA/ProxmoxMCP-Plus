@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 import time
 from collections import deque
 from typing import Any, Optional, cast
@@ -40,6 +41,10 @@ def _security_warnings(*, api_key: Optional[str], strict_auth: bool, cors_allow_
         warnings.append("OpenAPI proxy is running without PROXMOX_API_KEY.")
     if api_key and not strict_auth:
         warnings.append("PROXMOX_API_KEY is configured but PROXMOX_STRICT_AUTH is disabled.")
+    if os.getenv("PROXMOX_ALLOW_NO_AUTH", "false").lower() == "true":
+        warnings.append(
+            "PROXMOX_ALLOW_NO_AUTH=true is set; OpenAPI proxy is running without an API key."
+        )
     if "*" in cors_allow_origins:
         warnings.append("CORS allows all origins; set MCPO_CORS_ALLOW_ORIGINS for production.")
     return warnings
@@ -334,6 +339,33 @@ def main() -> None:
 
     if not server_command:
         parser.error("Missing MCP server command. Use '-- <command>' to pass it.")
+
+    # Refuse to start with broken auth.
+    #
+    # Two surprising defaults existed in the previous behaviour:
+    #   1. The proxy could start with no API key at all and would just log a
+    #      warning. Anyone reaching the listener could call the MCP tools.
+    #   2. The APIKeyMiddleware was only installed when both `api_key` was set
+    #      AND `strict_auth=True`. `strict_auth` defaults to False, so setting
+    #      PROXMOX_API_KEY alone gave the operator a false sense of security:
+    #      auth was loaded but not enforced.
+    #
+    # Both are now hard errors / auto-fixed at startup. Operators who actually
+    # want unauthenticated access (e.g. local development behind another
+    # reverse proxy) must opt in with PROXMOX_ALLOW_NO_AUTH=true.
+    allow_no_auth = os.getenv("PROXMOX_ALLOW_NO_AUTH", "false").lower() == "true"
+    if not args.api_key and not allow_no_auth:
+        LOGGER.error(
+            "OpenAPI proxy refuses to start without PROXMOX_API_KEY. "
+            "Set PROXMOX_ALLOW_NO_AUTH=true to override (NOT RECOMMENDED)."
+        )
+        sys.exit(1)
+    if args.api_key and not args.strict_auth:
+        LOGGER.info(
+            "PROXMOX_API_KEY is set; auto-enabling strict auth. "
+            "Set PROXMOX_STRICT_AUTH=true to silence this message."
+        )
+        args.strict_auth = True
 
     LOGGER.info(
         "Starting OpenAPI proxy on %s:%s with command: %s",
