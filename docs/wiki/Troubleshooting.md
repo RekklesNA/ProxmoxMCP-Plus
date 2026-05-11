@@ -30,7 +30,7 @@ Check:
 
 The script now refuses to treat the default `proxmox-config/config.json` as a live target when it still points at a local-only API address.
 
-## `/health` Returns `degraded`
+## Authenticated `/health` Returns `degraded`
 
 This usually means the OpenAPI wrapper started but did not connect to the MCP subprocess yet.
 
@@ -41,6 +41,19 @@ Check:
 - stderr output from `main.py` for startup errors
 
 If the payload shows `"jobs": {"enabled": false}`, the OpenAPI wrapper started without a local `JobStore`. In that case `/jobs` routes return `503` even if MCP tool calls still work.
+
+## OpenAPI Requests Return `401` Or `403`
+
+OpenAPI mode requires API key auth by default.
+
+Check:
+
+- `PROXMOX_API_KEY` is set in the server environment
+- clients send `Authorization: Bearer <PROXMOX_API_KEY>`
+- Docker Compose was started with `PROXMOX_API_KEY` exported or present in `.env`
+- local no-auth development explicitly sets `PROXMOX_ALLOW_NO_AUTH=true`
+
+Use `/livez` for unauthenticated liveness checks. Use authenticated `/readyz` or `/health` for backend readiness.
 
 ## OpenAPI `/docs` Works But Tool Calls Fail
 
@@ -151,7 +164,7 @@ Start with:
 
 1. validate the config path
 2. run a read-only tool such as `get_nodes`
-3. confirm `/health` in OpenAPI mode
+3. confirm `/livez`, then authenticated `/health` in OpenAPI mode
 4. inspect logs or stderr
 5. verify whether the missing behavior is transport-specific or affects both MCP and OpenAPI
 

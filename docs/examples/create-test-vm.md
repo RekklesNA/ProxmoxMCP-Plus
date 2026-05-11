@@ -14,7 +14,10 @@ Use the best available storage automatically, then start it and show me the resu
 ## Example OpenAPI request
 
 ```bash
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:?Set PROXMOX_API_KEY first}"
+
 curl -X POST http://localhost:8811/create_vm \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",
@@ -30,6 +33,7 @@ Then start it:
 
 ```bash
 curl -X POST http://localhost:8811/start_vm \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",

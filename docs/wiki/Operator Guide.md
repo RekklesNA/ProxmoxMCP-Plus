@@ -111,7 +111,9 @@ Available routes:
 - `/` returns basic service metadata
 - `/docs` serves Swagger UI
 - `/openapi.json` serves the generated schema
-- `/health` returns `503` until the proxy is connected to the MCP backend, then `200`
+- `/livez` returns minimal unauthenticated process liveness
+- `/readyz` returns `503` until the proxy is connected to the MCP backend, then `200`
+- `/health` is a readiness alias for `/readyz`
 - `/metrics` exposes Prometheus-style request metrics
 - `/jobs` exposes direct job query and control routes when a local `JobStore` is available
 
@@ -127,7 +129,7 @@ Default Compose behavior:
 - Keeps OpenAPI mode as the default Docker runtime
 - Sets `PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json`
 - Requires `PROXMOX_API_KEY` from your shell or Compose `.env` file
-- Adds a container health check against `http://localhost:8811/health`
+- Adds a container liveness health check against `http://localhost:8811/livez`
 
 Start it with:
 
@@ -163,9 +165,9 @@ Before exposing the service to users:
 - Confirm the Proxmox API token has only the permissions you intend to expose
 - Keep `proxmox.verify_ssl=true` unless you are explicitly in development mode
 - Keep `security.dev_mode=false` outside local testing
-- Set an API key when exposing the OpenAPI endpoint outside a private dev machine
+- Set `PROXMOX_API_KEY` for OpenAPI mode; only use `PROXMOX_ALLOW_NO_AUTH=true` for local unauthenticated development
 - Restrict ingress to networks you control
-- Monitor the `/health` endpoint if you run the OpenAPI proxy
+- Monitor `/livez` for process liveness and authenticated `/health` or `/readyz` for backend readiness
 - Monitor `/metrics` if you scrape the service with Prometheus-compatible tooling
 - Persist the configured `jobs.sqlite_path` on durable storage if job history matters across restarts
 - Store logs somewhere persistent if you need auditability
@@ -205,7 +207,7 @@ After deployment, test in this order:
 
 1. Start the service and confirm there are no config validation errors
 2. Call read-only tools first: `get_nodes`, `get_vms`, `get_storage`, `get_cluster_status`
-3. In OpenAPI mode, confirm `/health` and `/docs` both respond
+3. In OpenAPI mode, confirm `/livez` responds and authenticated `/health` and `/docs` requests work
 4. Confirm `/jobs` responds if you expect persistent job tracking
 5. If you enabled SSH-backed container commands, confirm `execute_container_command` appears in the tool list
 6. Only then test mutating tools such as create, start, delete, snapshot, or backup
@@ -215,7 +217,7 @@ After deployment, test in this order:
 - Application logging is configured under the `logging` section
 - `main.py` prints early startup messages to stderr to make bootstrap failures visible
 - The OpenAPI wrapper reports `degraded` until it is connected to the MCP subprocess
-- `/health` reports whether direct job routes are enabled in the OpenAPI process
+- authenticated `/health` reports whether direct job routes are enabled in the OpenAPI process
 
 ## Related Pages
 

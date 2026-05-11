@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   proxmox-mcp-api:
     build: .
@@ -15,7 +13,7 @@ services:
       - API_PORT=8811
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f -H \"Authorization: Bearer $$PROXMOX_API_KEY\" http://localhost:8811/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8811/livez"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -18,14 +18,15 @@ Set `proxmox-config/config.json` to a real environment or use a test config path
 pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60
 ruff check .
 mypy src --ignore-missing-imports
-pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405
+pip-audit -r requirements.txt
 black .
 python main.py
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
 python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port 8811 -- python main.py
 ```
 
 The coverage gate starts at 60% so CI tracks regressions while coverage is expanded around high-risk tools and the JobStore/OpenAPI boundary.
-The Paramiko audit exception is temporary and tracked in `docs/security/paramiko-cve-2026-44405.md`.
+OpenAPI mode requires `PROXMOX_API_KEY` by default. For local unauthenticated development only, set `PROXMOX_ALLOW_NO_AUTH=true`.
 
 ## Project Layout
 

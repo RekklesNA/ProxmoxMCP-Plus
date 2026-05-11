@@ -26,6 +26,7 @@ if str(SRC) not in sys.path:
 
 TASK_RE = re.compile(r"Task ID:\s*(\S+)")
 TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICodexLiveE2ETestKey codex-live-e2e"
+OPENAPI_E2E_API_KEY = "codex-live-e2e-openapi-token"
 
 
 def log(message: str) -> None:
@@ -321,12 +322,20 @@ def newest_backup(api: Any, node: str, storage: str, vmid: int) -> str:
     return str(backups[0]["volid"])
 
 
-def wait_for_http(url: str, timeout: int = 120) -> requests.Response:
+def openapi_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {OPENAPI_E2E_API_KEY}"}
+
+
+def wait_for_http(
+    url: str,
+    timeout: int = 120,
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
     deadline = time.time() + timeout
     last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, headers=headers, timeout=5)
             if response.ok:
                 return response
         except Exception as exc:  # noqa: BLE001
@@ -346,6 +355,7 @@ def run_local_openapi(config_path: Path) -> None:
     port = free_port()
     env = os.environ.copy()
     env["PROXMOX_MCP_CONFIG"] = str(config_path)
+    env["PROXMOX_API_KEY"] = OPENAPI_E2E_API_KEY
     env["PYTHONPATH"] = str(SRC)
     command = [
         sys.executable,
@@ -368,9 +378,15 @@ def run_local_openapi(config_path: Path) -> None:
         text=True,
     )
     try:
-        health = wait_for_http(f"http://127.0.0.1:{port}/health")
+        livez = wait_for_http(f"http://127.0.0.1:{port}/livez")
+        log(f"Local OpenAPI liveness: {livez.text}")
+        health = wait_for_http(f"http://127.0.0.1:{port}/health", headers=openapi_headers())
         log(f"Local OpenAPI health: {health.text}")
-        schema = requests.get(f"http://127.0.0.1:{port}/openapi.json", timeout=10)
+        schema = requests.get(
+            f"http://127.0.0.1:{port}/openapi.json",
+            headers=openapi_headers(),
+            timeout=10,
+        )
         schema.raise_for_status()
         paths = schema.json().get("paths", {})
         if not paths:
@@ -396,6 +412,8 @@ def run_docker_openapi(config_path: Path) -> None:
         "-d",
         "-p",
         f"{port}:8811",
+        "-e",
+        f"PROXMOX_API_KEY={OPENAPI_E2E_API_KEY}",
         "-v",
         f"{config_path}:/app/proxmox-config/config.json:ro",
         tag,
@@ -404,9 +422,15 @@ def run_docker_openapi(config_path: Path) -> None:
     subprocess.run(build_cmd, cwd=ROOT, check=True)
     try:
         container_id = subprocess.check_output(run_cmd, cwd=ROOT, text=True).strip()
-        health = wait_for_http(f"http://127.0.0.1:{port}/health")
+        livez = wait_for_http(f"http://127.0.0.1:{port}/livez")
+        log(f"Docker OpenAPI liveness: {livez.text}")
+        health = wait_for_http(f"http://127.0.0.1:{port}/health", headers=openapi_headers())
         log(f"Docker OpenAPI health: {health.text}")
-        schema = requests.get(f"http://127.0.0.1:{port}/openapi.json", timeout=10)
+        schema = requests.get(
+            f"http://127.0.0.1:{port}/openapi.json",
+            headers=openapi_headers(),
+            timeout=10,
+        )
         schema.raise_for_status()
         paths = schema.json().get("paths", {})
         if not paths:

@@ -151,6 +151,7 @@ python main.py
 ```bash
 export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
 docker compose up -d
+curl -f http://localhost:8811/livez
 curl -f -H "Authorization: Bearer $PROXMOX_API_KEY" http://localhost:8811/health
 curl -H "Authorization: Bearer $PROXMOX_API_KEY" http://localhost:8811/openapi.json
 ```
@@ -193,7 +194,7 @@ Client-specific examples for Claude Desktop and Open WebUI are in the [Integrati
 
 ## Demo
 
-This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live MCP session in English against a local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the HTTP `/health` surface.
+This demo is a direct terminal recording of `qwen/qwen3.6-plus` driving a live MCP session in English against a local Proxmox lab. It shows natural-language control flowing through MCP tools to create and start an LXC, execute a container command, and confirm the authenticated HTTP `/health` surface.
 
 ![Recorded demo gif](docs/assets/proxmoxmcp-demo.gif)
 
@@ -217,16 +218,16 @@ Supported workflow areas:
 | Persistent job store for long tasks | Available |
 | MCP job control tools (`list_jobs`, `get_job`, `poll_job`, `cancel_job`, `retry_job`) | Available |
 | OpenAPI `/jobs` endpoints with explicit status codes | Available |
-| Local OpenAPI `/health` and schema | Available |
+| Local OpenAPI `/livez`, `/readyz`, `/health`, and schema | Available |
 | Docker native MCP Streamable HTTP at `/mcp` | Available |
-| Docker image build and `/health` | Available |
+| Docker image build and `/livez` | Available |
 
 Validation and contract entry points in this repository:
 
 - `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
 - `ruff check .`
 - `mypy src --ignore-missing-imports`
-- `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
+- `pip-audit -r requirements.txt`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
@@ -342,11 +343,11 @@ Published wiki:
 pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60
 ruff check .
 mypy src --ignore-missing-imports
-pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405
+pip-audit -r requirements.txt
 python -m build
 ```
 
-The Paramiko audit exception is temporary. It is tracked in `docs/security/paramiko-cve-2026-44405.md` until a patched PyPI release is available.
+Paramiko 5.0.0 or newer is required so `pip-audit` can run without a `CVE-2026-44405` exception.
 
 ## License
 

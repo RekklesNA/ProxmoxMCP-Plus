@@ -13,20 +13,27 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HOST="${OPENAPI_HOST:-127.0.0.1}"
 PORT="${OPENAPI_PORT:-8811}"
 VENV_DIR="${REPO_ROOT}/.venv"
+PYTHON_BIN="${VENV_DIR}/bin/python"
 CONFIG_FILE="${REPO_ROOT}/proxmox-config/config.json"
 
 echo "Starting Proxmox MCP OpenAPI server..."
 echo
 
-if ! command -v mcpo >/dev/null 2>&1; then
-    echo "mcpo is not installed; installing it now..."
-    pip install mcpo
-fi
-
 if [ ! -d "${VENV_DIR}" ]; then
     echo "Virtual environment not found at ${VENV_DIR}"
     echo "Run the project installation steps first."
     exit 1
+fi
+
+if [ ! -x "${PYTHON_BIN}" ]; then
+    echo "Python executable not found at ${PYTHON_BIN}"
+    echo "Recreate the virtual environment with: uv venv && uv pip install -e '.[dev]'"
+    exit 1
+fi
+
+if ! "${PYTHON_BIN}" -c "import mcpo" >/dev/null 2>&1; then
+    echo "mcpo is not installed in ${VENV_DIR}; installing it now..."
+    "${PYTHON_BIN}" -m pip install mcpo
 fi
 
 if [ ! -f "${CONFIG_FILE}" ]; then
@@ -57,5 +64,5 @@ echo
 export PROXMOX_MCP_CONFIG="${CONFIG_FILE}"
 
 cd "${REPO_ROOT}"
-python -m proxmox_mcp.openapi_proxy --host "${HOST}" --port "${PORT}" -- \
+"${PYTHON_BIN}" -m proxmox_mcp.openapi_proxy --host "${HOST}" --port "${PORT}" -- \
   /bin/bash -c "cd '${REPO_ROOT}' && source '${VENV_DIR}/bin/activate' && python -c 'from proxmox_mcp.server import main; main()'"

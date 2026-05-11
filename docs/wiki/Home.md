@@ -18,7 +18,7 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 | Connect Claude Desktop, Open WebUI, or HTTP clients | [Integrations Guide](Integrations-Guide) |
 | Understand auth, command policy, and execution safety | [Security Guide](Security-Guide) |
 | Browse the exact tool surface and prerequisites | [API & Tool Reference](API-&-Tool-Reference) |
-| Debug startup, auth, SSH, or `/health` issues | [Troubleshooting](Troubleshooting) |
+| Debug startup, auth, SSH, `/livez`, or `/health` issues | [Troubleshooting](Troubleshooting) |
 | Review release history and upgrade notes | [Release & Upgrade Notes](Release-&-Upgrade-Notes) |
 
 ## What The Project Covers
@@ -35,7 +35,7 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 
 - `main.py` starts the MCP server entrypoint
 - `src/proxmox_mcp/server.py` registers MCP tools
-- `src/proxmox_mcp/openapi_proxy.py` exposes `/`, `/docs`, `/openapi.json`, `/health`, `/metrics`, and `/jobs`
+- `src/proxmox_mcp/openapi_proxy.py` exposes `/`, `/docs`, `/openapi.json`, `/livez`, `/readyz`, `/health`, `/metrics`, and `/jobs`
 - `src/proxmox_mcp/config/` validates configuration and runtime settings
 - `src/proxmox_mcp/security/command_policy.py` applies allow and deny rules for execution requests
 - `src/proxmox_mcp/services/jobs.py` persists long-running job state in SQLite
@@ -52,15 +52,15 @@ The repository includes live-environment verification entry points for:
 - LXC create, start, stop, and delete
 - container SSH-backed command execution
 - container authorized_keys update
-- local OpenAPI `/health` and schema
-- Docker image build and `/health`
+- local OpenAPI `/livez`, `/readyz`, `/health`, and schema
+- Docker image build and `/livez`
 
 Primary validation entry points:
 
 - `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
 - `ruff check .`
 - `mypy src --ignore-missing-imports`
-- `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
+- `pip-audit -r requirements.txt`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
