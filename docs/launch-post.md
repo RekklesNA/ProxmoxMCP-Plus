@@ -25,8 +25,8 @@ I verified these paths against a live Proxmox environment:
 - ISO download / delete
 - LXC create / start / stop / delete
 - container SSH-backed command execution
-- OpenAPI `/health`
-- Docker image build and `/health`
+- OpenAPI authenticated `/health`
+- Docker image build and `/livez`
 
 Repo:
 
@@ -58,6 +58,6 @@ So I built `ProxmoxMCP-Plus`, which exposes Proxmox operations through:
 
 The main thing I wanted to prove was that it is not just a wrapper around documentation.
 
-I tested live workflows for VM, LXC, snapshot, backup, restore, ISO, container SSH execution, local `/health`, and Docker `/health`.
+I tested live workflows for VM, LXC, snapshot, backup, restore, ISO, container SSH execution, local authenticated `/health`, and Docker `/livez`.
 
 Repo: https://github.com/RekklesNA/ProxmoxMCP-Plus

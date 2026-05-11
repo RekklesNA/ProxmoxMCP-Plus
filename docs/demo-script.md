@@ -4,7 +4,7 @@
 
 Record a short GIF or video that shows:
 
-`Claude Desktop or Open WebUI -> Proxmox action -> /health OK`
+`Claude Desktop or Open WebUI -> Proxmox action -> authenticated /health OK`
 
 ## Shot list
 
@@ -19,7 +19,7 @@ Create a small Proxmox test VM, snapshot it, and confirm the OpenAPI bridge is h
 
 - VM created or started
 - snapshot created
-- `/health` returns `{"status":"ok","connected_to_mcp":true}`
+- authenticated `/health` returns `{"status":"ok","connected_to_mcp":true}`
 
 4. End frame:
 
@@ -31,4 +31,4 @@ Create a small Proxmox test VM, snapshot it, and confirm the OpenAPI bridge is h
 - keep the clip under 30 seconds
 - avoid terminal noise that does not prove value
 - show one prompt and one concrete Proxmox result
-- end with `/health` because it is easy to understand even for non-Proxmox users
+- end with authenticated `/health` because it is easy to understand even for non-Proxmox users

@@ -8,7 +8,7 @@ ProxmoxMCP-Plus sits between clients and the Proxmox API. The main controls are:
 
 - Proxmox API token authentication
 - TLS verification for Proxmox API connections
-- optional API key protection for OpenAPI exposure
+- required API key protection for OpenAPI exposure, unless `PROXMOX_ALLOW_NO_AUTH=true` is explicitly set for local development
 - command policy checks for `execute_*` tools
 - optional SSH configuration for container command execution
 
@@ -17,6 +17,7 @@ ProxmoxMCP-Plus sits between clients and the Proxmox API. The main controls are:
 - Use least-privilege Proxmox API tokens
 - Keep `proxmox.verify_ssl=true`
 - Only use `security.dev_mode=true` for local development
+- Set `PROXMOX_API_KEY` before starting OpenAPI mode
 - Restrict who can reach the OpenAPI endpoint
 - Keep logs for sensitive operations
 
@@ -76,7 +77,7 @@ If you run the OpenAPI proxy:
 - configure `PROXMOX_API_KEY`; startup refuses no-auth mode unless `PROXMOX_ALLOW_NO_AUTH=true` is set
 - place it behind TLS termination
 - restrict ingress to networks you control
-- monitor `/health`
+- monitor unauthenticated `/livez` for process liveness and authenticated `/health` or `/readyz` for backend readiness
 - avoid exposing it directly to the public internet without additional controls
 
 ## Credential Handling

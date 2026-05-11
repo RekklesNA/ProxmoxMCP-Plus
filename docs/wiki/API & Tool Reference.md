@@ -31,7 +31,9 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 | `/` | service metadata | basic wrapper metadata |
 | `/docs` | Swagger UI | interactive API docs for the currently running tool set |
 | `/openapi.json` | generated OpenAPI schema | reflects conditional tool registration such as SSH-backed tools |
-| `/health` | health and backend status | validates wrapper availability and MCP backend connectivity |
+| `/livez` | liveness check | unauthenticated, minimal process liveness |
+| `/readyz` | readiness check | requires OpenAPI auth and reports MCP backend connectivity |
+| `/health` | readiness alias | requires OpenAPI auth and matches `/readyz` |
 | `/metrics` | Prometheus metrics | includes per-route labels for `route`, `method`, and `status` |
 | `/jobs` | persistent job list | requires a local `JobStore` in the OpenAPI process |
 
@@ -40,6 +42,7 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 ### Authentication and Authorization
 
 - Proxmox API access requires a valid `proxmox` and `auth` configuration.
+- OpenAPI access requires `Authorization: Bearer <PROXMOX_API_KEY>` by default. Startup without an API key requires the explicit local-development override `PROXMOX_ALLOW_NO_AUTH=true`.
 - SSH-backed container command workflows require a valid `ssh` configuration.
 - Command-execution tools are subject to command-policy checks. Depending on policy, a request can be allowed, denied, or require an `approval_token`.
 - Detailed policy behavior lives in the [Security Guide](Security-Guide).

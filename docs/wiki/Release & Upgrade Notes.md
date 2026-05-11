@@ -18,6 +18,48 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.0`
+
+- Release date: 2026-05-11
+- Summary: OpenAPI security baseline release with required API-key startup, project-owned constant-time auth middleware, auth-failure rate limiting, split liveness/readiness probes, live E2E auth updates, and Paramiko 5.0.0.
+- New tools or endpoints:
+  - `/livez` for unauthenticated process liveness
+  - `/readyz` for authenticated backend readiness
+- Changed behavior:
+  - OpenAPI mode refuses to start without `PROXMOX_API_KEY` unless `PROXMOX_ALLOW_NO_AUTH=true` is set
+  - OpenAPI requests require `Authorization: Bearer <PROXMOX_API_KEY>` by default
+  - OpenAPI API key verification uses project-owned constant-time comparison
+  - auth failures pass through rate limiting before the auth decision
+  - `/health` remains available as an authenticated readiness alias
+  - live E2E and Docker OpenAPI checks send Bearer auth
+  - `scripts/start_openapi.sh` uses `.venv/bin/python` for proxy startup and dependency checks
+- Removed or deprecated behavior:
+  - unauthenticated OpenAPI startup is no longer the default
+  - the temporary `CVE-2026-44405` `pip-audit` exception is removed
+- Config changes:
+  - `PROXMOX_API_KEY` is required for OpenAPI mode unless `PROXMOX_ALLOW_NO_AUTH=true`
+  - runtime dependency support now requires `paramiko>=5.0.0,<6.0.0`
+- Docs updated:
+  - `README.md`
+  - `docs/examples/*.md`
+  - `docs/releases/v0.5.0.md`
+  - `docs/security/paramiko-cve-2026-44405.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Developer Guide.md`
+  - `docs/wiki/Home.md`
+  - `docs/wiki/Integrations Guide.md`
+  - `docs/wiki/Operator Guide.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+  - `docs/wiki/Security Guide.md`
+- Upgrade steps:
+  - set `PROXMOX_API_KEY` before starting OpenAPI mode
+  - update HTTP clients to send `Authorization: Bearer <PROXMOX_API_KEY>`
+  - use `/livez` for unauthenticated process liveness
+  - use authenticated `/readyz` or `/health` for backend readiness
+  - verify SSH endpoints do not depend on legacy RSA/SHA-1, SHA-1 KEX, or GSSAPI before adopting Paramiko 5
+- Rollback notes:
+  - downgrade to `v0.4.9` if clients cannot yet send OpenAPI auth headers, but keep the Paramiko CVE tracking and OpenAPI no-auth exposure in mind
+
 ### Version `0.4.9`
 
 - Release date: 2026-05-09
@@ -246,7 +288,7 @@ Before upgrading:
 
 - review changes to config examples
 - review command policy defaults
-- review OpenAPI wrapper behavior if your deployment depends on `/health` or auth
+- review OpenAPI wrapper behavior if your deployment depends on `/livez`, `/readyz`, `/health`, or auth
 - check whether any new tool requires extra credentials or runtime dependencies
 
 After upgrading:
@@ -254,7 +296,7 @@ After upgrading:
 - start the service and confirm config validation still passes
 - call `get_nodes` and `get_cluster_status`
 - verify expected tools are still registered
-- verify `/health` and `/docs` if you run the OpenAPI proxy
+- verify unauthenticated `/livez` plus authenticated `/readyz`, `/health`, and `/docs` if you run the OpenAPI proxy
 - test at least one mutating workflow in a safe environment
 
 ## Suggested Release Checklist
@@ -262,7 +304,7 @@ After upgrading:
 - run `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=60`
 - run `ruff check .`
 - run `mypy src --ignore-missing-imports`
-- run `pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405`
+- run `pip-audit -r requirements.txt`
 - build the package
 - confirm `README.md` and `docs/wiki/` reflect the released behavior
 - note any user-visible changes here

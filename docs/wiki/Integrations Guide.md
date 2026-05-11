@@ -72,7 +72,9 @@ For HTTP-native clients, run the OpenAPI wrapper and connect to:
 - root: `http://<host>:8811/`
 - docs: `http://<host>:8811/docs`
 - schema: `http://<host>:8811/openapi.json`
-- health: `http://<host>:8811/health`
+- liveness: `http://<host>:8811/livez`
+- readiness: `http://<host>:8811/readyz`
+- health readiness alias: `http://<host>:8811/health`
 
 This path works well for:
 
@@ -101,14 +103,14 @@ After connecting a client, verify:
 
 - the server starts without config validation errors
 - read-only tools such as `get_nodes` and `get_vms` are listed
-- OpenAPI mode returns `/docs` and `/health`
+- OpenAPI mode returns unauthenticated `/livez`, plus authenticated `/docs` and `/health`
 - container SSH tools appear only when the `ssh` config exists
 
 ## Common Integration Mistakes
 
 - `PYTHONPATH` not set when running from source
 - `PROXMOX_MCP_CONFIG` points to the wrong file
-- OpenAPI proxy runs, but `/health` stays degraded because the MCP subprocess did not start
+- OpenAPI proxy runs, but authenticated `/health` stays degraded because the MCP subprocess did not start
 - TLS verification disabled in config while `dev_mode` is false
 - assuming `execute_container_command` should exist without an `ssh` section
 

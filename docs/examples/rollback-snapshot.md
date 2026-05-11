@@ -16,7 +16,10 @@ If the post-change validation fails, roll back that snapshot and confirm the VM 
 Create the snapshot:
 
 ```bash
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:?Set PROXMOX_API_KEY first}"
+
 curl -X POST http://localhost:8811/create_snapshot \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",
@@ -30,6 +33,7 @@ Roll it back:
 
 ```bash
 curl -X POST http://localhost:8811/rollback_snapshot \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",

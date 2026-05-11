@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import hmac
 import logging
 import os
 import sys
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from mcpo.main import lifespan
-from mcpo.utils.auth import APIKeyMiddleware, get_verify_api_key
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from proxmox_mcp.observability import HttpRequestMetrics
@@ -33,6 +36,77 @@ def _parse_cors_allow_origins(value: Optional[str]) -> list[str]:
     if not value:
         return ["*"]
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _constant_time_equal(provided: str, expected: str) -> bool:
+    return hmac.compare_digest(
+        provided.encode("utf-8"),
+        expected.encode("utf-8"),
+    )
+
+
+@dataclass(frozen=True)
+class AuthFailure:
+    status_code: int
+    content: dict[str, str]
+    headers: dict[str, str] | None = None
+
+
+def _verify_authorization_header(authorization: str | None, api_key: str) -> AuthFailure | None:
+    authenticate_headers = {"WWW-Authenticate": "Bearer, Basic"}
+    if not authorization:
+        return AuthFailure(
+            status.HTTP_401_UNAUTHORIZED,
+            {"detail": "Missing or invalid Authorization header"},
+            authenticate_headers,
+        )
+
+    scheme, separator, credentials = authorization.partition(" ")
+    if not separator or not credentials:
+        return AuthFailure(
+            status.HTTP_401_UNAUTHORIZED,
+            {"detail": "Missing or invalid Authorization header"},
+            authenticate_headers,
+        )
+
+    scheme = scheme.lower()
+    if scheme == "bearer":
+        if not _constant_time_equal(credentials, api_key):
+            return AuthFailure(status.HTTP_403_FORBIDDEN, {"detail": "Invalid API key"})
+        return None
+
+    if scheme == "basic":
+        try:
+            decoded = base64.b64decode(credentials, validate=True).decode("utf-8")
+            _, password = decoded.split(":", 1)
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            return AuthFailure(
+                status.HTTP_401_UNAUTHORIZED,
+                {"detail": "Invalid Basic Authentication format"},
+                authenticate_headers,
+            )
+        if not _constant_time_equal(password, api_key):
+            return AuthFailure(status.HTTP_403_FORBIDDEN, {"detail": "Invalid credentials"})
+        return None
+
+    return AuthFailure(
+        status.HTTP_401_UNAUTHORIZED,
+        {"detail": "Unsupported authorization method"},
+        authenticate_headers,
+    )
+
+
+def _get_verify_api_key(api_key: str):
+    async def verify_api_key(request: Request) -> None:
+        failure = _verify_authorization_header(request.headers.get("Authorization"), api_key)
+        if failure is not None:
+            raise HTTPException(
+                status_code=failure.status_code,
+                detail=failure.content["detail"],
+                headers=failure.headers,
+            )
+
+    return verify_api_key
 
 
 def _security_warnings(*, api_key: Optional[str], strict_auth: bool, cors_allow_origins: list[str]) -> list[str]:
@@ -101,6 +175,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class OpenAPIAuthMiddleware(BaseHTTPMiddleware):
+    """Enforce Bearer or Basic API key auth with constant-time token comparison."""
+
+    EXEMPT_PATHS = {"/livez"}
+
+    def __init__(self, app: Any, *, api_key: str) -> None:
+        super().__init__(app)
+        self.api_key = api_key
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        if request.method == "OPTIONS" or request.url.path in self.EXEMPT_PATHS:
+            return await call_next(request)
+
+        failure = _verify_authorization_header(request.headers.get("Authorization"), self.api_key)
+        if failure is not None:
+            return JSONResponse(
+                status_code=failure.status_code,
+                content=failure.content,
+                headers=failure.headers,
+            )
+        return await call_next(request)
+
+
 def create_app(
     server_command: list[str],
     *,
@@ -117,7 +214,7 @@ def create_app(
     command_policy: Any | None = None,
 ) -> FastAPI:
     """Create a FastAPI app that mirrors mcpo behavior and adds ops routes."""
-    api_dependency = get_verify_api_key(api_key) if api_key else None
+    api_dependency = _get_verify_api_key(api_key) if api_key else None
 
     app = FastAPI(
         title=name,
@@ -130,10 +227,6 @@ def create_app(
     app.state.started_at = time.time()
     app.state.http_metrics = HttpRequestMetrics()
     app.state.rate_limit_rpm = rate_limit_rpm
-    app.add_middleware(ProxyMetricsMiddleware)
-    if rate_limit_rpm > 0:
-        app.add_middleware(cast(Any, RateLimitMiddleware), requests_per_minute=rate_limit_rpm)
-
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_allow_origins,
@@ -143,7 +236,10 @@ def create_app(
     )
 
     if api_key and strict_auth:
-        app.add_middleware(APIKeyMiddleware, api_key=api_key)
+        app.add_middleware(OpenAPIAuthMiddleware, api_key=api_key)
+    if rate_limit_rpm > 0:
+        app.add_middleware(cast(Any, RateLimitMiddleware), requests_per_minute=rate_limit_rpm)
+    app.add_middleware(ProxyMetricsMiddleware)
 
     app.state.path_prefix = path_prefix
     app.state.server_type = "stdio"
@@ -169,12 +265,13 @@ def create_app(
             "docs": "/docs",
             "openapi": "/openapi.json",
             "health": "/health",
+            "livez": "/livez",
+            "readyz": "/readyz",
             "metrics": "/metrics",
             "jobs": "/jobs",
         }
 
-    @app.get("/health", include_in_schema=False)
-    async def health() -> JSONResponse:
+    def _readiness_response() -> JSONResponse:
         is_connected = bool(getattr(app.state, "is_connected", False))
         uptime_seconds = round(time.time() - app.state.started_at, 3)
         status_code = 200 if is_connected else 503
@@ -201,6 +298,18 @@ def create_app(
                 "security_warnings": app.state.security_warnings,
             },
         )
+
+    @app.get("/livez", include_in_schema=False)
+    async def livez() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False)
+    async def readyz() -> JSONResponse:
+        return _readiness_response()
+
+    @app.get("/health", include_in_schema=False)
+    async def health() -> JSONResponse:
+        return _readiness_response()
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> PlainTextResponse:

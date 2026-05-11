@@ -1,6 +1,7 @@
 """Tests for OpenAPI proxy wrapper."""
 
 import asyncio
+import base64
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -60,6 +61,8 @@ def test_root_endpoint_returns_service_links():
     assert payload["docs"] == "/docs"
     assert payload["openapi"] == "/openapi.json"
     assert payload["health"] == "/health"
+    assert payload["livez"] == "/livez"
+    assert payload["readyz"] == "/readyz"
     assert payload["metrics"] == "/metrics"
     assert payload["jobs"] == "/jobs"
 
@@ -80,6 +83,112 @@ def test_health_endpoint_includes_auth_and_rate_limit_details():
     assert '"strict_auth":true' in payload
     assert '"requests_per_minute":42' in payload
     assert '"enabled":false' in payload
+
+
+def test_livez_is_available_without_auth_when_strict_auth_enabled():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/livez")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_readyz_requires_auth_when_strict_auth_enabled():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing or invalid Authorization header"
+
+
+def test_openapi_auth_accepts_bearer_token():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+
+
+def test_openapi_auth_rejects_wrong_bearer_token():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/", headers={"Authorization": "Bearer wrong"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid API key"
+
+
+def test_openapi_auth_accepts_basic_password():
+    credentials = base64.b64encode(b"operator:secret").decode("ascii")
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/", headers={"Authorization": f"Basic {credentials}"})
+
+    assert response.status_code == 200
+
+
+def test_openapi_auth_rejects_malformed_basic_header():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    client = TestClient(app)
+
+    response = client.get("/", headers={"Authorization": "Basic not-base64"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid Basic Authentication format"
+
+
+def test_auth_failures_are_rate_limited():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+        rate_limit_rpm=1,
+    )
+    client = TestClient(app)
+
+    first = client.get("/")
+    second = client.get("/")
+
+    assert first.status_code == 401
+    assert second.status_code == 429
 
 
 def test_health_endpoint_reports_security_warnings_for_unsafe_defaults():

@@ -16,7 +16,10 @@ start it, and tell me whether the HTTP/OpenAPI bridge is healthy.
 Download an ISO:
 
 ```bash
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:?Set PROXMOX_API_KEY first}"
+
 curl -X POST http://localhost:8811/download_iso \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",
@@ -30,6 +33,7 @@ Create an LXC:
 
 ```bash
 curl -X POST http://localhost:8811/create_container \
+  -H "Authorization: Bearer $PROXMOX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "node": "pve",
@@ -43,7 +47,8 @@ curl -X POST http://localhost:8811/create_container \
 Check the bridge:
 
 ```bash
-curl -f http://localhost:8811/health
+curl -f -H "Authorization: Bearer $PROXMOX_API_KEY" http://localhost:8811/health
+curl -f http://localhost:8811/livez
 ```
 
 ## Expected operator outcome

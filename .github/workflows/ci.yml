@@ -49,9 +49,7 @@ jobs:
 
     - name: pip-audit
       run: |
-        # CVE-2026-44405 has no fixed Paramiko release on PyPI yet.
-        # Tracked in docs/security/paramiko-cve-2026-44405.md.
-        pip-audit -r requirements.txt --ignore-vuln CVE-2026-44405
+        pip-audit -r requirements.txt
 
     - name: Validate Manifest JSON
       run: |
