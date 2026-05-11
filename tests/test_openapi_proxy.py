@@ -2,9 +2,12 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
+from proxmox_mcp import openapi_proxy
 from proxmox_mcp.openapi_proxy import create_app
 from proxmox_mcp.services.jobs import JobConflictError, JobNotFoundError
 
@@ -202,6 +205,83 @@ def test_jobs_routes_return_expected_status_codes():
     retry_response = client.post("/jobs/job-1/retry")
     assert retry_response.status_code == 202
     assert retry_response.json()["attempts"] == 2
+
+
+@pytest.fixture
+def _isolated_proxy_env(monkeypatch):
+    """Strip env vars that would otherwise leak into ``main()``."""
+    for var in (
+        "PROXMOX_API_KEY",
+        "PROXMOX_STRICT_AUTH",
+        "PROXMOX_ALLOW_NO_AUTH",
+        "PROXMOX_MCP_CONFIG",
+        "MCPO_CORS_ALLOW_ORIGINS",
+        "PROXMOX_RATE_LIMIT_RPM",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    yield
+
+
+def test_main_refuses_to_start_without_api_key(_isolated_proxy_env, monkeypatch):
+    """No api_key + no override => exit(1) before uvicorn ever starts."""
+    monkeypatch.setattr("sys.argv", ["openapi_proxy", "--", "echo", "ok"])
+
+    with patch("proxmox_mcp.openapi_proxy.uvicorn.run") as mock_run:
+        with pytest.raises(SystemExit) as excinfo:
+            openapi_proxy.main()
+
+    assert excinfo.value.code == 1
+    mock_run.assert_not_called()
+
+
+def test_main_starts_without_api_key_when_override_set(_isolated_proxy_env, monkeypatch):
+    """PROXMOX_ALLOW_NO_AUTH=true allows the proxy to boot without an api_key."""
+    monkeypatch.setenv("PROXMOX_ALLOW_NO_AUTH", "true")
+    monkeypatch.setattr("sys.argv", ["openapi_proxy", "--", "echo", "ok"])
+
+    with patch("proxmox_mcp.openapi_proxy.uvicorn.run") as mock_run:
+        openapi_proxy.main()
+
+    mock_run.assert_called_once()
+
+
+def test_main_auto_enables_strict_auth_when_api_key_set(_isolated_proxy_env, monkeypatch):
+    """Setting an api_key without strict_auth should auto-enable strict_auth."""
+    monkeypatch.setattr(
+        "sys.argv",
+        ["openapi_proxy", "--api-key", "secret", "--", "echo", "ok"],
+    )
+
+    captured: dict = {}
+
+    def _fake_create_app(*args, **kwargs):
+        captured["api_key"] = kwargs["api_key"]
+        captured["strict_auth"] = kwargs["strict_auth"]
+        # Return a sentinel; uvicorn.run is patched and will not actually use it.
+        return object()
+
+    with patch("proxmox_mcp.openapi_proxy.create_app", side_effect=_fake_create_app):
+        with patch("proxmox_mcp.openapi_proxy.uvicorn.run") as mock_run:
+            openapi_proxy.main()
+
+    assert captured == {"api_key": "secret", "strict_auth": True}
+    mock_run.assert_called_once()
+
+
+def test_health_endpoint_warns_when_allow_no_auth_set(monkeypatch):
+    """PROXMOX_ALLOW_NO_AUTH=true should surface in /health security_warnings."""
+    monkeypatch.setenv("PROXMOX_ALLOW_NO_AUTH", "true")
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+    )
+    endpoint = _get_route_endpoint(app, "/health")
+    response = asyncio.run(endpoint())
+    payload = response.body.decode("utf-8")
+
+    assert "PROXMOX_ALLOW_NO_AUTH=true" in payload
 
 
 def test_retry_job_route_enforces_high_risk_policy():
