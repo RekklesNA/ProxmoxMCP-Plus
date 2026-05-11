@@ -41,7 +41,7 @@ def _security_warnings(*, api_key: Optional[str], strict_auth: bool, cors_allow_
         warnings.append("OpenAPI proxy is running without PROXMOX_API_KEY.")
     if api_key and not strict_auth:
         warnings.append("PROXMOX_API_KEY is configured but PROXMOX_STRICT_AUTH is disabled.")
-    if os.getenv("PROXMOX_ALLOW_NO_AUTH", "false").lower() == "true":
+    if not api_key and os.getenv("PROXMOX_ALLOW_NO_AUTH", "false").lower() == "true":
         warnings.append(
             "PROXMOX_ALLOW_NO_AUTH=true is set; OpenAPI proxy is running without an API key."
         )

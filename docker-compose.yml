@@ -9,11 +9,13 @@ services:
       - ./proxmox-config:/app/proxmox-config:ro
     environment:
       - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
+      # Set PROXMOX_API_KEY in your shell or .env before starting OpenAPI mode.
+      - PROXMOX_API_KEY=${PROXMOX_API_KEY:?Set PROXMOX_API_KEY before starting OpenAPI mode}
       - API_HOST=0.0.0.0
       - API_PORT=8811
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8811/health"]
+      test: ["CMD-SHELL", "curl -f -H \"Authorization: Bearer $$PROXMOX_API_KEY\" http://localhost:8811/health"]
       interval: 30s
       timeout: 10s
       retries: 3

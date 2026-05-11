@@ -73,7 +73,7 @@ Read the full setup and threat model in [Container Command Execution](Container-
 
 If you run the OpenAPI proxy:
 
-- configure an API key when the service is not strictly local
+- configure `PROXMOX_API_KEY`; startup refuses no-auth mode unless `PROXMOX_ALLOW_NO_AUTH=true` is set
 - place it behind TLS termination
 - restrict ingress to networks you control
 - monitor `/health`

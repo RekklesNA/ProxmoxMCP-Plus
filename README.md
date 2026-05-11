@@ -112,10 +112,12 @@ proxmox-mcp-plus
 
 #### Docker / GHCR
 
-OpenAPI mode remains the default Docker runtime:
+OpenAPI mode remains the default Docker runtime and requires an API key:
 
 ```bash
+export PROXMOX_API_KEY="$(openssl rand -hex 32)"
 docker run --rm -p 8811:8811 \
+  -e PROXMOX_API_KEY="$PROXMOX_API_KEY" \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
@@ -147,10 +149,13 @@ python main.py
 ### 3. Run the HTTP/OpenAPI surface
 
 ```bash
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
 docker compose up -d
-curl -f http://localhost:8811/health
-curl http://localhost:8811/openapi.json
+curl -f -H "Authorization: Bearer $PROXMOX_API_KEY" http://localhost:8811/health
+curl -H "Authorization: Bearer $PROXMOX_API_KEY" http://localhost:8811/openapi.json
 ```
+
+For local unauthenticated development only, set `PROXMOX_ALLOW_NO_AUTH=true`.
 
 ### 4. Run the native MCP Streamable HTTP surface
 

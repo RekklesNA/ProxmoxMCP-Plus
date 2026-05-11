@@ -284,6 +284,22 @@ def test_health_endpoint_warns_when_allow_no_auth_set(monkeypatch):
     assert "PROXMOX_ALLOW_NO_AUTH=true" in payload
 
 
+def test_health_endpoint_does_not_warn_allow_no_auth_when_api_key_set(monkeypatch):
+    monkeypatch.setenv("PROXMOX_ALLOW_NO_AUTH", "true")
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=True,
+        cors_allow_origins=["https://example.test"],
+    )
+    endpoint = _get_route_endpoint(app, "/health")
+    response = asyncio.run(endpoint())
+    payload = response.body.decode("utf-8")
+
+    assert "PROXMOX_ALLOW_NO_AUTH=true" not in payload
+    assert "without PROXMOX_API_KEY" not in payload
+
+
 def test_retry_job_route_enforces_high_risk_policy():
     policy = _FakeCommandPolicy()
     app = create_app(

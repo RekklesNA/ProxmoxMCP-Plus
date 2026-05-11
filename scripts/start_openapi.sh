@@ -35,11 +35,23 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     exit 1
 fi
 
+ALLOW_NO_AUTH="$(printf '%s' "${PROXMOX_ALLOW_NO_AUTH:-false}" | tr '[:upper:]' '[:lower:]')"
+if [ -z "${PROXMOX_API_KEY:-}" ] && [ "${ALLOW_NO_AUTH}" != "true" ]; then
+    echo "PROXMOX_API_KEY is required before starting the OpenAPI proxy."
+    echo "For local unauthenticated development only, set PROXMOX_ALLOW_NO_AUTH=true."
+    exit 1
+fi
+
 echo "Configuration file: ${CONFIG_FILE}"
 echo "OpenAPI proxy address: http://${HOST}:${PORT}"
 echo "OpenAPI docs: http://${HOST}:${PORT}/docs"
 echo "OpenAPI schema: http://${HOST}:${PORT}/openapi.json"
 echo "Health check: http://${HOST}:${PORT}/health"
+if [ -n "${PROXMOX_API_KEY:-}" ]; then
+    echo "OpenAPI auth: use Authorization: Bearer <PROXMOX_API_KEY>"
+elif [ "${ALLOW_NO_AUTH}" = "true" ]; then
+    echo "OpenAPI auth: disabled by PROXMOX_ALLOW_NO_AUTH=true (not recommended)"
+fi
 echo
 
 export PROXMOX_MCP_CONFIG="${CONFIG_FILE}"
