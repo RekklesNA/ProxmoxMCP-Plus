@@ -85,12 +85,15 @@ This path works well for:
 
 The proxy supports:
 
-- optional API key middleware
-- strict auth mode
+- API key middleware, required by default
+- automatic strict auth when `PROXMOX_API_KEY` is configured
 - configurable CORS allow origins
 - configurable path prefix and root path
 
-If you expose the API outside a dev machine, configure an API key and restrict origin/network access.
+OpenAPI mode refuses to start without `PROXMOX_API_KEY` unless
+`PROXMOX_ALLOW_NO_AUTH=true` is set for local unauthenticated development.
+Send authenticated requests with `Authorization: Bearer <PROXMOX_API_KEY>`.
+If you expose the API outside a dev machine, also restrict origin and network access.
 
 ## Integration Checks
 

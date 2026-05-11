@@ -98,8 +98,13 @@ This is the correct target for MCP clients that support Streamable HTTP. It is s
 You can run the OpenAPI wrapper directly:
 
 ```bash
+export PROXMOX_API_KEY="$(openssl rand -hex 32)"
 python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port 8811 -- python main.py
 ```
+
+OpenAPI mode refuses to start without `PROXMOX_API_KEY` unless
+`PROXMOX_ALLOW_NO_AUTH=true` is set for local unauthenticated development.
+HTTP clients should send the key as `Authorization: Bearer <PROXMOX_API_KEY>`.
 
 Available routes:
 
@@ -121,11 +126,13 @@ Default Compose behavior:
 - Exposes `8811`
 - Keeps OpenAPI mode as the default Docker runtime
 - Sets `PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json`
+- Requires `PROXMOX_API_KEY` from your shell or Compose `.env` file
 - Adds a container health check against `http://localhost:8811/health`
 
 Start it with:
 
 ```bash
+export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
 docker compose up -d --build
 ```
 
