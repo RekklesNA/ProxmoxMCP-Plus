@@ -202,3 +202,24 @@ def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
     ssh_command = mock_run.call_args[0][0]
     assert ssh_command[-2] == "ahg1"
     assert "/usr/sbin/pct exec" in ssh_command[-1]
+    # The argv must include "--" before the target so OpenSSH cannot reinterpret
+    # a target beginning with "-" as an option flag.
+    assert ssh_command[-3] == "--"
+
+
+@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+def test_system_ssh_uses_double_dash_for_dash_prefixed_target(mock_run, manager, ssh_cfg):
+    """A host_overrides value starting with '-' must not be parsed as an SSH option."""
+    ssh_cfg.prefer_ssh_client = True
+    # Worst-case attacker-controlled override: would be -oProxyCommand=... without `--`.
+    ssh_cfg.host_overrides = {"pve1": "-oProxyCommand=evil"}
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    manager.execute_command("pve1", "101", "echo ok")
+
+    ssh_command = mock_run.call_args[0][0]
+    # `--` must appear before the target so option processing has ended.
+    assert "--" in ssh_command
+    dash_index = ssh_command.index("--")
+    assert ssh_command[dash_index + 1] == "-oProxyCommand=evil"
+    assert "/usr/sbin/pct exec" in ssh_command[dash_index + 2]

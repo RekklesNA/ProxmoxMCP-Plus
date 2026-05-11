@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import hmac
 import re
 from dataclasses import dataclass
 from typing import Iterable, Pattern
 
 from proxmox_mcp.config.models import CommandPolicyConfig
+
+
+def _tokens_match(provided: str | None, expected: str | None) -> bool:
+    """Constant-time comparison guarded against None/non-str inputs."""
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided, expected)
 
 
 @dataclass(frozen=True)
@@ -62,7 +70,7 @@ class CommandPolicyGate:
                     "CMD_POLICY_APPROVAL_NOT_CONFIGURED",
                     "Approval token required but not configured on server",
                 )
-            if approval_token != self.config.approval_token:
+            if not _tokens_match(approval_token, self.config.approval_token):
                 return CommandPolicyDecision(
                     False,
                     "CMD_POLICY_APPROVAL_REQUIRED",
@@ -99,7 +107,7 @@ class CommandPolicyGate:
                     "OP_POLICY_APPROVAL_NOT_CONFIGURED",
                     "High-risk approval token required but not configured on server",
                 )
-            if approval_token != expected_token:
+            if not _tokens_match(approval_token, expected_token):
                 return CommandPolicyDecision(
                     False,
                     "OP_POLICY_APPROVAL_REQUIRED",
