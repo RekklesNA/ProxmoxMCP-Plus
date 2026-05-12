@@ -905,7 +905,16 @@ async def test_clone_vm(server, mock_proxmox):
 
 
 @pytest.mark.asyncio
-async def test_clone_vm_ignores_target_probe_permission_denied(server, mock_proxmox):
+@pytest.mark.parametrize(
+    "permission_error",
+    [
+        "permission denied",
+        "permission check failed",
+        "forbidden",
+        "403 forbidden",
+    ],
+)
+async def test_clone_vm_ignores_target_probe_permission_denied(server, mock_proxmox, permission_error):
     """clone_vm should continue when target VM pre-check returns permission denied."""
     proxmox = mock_proxmox.return_value
 
@@ -914,7 +923,7 @@ async def test_clone_vm_ignores_target_probe_permission_denied(server, mock_prox
     source_vm_api.clone.post.return_value = "UPID:clone-101"
 
     target_vm_api = Mock()
-    target_vm_api.config.get.side_effect = Exception("403 Permission check failed")
+    target_vm_api.config.get.side_effect = Exception(permission_error)
 
     node_api = Mock()
 

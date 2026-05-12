@@ -378,12 +378,18 @@ Next steps:
             raise
         except Exception as e:
             error_msg = str(e).lower()
+            status_code = getattr(e, "status_code", None)
+            if status_code is None:
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
             target_missing = "does not exist" in error_msg or "not found" in error_msg
             target_permission_denied = (
-                "permission denied" in error_msg
+                status_code == 403
+                or "permission denied" in error_msg
                 or "permission check failed" in error_msg
                 or "forbidden" in error_msg
-                or "403" in error_msg
+                or "http 403" in error_msg
+                or "status code: 403" in error_msg
+                or "403 forbidden" in error_msg
             )
             if not target_missing and not target_permission_denied:
                 self._handle_error(f"check target VM {target_vmid}", e)
