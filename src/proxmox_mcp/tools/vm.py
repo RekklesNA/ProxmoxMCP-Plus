@@ -377,7 +377,15 @@ Next steps:
         except ValueError:
             raise
         except Exception as e:
-            if "does not exist" not in str(e).lower() and "not found" not in str(e).lower():
+            error_msg = str(e).lower()
+            target_missing = "does not exist" in error_msg or "not found" in error_msg
+            target_permission_denied = (
+                "permission denied" in error_msg
+                or "permission check failed" in error_msg
+                or "forbidden" in error_msg
+                or "403" in error_msg
+            )
+            if not target_missing and not target_permission_denied:
                 self._handle_error(f"check target VM {target_vmid}", e)
 
         clone_payload: dict[str, Any] = {
