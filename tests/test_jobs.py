@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -305,6 +307,56 @@ def test_job_store_retry_rejects_running_and_completed_jobs(tmp_path: Path):
     retry.assert_not_called()
 
 
+def test_job_store_retry_claim_blocks_concurrent_retry(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+    retry_started = threading.Event()
+    retry_release = threading.Event()
+    retry_calls: list[str] = []
+
+    def retry_factory() -> str:
+        retry_calls.append("called")
+        retry_started.set()
+        assert retry_release.wait(5)
+        return "UPID:retry"
+
+    created = store.register_task(
+        tool_name="delete_vm",
+        summary="Delete VM",
+        node="pve",
+        upid="UPID:original",
+        retry_factory=retry_factory,
+    )
+    store._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (created["job_id"],))
+    store._conn.commit()
+
+    result: dict[str, Any] = {}
+    errors: list[Exception] = []
+
+    def run_retry() -> None:
+        try:
+            result["payload"] = store.retry_job(created["job_id"])
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=run_retry)
+    thread.start()
+    assert retry_started.wait(5)
+
+    with pytest.raises(JobConflictError, match="cannot be retried"):
+        store.retry_job(created["job_id"])
+
+    retry_release.set()
+    thread.join(5)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert retry_calls == ["called"]
+    assert result["payload"]["upid"] == "UPID:retry"
+    assert result["payload"]["retry_count"] == 1
+
+
 def test_job_store_poll_discards_stale_upid_after_retry(tmp_path: Path):
     proxmox = Mock()
     db_path = tmp_path / "jobs.sqlite3"
@@ -333,6 +385,38 @@ def test_job_store_poll_discards_stale_upid_after_retry(tmp_path: Path):
     assert polled["status"] == "running"
     assert polled["progress"] == 0
     assert [event["event"] for event in polled["audit_log"]][-2:] == ["retried", "poll_discarded"]
+
+
+def test_job_store_cancel_discards_stale_upid(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+
+    created = store.register_task(
+        tool_name="start_vm",
+        summary="Start VM",
+        node="pve",
+        upid="UPID:old",
+    )
+
+    def cancel_factory(upid: str) -> None:
+        assert upid == "UPID:old"
+        store._conn.execute(
+            "UPDATE jobs SET upid = ?, status = ? WHERE job_id = ?",
+            ("UPID:new", "running", created["job_id"]),
+        )
+        store._conn.commit()
+
+    with store._lock:
+        record = store._load_record_from_db(created["job_id"])
+        record.cancel_factory = cancel_factory
+        store._jobs[record.job_id] = record
+
+    cancelled = store.cancel_job(created["job_id"])
+
+    assert cancelled["upid"] == "UPID:new"
+    assert cancelled["status"] == "running"
+    assert cancelled["audit_log"][-1]["event"] == "cancel_discarded"
 
 
 def test_job_store_retry_raises_conflict_without_recipe(tmp_path: Path):

@@ -18,6 +18,31 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.2`
+
+- Release date: 2026-05-12
+- Summary: job concurrency and operator-safety patch that atomically claims retries, protects cancel writes from stale UPIDs, aligns legacy packaging constraints, and extends high-risk approval policy to SSH key injection.
+- New tools or endpoints:
+  - no new tools or endpoints
+- Changed behavior:
+  - `retry_job` moves eligible jobs to `retrying` before replaying an operation, so concurrent retries conflict instead of running twice
+  - `cancel_job` records `cancel_discarded` instead of overwriting a newer UPID or terminal/retrying state
+  - `update_container_ssh_keys` is now treated as a high-risk operation
+  - `get_containers(include_raw=true, format_style="json")` includes `raw_status` and `raw_config` when stats are fetched
+  - API SSH tunnels honor configured SSH user, port, key file, known hosts file, and strict host-key checking
+  - logging setup replaces project-managed handlers instead of accumulating duplicates
+- Config changes:
+  - `COMMAND_POLICY_HIGH_RISK_OPERATIONS` defaults now include `update_container_ssh_keys`
+  - legacy `setup.py` installs now require `paramiko>=5.0.0,<6.0.0`
+- Docs updated:
+  - `docs/releases/v0.5.2.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - pass `approval_token` to `update_container_ssh_keys` when high-risk approval enforcement is enabled
+  - retry clients should treat `retrying` as an in-progress state and poll the job before another retry
+- Rollback notes:
+  - downgrade to `v0.5.1` only if callers cannot yet pass approval tokens for SSH key updates; doing so reopens duplicate retry and stale cancel risks
+
 ### Version `0.5.1`
 
 - Release date: 2026-05-12

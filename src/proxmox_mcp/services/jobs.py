@@ -15,6 +15,8 @@ from typing import Any, Callable, Optional
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
+_RETRYING_STATUS = "retrying"
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 def _utcnow() -> str:
@@ -217,6 +219,8 @@ class JobStore:
             record = self._load_record_from_db(job_id)
             if not record.upid or not record.node:
                 raise JobConflictError(f"Job {job_id} has no task UPID to cancel")
+            if record.status in _TERMINAL_STATUSES or record.status == _RETRYING_STATUS:
+                raise JobConflictError(f"Job {job_id} cannot be cancelled while status is '{record.status}'")
             upid = record.upid
             node = record.node
             cancel_factory = record.cancel_factory
@@ -228,6 +232,14 @@ class JobStore:
 
         with self._lock:
             record = self._load_record_from_db(job_id)
+            if record.upid != upid:
+                record.add_audit("cancel_discarded", stale_upid=upid, current_upid=record.upid)
+                self._save_record(record)
+                return record.as_dict()
+            if record.status in _TERMINAL_STATUSES or record.status == _RETRYING_STATUS:
+                record.add_audit("cancel_discarded", upid=upid, current_status=record.status)
+                self._save_record(record)
+                return record.as_dict()
             record.status = "cancel_requested"
             record.add_audit("cancel_requested", upid=upid)
             self._save_record(record)
@@ -243,25 +255,48 @@ class JobStore:
                 )
             retry_factory = record.retry_factory
             retry_spec = dict(record.retry_spec or {})
+            kind = ""
+            params: dict[str, Any] | None = None
+            handler: Callable[[dict[str, Any]], Any] | None = None
+            if retry_factory is None:
+                if not retry_spec:
+                    raise JobConflictError(f"Job {job_id} does not support retry")
+                kind = str(retry_spec.get("kind", "") or "")
+                retry_params = retry_spec.get("params")
+                if not kind or not isinstance(retry_params, dict):
+                    raise JobConflictError(f"Job {job_id} has an invalid retry recipe")
+                params = retry_params
+                handler = self._retry_handlers.get(kind)
+                if handler is None:
+                    raise JobConflictError(f"Retry handler '{kind}' is not available")
+            previous_status = record.status
+            original_upid = record.upid
+            self._claim_retry(record)
 
-        if retry_factory is not None:
-            new_upid = retry_factory()
-        else:
-            if not retry_spec:
-                raise JobConflictError(f"Job {job_id} does not support retry")
-            kind = str(retry_spec.get("kind", "") or "")
-            params = retry_spec.get("params")
-            if not kind or not isinstance(params, dict):
-                raise JobConflictError(f"Job {job_id} has an invalid retry recipe")
-            handler = self._retry_handlers.get(kind)
-            if handler is None:
-                raise JobConflictError(f"Retry handler '{kind}' is not available")
-            new_upid = handler(params)
+        try:
+            if retry_factory is not None:
+                new_upid = retry_factory()
+            else:
+                assert handler is not None and params is not None
+                new_upid = handler(params)
+        except Exception as exc:
+            self._rollback_retry_claim(job_id, original_upid, previous_status, exc)
+            raise
 
         with self._lock:
             record = self._load_record_from_db(job_id)
-            if record.upid:
-                record.previous_upids.append(record.upid)
+            if record.status != _RETRYING_STATUS or record.upid != original_upid:
+                record.add_audit(
+                    "retry_result_discarded",
+                    stale_upid=original_upid,
+                    current_upid=record.upid,
+                    current_status=record.status,
+                    new_upid=str(new_upid),
+                )
+                self._save_record(record)
+                raise JobConflictError(f"Job {job_id} changed while retry was running")
+            if original_upid:
+                record.previous_upids.append(original_upid)
             record.upid = str(new_upid)
             record.status = "running"
             record.progress = 0
@@ -273,6 +308,57 @@ class JobStore:
             record.add_audit("retried", new_upid=record.upid)
             self._save_record(record)
             return record.as_dict()
+
+    def _claim_retry(self, record: JobRecord) -> None:
+        previous_status = record.status
+        record.status = _RETRYING_STATUS
+        record.add_audit("retry_started", previous_status=previous_status, upid=record.upid)
+        placeholders = ", ".join("?" for _ in _RETRYABLE_STATUSES)
+        cursor = self._conn.execute(
+            f"""
+            UPDATE jobs
+            SET status = ?, updated_at = ?, audit_log_json = ?
+            WHERE job_id = ? AND status IN ({placeholders})
+            """,
+            (
+                record.status,
+                record.updated_at,
+                json.dumps([item.as_dict() for item in record.audit_log]),
+                record.job_id,
+                *sorted(_RETRYABLE_STATUSES),
+            ),
+        )
+        self._conn.commit()
+        if cursor.rowcount != 1:
+            fresh = self._load_record_from_db(record.job_id)
+            raise JobConflictError(
+                f"Job {record.job_id} cannot be retried while status is '{fresh.status}'"
+            )
+        self._jobs[record.job_id] = record
+
+    def _rollback_retry_claim(
+        self,
+        job_id: str,
+        original_upid: str | None,
+        previous_status: str,
+        error: Exception,
+    ) -> None:
+        with self._lock:
+            record = self._load_record_from_db(job_id)
+            if record.status != _RETRYING_STATUS or record.upid != original_upid:
+                record.add_audit(
+                    "retry_failure_discarded",
+                    stale_upid=original_upid,
+                    current_upid=record.upid,
+                    current_status=record.status,
+                    error=str(error)[:500],
+                )
+                self._save_record(record)
+                return
+            record.status = previous_status
+            record.last_error = str(error)
+            record.add_audit("retry_failed", error=str(error)[:500])
+            self._save_record(record)
 
     def _get_record(self, job_id: str) -> JobRecord:
         try:

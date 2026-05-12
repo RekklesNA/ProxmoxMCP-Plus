@@ -5,6 +5,7 @@ Tests for the Proxmox MCP server.
 import os
 import json
 import pytest
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -189,6 +190,7 @@ def test_loader_env_preserves_policy_default_lists(monkeypatch):
     assert config.command_policy.deny_patterns
     assert any("rm" in pattern for pattern in config.command_policy.deny_patterns)
     assert "delete_vm" in config.command_policy.high_risk_operations
+    assert "update_container_ssh_keys" in config.command_policy.high_risk_operations
 
 
 @pytest.mark.asyncio
@@ -427,6 +429,35 @@ async def test_get_containers_uses_cluster_inventory_without_stats(server, mock_
     assert result[0]["mem_pct"] == 25.0
     proxmox.cluster.resources.get.assert_called_once_with(type="vm")
     proxmox.nodes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_containers_includes_raw_payloads_in_json(server, mock_proxmox):
+    proxmox = mock_proxmox.return_value
+    proxmox.cluster.resources.get.side_effect = Exception("cluster inventory unavailable")
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    node_api = proxmox.nodes.return_value
+    node_api.lxc.get.return_value = [
+        {"vmid": "200", "name": "container1", "status": "running"},
+    ]
+    container_api = node_api.lxc.return_value
+    container_api.status.current.get.return_value = {
+        "status": "running",
+        "cpu": 0.5,
+        "mem": 256,
+        "maxmem": 1024,
+    }
+    container_api.config.get.return_value = {"cores": "2", "memory": "1024"}
+    container_api.rrddata.get.return_value = []
+
+    response = await server.mcp.call_tool(
+        "get_containers",
+        {"include_stats": True, "include_raw": True, "format_style": "json"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result[0]["raw_status"]["status"] == "running"
+    assert result[0]["raw_config"]["cores"] == "2"
 
 
 @pytest.mark.asyncio
@@ -1090,6 +1121,51 @@ async def test_update_container_ssh_keys_missing_parameters(ssh_server):
     """update_container_ssh_keys raises ToolError when required parameters are missing."""
     with pytest.raises(ToolError):
         await ssh_server.mcp.call_tool("update_container_ssh_keys", {})
+
+
+@pytest.mark.asyncio
+async def test_update_container_ssh_keys_requires_approval_token(mock_proxmox, tmp_path):
+    config_path = tmp_path / "config_ssh_high_risk.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "DEBUG"},
+        "ssh": {"user": "mcp-agent", "key_file": "/fake/key"},
+        "command_policy": {
+            "mode": "audit_only",
+            "high_risk_mode": "enforce",
+            "high_risk_require_approval_token": True,
+            "high_risk_approval_token": "approve-me",
+        },
+    }))
+    policy_server = ProxmoxMCPServer(str(config_path))
+    _mock_console_execute(policy_server)
+    console_manager = policy_server.container_tools.console_manager
+    assert console_manager is not None
+    execute_command = cast(Any, console_manager.execute_command)
+    public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@host"
+
+    with pytest.raises(ToolError, match="requires an approval token"):
+        await policy_server.mcp.call_tool(
+            "update_container_ssh_keys",
+            {"node": "node1", "vmid": "101", "public_keys": public_key},
+        )
+
+    execute_command.assert_not_called()
+
+    response = await policy_server.mcp.call_tool(
+        "update_container_ssh_keys",
+        {
+            "node": "node1",
+            "vmid": "101",
+            "public_keys": public_key,
+            "approval_token": "approve-me",
+        },
+    )
+    result = json.loads(response[0].text)
+
+    assert result["success"] is True
+    assert execute_command.call_count == 2
 
 
 @pytest.mark.asyncio

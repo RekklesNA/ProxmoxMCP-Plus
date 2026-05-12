@@ -18,6 +18,7 @@ Quick summary:
 - Grant that user passwordless sudo only for `/usr/sbin/pct exec *`.
 - Add the Proxmox node host keys to `known_hosts`, or use `prefer_ssh_client=true` if you need OpenSSH config behavior.
 - Configure `command_policy` so agents can only run the container commands you intend to allow.
+- Treat `update_container_ssh_keys` as a high-risk operation; approval tokens are required when high-risk enforcement is enabled.
 
 Related pages:
 
