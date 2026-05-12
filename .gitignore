@@ -65,6 +65,8 @@ config/config.json
 proxmox-config/config.json
 proxmox-config/config.live.json
 proxmox-jobs.sqlite3
+proxmox-jobs.sqlite3-shm
+proxmox-jobs.sqlite3-wal
 **/config.json
 
 # MCP Bundle artifacts

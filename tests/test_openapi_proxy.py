@@ -316,6 +316,24 @@ def test_jobs_routes_return_expected_status_codes():
     assert retry_response.json()["attempts"] == 2
 
 
+def test_jobs_routes_reuse_api_key_dependency_when_not_strict_auth():
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key="secret",
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_store=_FakeJobStore(),
+    )
+    client = TestClient(app)
+
+    unauthenticated = client.get("/jobs")
+    authenticated = client.get("/jobs", headers={"Authorization": "Bearer secret"})
+
+    assert unauthenticated.status_code == 401
+    assert authenticated.status_code == 200
+    assert authenticated.json()[0]["job_id"] == "job-1"
+
+
 @pytest.fixture
 def _isolated_proxy_env(monkeypatch):
     """Strip env vars that would otherwise leak into ``main()``."""

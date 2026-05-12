@@ -511,12 +511,19 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
                 public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
                 mode: Annotated[str, Field(description="'append' (default) or 'replace'", pattern="^(append|replace)$", default="append")] = "append",
+                approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(server, "update_container_ssh_keys", server.container_tools.update_container_ssh_keys)(
+                return self._wrap_sync(
+                    server,
+                    "update_container_ssh_keys",
+                    server.container_tools.update_container_ssh_keys,
+                    high_risk=True,
+                )(
                     node=node,
                     vmid=vmid,
                     public_keys=public_keys,
                     mode=mode,
+                    approval_token=approval_token,
                 )
         else:
             server.logger.info("Container command execution disabled (no [ssh] section in config)")

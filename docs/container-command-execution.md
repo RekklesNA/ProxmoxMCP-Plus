@@ -285,6 +285,8 @@ When `update_container_ssh_keys` is called:
 3. It executes `pct exec` commands to create `/root/.ssh`, write `authorized_keys`, and set file permissions.
 4. It returns a success or failure payload.
 
+`update_container_ssh_keys` is also classified as a high-risk operation. If `command_policy.high_risk_require_approval_token=true`, callers must pass `approval_token`.
+
 ## Troubleshooting
 
 ### The tool does not appear
