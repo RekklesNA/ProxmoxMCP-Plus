@@ -55,7 +55,7 @@ def server(mock_env_vars, mock_proxmox):
     return ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
 
 
-def test_job_store_register_poll_and_progress():
+def test_job_store_register_poll_and_progress(tmp_path: Path):
     proxmox = Mock()
     proxmox.nodes.return_value.tasks.return_value.status.get.return_value = {
         "status": "stopped",
@@ -66,7 +66,7 @@ def test_job_store_register_poll_and_progress():
         {"t": "download 45%"},
     ]
 
-    store = JobStore(proxmox)
+    store = JobStore(proxmox, sqlite_path=str(tmp_path / "jobs.sqlite3"))
     job = store.register_task(
         tool_name="download_iso",
         summary="Download ISO",
@@ -80,11 +80,11 @@ def test_job_store_register_poll_and_progress():
     assert [event["event"] for event in polled["audit_log"]] == ["created", "polled"]
 
 
-def test_job_store_retry_and_cancel():
+def test_job_store_retry_and_cancel(tmp_path: Path):
     proxmox = Mock()
     cancel = Mock()
     retry = Mock(return_value="UPID:retry")
-    store = JobStore(proxmox)
+    store = JobStore(proxmox, sqlite_path=str(tmp_path / "jobs.sqlite3"))
     job = store.register_task(
         tool_name="create_backup",
         summary="Create backup",
@@ -236,6 +236,8 @@ def test_job_store_retry_uses_persisted_retry_spec(tmp_path: Path):
         upid="UPID:original",
         retry_spec={"kind": "vm.start", "params": {"node": "pve", "vmid": "101"}},
     )
+    first._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (created["job_id"],))
+    first._conn.commit()
 
     second = JobStore(proxmox, sqlite_path=str(db_path))
     retried = second.retry_job(created["job_id"])
@@ -265,6 +267,8 @@ def test_job_store_retry_vm_clone_from_persisted_recipe(tmp_path: Path):
             },
         },
     )
+    first._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (created["job_id"],))
+    first._conn.commit()
 
     second = JobStore(proxmox, sqlite_path=str(db_path))
     retried = second.retry_job(created["job_id"])
@@ -274,6 +278,61 @@ def test_job_store_retry_vm_clone_from_persisted_recipe(tmp_path: Path):
     source_vm_api.clone.post.assert_called_once_with(newid=9100, full=1, name="cloned-vm")
     assert retried["upid"] == "UPID:clone-retry"
     assert retried["attempts"] == 2
+
+
+def test_job_store_retry_rejects_running_and_completed_jobs(tmp_path: Path):
+    proxmox = Mock()
+    retry = Mock(return_value="UPID:retry")
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+    created = store.register_task(
+        tool_name="start_vm",
+        summary="Start VM",
+        node="pve",
+        upid="UPID:original",
+        retry_factory=retry,
+    )
+
+    with pytest.raises(JobConflictError, match="cannot be retried"):
+        store.retry_job(created["job_id"])
+
+    store._conn.execute("UPDATE jobs SET status = 'completed' WHERE job_id = ?", (created["job_id"],))
+    store._conn.commit()
+
+    with pytest.raises(JobConflictError, match="cannot be retried"):
+        store.retry_job(created["job_id"])
+
+    retry.assert_not_called()
+
+
+def test_job_store_poll_discards_stale_upid_after_retry(tmp_path: Path):
+    proxmox = Mock()
+    db_path = tmp_path / "jobs.sqlite3"
+    store = JobStore(proxmox, sqlite_path=str(db_path))
+    retry = Mock(return_value="UPID:new")
+    created = store.register_task(
+        tool_name="start_vm",
+        summary="Start VM",
+        node="pve",
+        upid="UPID:old",
+        retry_factory=retry,
+    )
+    store._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (created["job_id"],))
+    store._conn.commit()
+
+    def retry_during_poll():
+        store.retry_job(created["job_id"])
+        return {"status": "stopped", "exitstatus": "OK"}
+
+    proxmox.nodes.return_value.tasks.return_value.status.get.side_effect = retry_during_poll
+    proxmox.nodes.return_value.tasks.return_value.log.get.return_value = [{"t": "100%"}]
+
+    polled = store.poll_job(created["job_id"])
+
+    assert polled["upid"] == "UPID:new"
+    assert polled["status"] == "running"
+    assert polled["progress"] == 0
+    assert [event["event"] for event in polled["audit_log"]][-2:] == ["retried", "poll_discarded"]
 
 
 def test_job_store_retry_raises_conflict_without_recipe(tmp_path: Path):

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from proxmox_mcp.config.models import CommandPolicyConfig
 from proxmox_mcp.security.command_policy import CommandPolicyGate
 
 
-def _gate(**overrides: object) -> CommandPolicyGate:
+def _gate(**overrides: Any) -> CommandPolicyGate:
     return CommandPolicyGate(CommandPolicyConfig(**overrides))
 
 

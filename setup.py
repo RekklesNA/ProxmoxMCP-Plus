@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="proxmox-mcp-plus",
-    version="0.4.9",
+    version="0.5.1",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.11",

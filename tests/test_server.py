@@ -1165,6 +1165,8 @@ async def test_high_risk_job_retry_requires_approval_token(mock_proxmox, tmp_pat
         await policy_server.mcp.call_tool("retry_job", {"job_id": job["job_id"]})
 
     retry_factory.assert_not_called()
+    policy_server.job_store._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (job["job_id"],))
+    policy_server.job_store._conn.commit()
 
     response = await policy_server.mcp.call_tool(
         "retry_job",

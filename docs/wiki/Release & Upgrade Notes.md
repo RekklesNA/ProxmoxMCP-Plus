@@ -18,6 +18,27 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.1`
+
+- Release date: 2026-05-12
+- Summary: persistent job safety patch that blocks duplicate retries for running or completed jobs, discards stale poll results after a retry swaps UPIDs, and protects direct OpenAPI `/jobs` routes when an app is created with an API key but without strict middleware.
+- New tools or endpoints:
+  - no new tools or endpoints
+- Changed behavior:
+  - `retry_job` only replays jobs in `failed`, `cancelled`, or `cancel_requested` states
+  - `poll_job` records `poll_discarded` instead of overwriting a job when the polled UPID is stale
+  - direct OpenAPI `/jobs` routes reuse API-key verification in non-strict `create_app` usage
+- Config changes:
+  - no required config migration
+- Docs updated:
+  - `docs/releases/v0.5.1.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - poll jobs before retrying and retry only failed or cancelled jobs
+  - keep sending `Authorization: Bearer <PROXMOX_API_KEY>` for OpenAPI job routes
+- Rollback notes:
+  - downgrade to `v0.5.0` only if callers depend on retrying completed jobs; doing so reopens the duplicate-operation risk
+
 ### Version `0.5.0`
 
 - Release date: 2026-05-11

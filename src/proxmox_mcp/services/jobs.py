@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional
 
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
+_RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
 
 
 def _utcnow() -> str:
@@ -193,6 +194,10 @@ class JobStore:
 
         with self._lock:
             record = self._load_record_from_db(job_id)
+            if record.upid != upid:
+                record.add_audit("poll_discarded", stale_upid=upid, current_upid=record.upid)
+                self._save_record(record)
+                return record.as_dict()
             record.progress = progress
             record.status = status
             record.last_error = last_error
@@ -231,6 +236,11 @@ class JobStore:
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             record = self._load_record_from_db(job_id)
+            if record.status not in _RETRYABLE_STATUSES:
+                raise JobConflictError(
+                    f"Job {job_id} cannot be retried while status is '{record.status}'. "
+                    "Poll the job first and retry only failed or cancelled jobs."
+                )
             retry_factory = record.retry_factory
             retry_spec = dict(record.retry_spec or {})
 
