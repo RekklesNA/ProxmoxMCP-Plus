@@ -53,6 +53,12 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
             "file": "/path/to/log/file.log"  # Optional
         }
     """
+    root_logger = logging.getLogger()
+    for existing in list(root_logger.handlers):
+        if getattr(existing, "_proxmox_mcp_handler", False):
+            root_logger.removeHandler(existing)
+            existing.close()
+
     # Convert relative path to absolute
     log_file = config.file
     if log_file and not os.path.isabs(log_file):
@@ -84,9 +90,9 @@ def setup_logging(config: LoggingConfig) -> logging.Logger:
     formatter = logging.Formatter(config.format)
     for handler in handlers:
         handler.setFormatter(formatter)
+        setattr(handler, "_proxmox_mcp_handler", True)
     
     # Configure root logger
-    root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, config.level.upper()))
     
     # Add new handlers

@@ -369,8 +369,7 @@ class ContainerTools(ProxmoxTool):
                         "unlimited_memory": unlimited_memory,
                     })
 
-                    # For PRETTY only: allow raw blobs to be attached if requested.
-                    if include_raw and format_style != "json":
+                    if include_raw:
                         rec["raw_status"] = raw_status
                         rec["raw_config"] = raw_config
 
@@ -977,6 +976,7 @@ class ContainerTools(ProxmoxTool):
         vmid: str,
         public_keys: str,
         mode: str = "append",
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Inject or replace SSH authorized_keys for root in an LXC container.
 
@@ -988,6 +988,7 @@ class ContainerTools(ProxmoxTool):
             public_keys: Newline-separated public key(s) to authorize.
             mode:        'append' (default) or 'replace'.
         """
+        _ = approval_token
         if self.console_manager is None:
             return self._err(
                 "update_container_ssh_keys",

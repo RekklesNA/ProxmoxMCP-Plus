@@ -57,12 +57,31 @@ class SSHTunnelManager:
             local,
             "-o",
             "ExitOnForwardFailure=yes",
-            self.tunnel_config.ssh_host,
         ]
 
         ssh_key = getattr(self.ssh_config, "key_file", None) if self.ssh_config is not None else None
         if ssh_key:
             command[1:1] = ["-i", os.path.expanduser(str(ssh_key))]
+        ssh_port = getattr(self.ssh_config, "port", None) if self.ssh_config is not None else None
+        if ssh_port:
+            command.extend(["-p", str(ssh_port)])
+        known_hosts_file = (
+            getattr(self.ssh_config, "known_hosts_file", None)
+            if self.ssh_config is not None
+            else None
+        )
+        if known_hosts_file:
+            command.extend(["-o", f"UserKnownHostsFile={os.path.expanduser(str(known_hosts_file))}"])
+        strict_host_key_checking = (
+            getattr(self.ssh_config, "strict_host_key_checking", True)
+            if self.ssh_config is not None
+            else True
+        )
+        command.extend([
+            "-o",
+            f"StrictHostKeyChecking={'yes' if strict_host_key_checking else 'no'}",
+            self._ssh_target(),
+        ])
 
         self.logger.info("Starting Proxmox API SSH tunnel via %s", self.tunnel_config.ssh_host)
         self.logger.debug("Tunnel command: %s", " ".join(shlex.quote(part) for part in command))
@@ -72,6 +91,13 @@ class SSHTunnelManager:
             stderr=subprocess.PIPE,
             text=True,
         )
+
+    def _ssh_target(self) -> str:
+        host = str(self.tunnel_config.ssh_host)
+        user = getattr(self.ssh_config, "user", None) if self.ssh_config is not None else None
+        if user and "@" not in host:
+            return f"{user}@{host}"
+        return host
 
     def _wait_for_local_listener(self) -> None:
         deadline = time.time() + max(int(self.tunnel_config.connect_timeout), 1)
