@@ -15,7 +15,8 @@ This module provides tools for managing and interacting with Proxmox VMs:
 The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
-from typing import List, Optional, Any
+import ipaddress
+from typing import List, Optional, Any, Dict
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool
@@ -631,6 +632,12 @@ Clone Configuration:
     def get_vm_interfaces(self, node: str, vmid: str) -> List[Content]:
         """Return network interfaces for a VM via QEMU guest agent."""
         try:
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            if vm_status.get("status") != "running":
+                raise ValueError(
+                    f"VM {vmid} is not running; qemu-guest-agent network data is only available when running"
+                )
+
             raw_interfaces = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
             config = self.proxmox.nodes(node).qemu(vmid).config.get()
             vm_name = config.get("name") or f"vm-{vmid}"
@@ -642,7 +649,7 @@ Clone Configuration:
             else:
                 interfaces_raw = []
 
-            interfaces: list[dict[str, Any]] = []
+            interfaces: List[Dict[str, Any]] = []
             primary_ip: Optional[str] = None
             for iface in interfaces_raw:
                 if not isinstance(iface, dict):
@@ -651,12 +658,12 @@ Clone Configuration:
                 if iface_name == "lo":
                     continue
 
-                entry: dict[str, Any] = {"name": iface_name}
+                entry: Dict[str, Any] = {"name": iface_name}
                 hardware_address = iface.get("hardware-address") or iface.get("hardware_address")
                 if hardware_address:
                     entry["hardware_address"] = hardware_address
 
-                ip_rows: list[dict[str, Any]] = []
+                ip_rows: List[Dict[str, Any]] = []
                 ip_addresses = iface.get("ip-addresses") or iface.get("ip_addresses") or []
                 if isinstance(ip_addresses, list):
                     for ip_addr in ip_addresses:
@@ -667,18 +674,29 @@ Clone Configuration:
                             continue
                         ip_type = ip_addr.get("ip-address-type") or ip_addr.get("ip_address_type")
                         prefix = ip_addr.get("prefix")
-                        ip_entry: dict[str, Any] = {"ip_address": ip_value}
+                        ip_entry: Dict[str, Any] = {"ip_address": ip_value}
                         if ip_type:
                             ip_entry["ip_address_type"] = ip_type
                         if prefix is not None:
                             ip_entry["prefix"] = prefix
                         ip_rows.append(ip_entry)
-                        if (
-                            primary_ip is None
-                            and ip_value != "127.0.0.1"
-                            and (ip_type == "ipv4" or "." in ip_value)
-                        ):
-                            primary_ip = ip_value
+                        if primary_ip is None:
+                            try:
+                                parsed_ip = ipaddress.ip_address(ip_value)
+                            except ValueError:
+                                self.logger.debug(
+                                    "Skipping malformed guest-agent IP '%s' for VM %s interface %s",
+                                    ip_value,
+                                    vmid,
+                                    iface_name,
+                                )
+                                parsed_ip = None
+                            if (
+                                isinstance(parsed_ip, ipaddress.IPv4Address)
+                                and not parsed_ip.is_loopback
+                                and (ip_type == "ipv4" or ip_type is None)
+                            ):
+                                primary_ip = ip_value
 
                 entry["ip_addresses"] = ip_rows
                 interfaces.append(entry)
@@ -690,7 +708,14 @@ Clone Configuration:
                 "primary_ip": primary_ip,
             }
             return self._format_response(result)
+        except ValueError:
+            raise
         except Exception as e:
+            error_msg = str(e).lower()
+            if "guest agent" in error_msg or "qemu-ga" in error_msg:
+                raise ValueError(f"QEMU guest agent unavailable for VM {vmid} on node {node}")
+            if "does not exist" in error_msg or "not found" in error_msg:
+                raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"get VM interfaces for {vmid}", e)
 
     async def execute_command(

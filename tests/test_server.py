@@ -698,6 +698,7 @@ async def test_get_cluster_status(server, mock_proxmox):
 async def test_get_vm_interfaces(server, mock_proxmox):
     """get_vm_interfaces returns interfaces and extracts primary_ip."""
     vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
     vm_api.agent.return_value.get.return_value = [
         {
             "name": "lo",
@@ -733,6 +734,7 @@ async def test_get_vm_interfaces(server, mock_proxmox):
 async def test_get_vm_interfaces_no_ipv4(server, mock_proxmox):
     """get_vm_interfaces returns primary_ip=None when only IPv6 exists."""
     vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
     vm_api.agent.return_value.get.return_value = [
         {
             "name": "eth0",
@@ -757,6 +759,41 @@ async def test_get_vm_interfaces_missing_parameters(server):
     """get_vm_interfaces raises ToolError when required parameters are missing."""
     with pytest.raises(ToolError):
         await server.mcp.call_tool("get_vm_interfaces", {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"node": "node1"},
+        {"vmid": "100"},
+    ],
+)
+async def test_get_vm_interfaces_partial_missing_parameters(server, payload):
+    """get_vm_interfaces raises ToolError when one required field is missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_vm_interfaces", payload)
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_vm_not_running(server, mock_proxmox):
+    """get_vm_interfaces fails when VM is not running."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "stopped"}
+
+    with pytest.raises(ToolError, match="not running"):
+        await server.mcp.call_tool("get_vm_interfaces", {"node": "node1", "vmid": "100"})
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_guest_agent_unavailable(server, mock_proxmox):
+    """get_vm_interfaces fails with clear error when guest agent is unavailable."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running"}
+    vm_api.agent.return_value.get.side_effect = Exception("QEMU guest agent is not running")
+
+    with pytest.raises(ToolError, match="guest agent unavailable"):
+        await server.mcp.call_tool("get_vm_interfaces", {"node": "node1", "vmid": "100"})
 
 
 @pytest.mark.asyncio
