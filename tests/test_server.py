@@ -1039,6 +1039,54 @@ async def test_clone_vm(server, mock_proxmox):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "permission_error",
+    [
+        "permission denied",
+        "permission check failed",
+        "forbidden",
+        "403 forbidden",
+    ],
+)
+async def test_clone_vm_ignores_target_probe_permission_denied(server, mock_proxmox, permission_error):
+    """clone_vm should continue when target VM pre-check returns permission denied."""
+    proxmox = mock_proxmox.return_value
+
+    source_vm_api = Mock()
+    source_vm_api.status.current.get.return_value = {"status": "stopped", "name": "template-9000"}
+    source_vm_api.clone.post.return_value = "UPID:clone-101"
+
+    target_vm_api = Mock()
+    target_vm_api.config.get.side_effect = Exception(permission_error)
+
+    node_api = Mock()
+
+    def qemu_side_effect(vmid):
+        if str(vmid) == "9000":
+            return source_vm_api
+        if str(vmid) == "9101":
+            return target_vm_api
+        return Mock()
+
+    node_api.qemu.side_effect = qemu_side_effect
+    proxmox.nodes.return_value = node_api
+
+    response = await server.mcp.call_tool(
+        "clone_vm",
+        {
+            "node": "node1",
+            "source_vmid": "9000",
+            "target_vmid": "9101",
+            "name": "cloned-vm",
+            "full": True,
+        },
+    )
+
+    assert "clone initiated successfully" in response[0].text
+    source_vm_api.clone.post.assert_called_once_with(newid=9101, full=1, name="cloned-vm")
+
+
+@pytest.mark.asyncio
 async def test_rollback_snapshot_refuses_to_delete_child_snapshots(server, mock_proxmox):
     """Rollback must not implicitly delete newer child snapshots."""
     snapshot_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value.snapshot
