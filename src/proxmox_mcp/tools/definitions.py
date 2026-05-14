@@ -49,6 +49,15 @@ GET_VMS_DESC = """List all virtual machines across the cluster with their status
 Example:
 {"vmid": "100", "name": "ubuntu", "status": "running", "cpu": 2, "memory": 4096}"""
 
+GET_VM_INTERFACES_DESC = """Get VM network interfaces via QEMU guest agent.
+
+Parameters:
+node* - Host node name (e.g. 'pve1')
+vmid* - VM ID number (e.g. '100')
+
+Returns:
+{"vmid": "100", "name": "ubuntu", "interfaces": [...], "primary_ip": "10.1.0.100"}"""
+
 CREATE_VM_DESC = """Create a new virtual machine with specified configuration.
 
 Parameters:
