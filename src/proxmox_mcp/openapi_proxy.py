@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from mcpo.main import lifespan
@@ -256,6 +256,7 @@ def create_app(
         strict_auth=strict_auth,
         cors_allow_origins=cors_allow_origins,
     )
+    job_auth_dependencies = [Depends(api_dependency)] if api_dependency and not strict_auth else []
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:
@@ -357,7 +358,7 @@ def create_app(
         if not decision.allowed:
             raise PermissionError(decision.message)
 
-    @app.get("/jobs")
+    @app.get("/jobs", dependencies=job_auth_dependencies)
     async def list_jobs(
         status: Optional[str] = None,
         tool_name: Optional[str] = None,
@@ -369,7 +370,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
-    @app.get("/jobs/{job_id}")
+    @app.get("/jobs/{job_id}", dependencies=job_auth_dependencies)
     async def get_job(job_id: str, refresh: bool = False) -> JSONResponse:
         try:
             job_store_local = _require_job_store()
@@ -378,7 +379,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
-    @app.post("/jobs/{job_id}/poll")
+    @app.post("/jobs/{job_id}/poll", dependencies=job_auth_dependencies)
     async def poll_job(job_id: str) -> JSONResponse:
         try:
             payload = _require_job_store().poll_job(job_id)
@@ -386,7 +387,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
-    @app.post("/jobs/{job_id}/cancel")
+    @app.post("/jobs/{job_id}/cancel", dependencies=job_auth_dependencies)
     async def cancel_job(job_id: str) -> JSONResponse:
         try:
             payload = _require_job_store().cancel_job(job_id)
@@ -394,7 +395,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
-    @app.post("/jobs/{job_id}/retry")
+    @app.post("/jobs/{job_id}/retry", dependencies=job_auth_dependencies)
     async def retry_job(job_id: str, approval_token: Optional[str] = None) -> JSONResponse:
         try:
             _enforce_job_retry_policy(job_id, approval_token)

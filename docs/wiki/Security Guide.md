@@ -66,7 +66,7 @@ These tools only register when the config includes an `ssh` section. Without it:
 - no SSH connection is attempted
 - the tools do not appear at all
 
-The implementation SSHes to the Proxmox node and runs `pct exec`. Because this path is more powerful than pure API reads, treat it as a separate security decision.
+The implementation SSHes to the Proxmox node and runs `pct exec`. Because this path is more powerful than pure API reads, treat it as a separate security decision. `update_container_ssh_keys` is classified as a high-risk operation and follows `command_policy.high_risk_*` approval settings.
 
 Read the full setup and threat model in [Container Command Execution](Container-Command-Execution).
 

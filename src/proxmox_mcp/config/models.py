@@ -121,6 +121,7 @@ class CommandPolicyConfig(BaseModel):
             "restore_backup",
             "delete_backup",
             "delete_iso",
+            "update_container_ssh_keys",
         ]
     )
     high_risk_require_approval_token: bool = False
