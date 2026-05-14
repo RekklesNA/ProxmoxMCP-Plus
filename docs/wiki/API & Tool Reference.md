@@ -101,6 +101,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
 | `get_vms` | Read-only | none | none | Proxmox API reachable | partial node-query failures may reduce returned coverage |
+| `get_vm_interfaces` | Read-only | `node`, `vmid` | none | VM exists and QEMU Guest Agent is running | guest agent unavailable, VM not found, VM not running |
 | `create_vm` | Mutating | `node`, `vmid`, `name`, `cpus`, `memory`, `disk_size` | `storage`, `ostype`, `network_bridge` | target node exists and selected storage is valid | duplicate `vmid`, invalid storage, insufficient resources |
 | `clone_vm` | Mutating | `node`, `source_vmid`, `target_vmid` | `name`, `target_node`, `full=true`, `storage`, `pool`, `snapname` | source VM exists and target VM ID is free | duplicate target VM ID, clone permission failure, invalid storage or snapshot |
 | `start_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
@@ -113,6 +114,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 ### VM Notes
 
 - `stop_vm` is the force-stop path. Use `shutdown_vm` for graceful guest shutdown when supported.
+- `get_vm_interfaces` reads guest NIC and IP data from QEMU Guest Agent (`network-get-interfaces`).
 - `execute_vm_command` is not a generic SSH shell. It is mediated through QEMU Guest Agent and command-policy checks.
 - `create_vm`, `clone_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
 

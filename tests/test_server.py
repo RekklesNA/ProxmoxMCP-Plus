@@ -202,6 +202,7 @@ async def test_list_tools(server):
     assert "get_vms" in tool_names
     assert "get_containers" in tool_names
     assert "execute_vm_command" in tool_names
+    assert "get_vm_interfaces" in tool_names
     assert "clone_vm" in tool_names
     assert "update_container_resources" in tool_names
     assert "execute_container_command" not in tool_names
@@ -692,6 +693,71 @@ async def test_get_cluster_status(server, mock_proxmox):
     assert "test-cluster" in text
     assert "Quorum: OK" in text
     assert "Nodes: 2" in text
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces(server, mock_proxmox):
+    """get_vm_interfaces returns interfaces and extracts primary_ip."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.agent.return_value.get.return_value = [
+        {
+            "name": "lo",
+            "ip-addresses": [
+                {"ip-address-type": "ipv4", "ip-address": "127.0.0.1", "prefix": 8},
+            ],
+        },
+        {
+            "name": "eth0",
+            "hardware-address": "52:54:00:12:34:56",
+            "ip-addresses": [
+                {"ip-address-type": "ipv4", "ip-address": "10.1.0.100", "prefix": 24},
+                {"ip-address-type": "ipv6", "ip-address": "fe80::1", "prefix": 64},
+            ],
+        },
+    ]
+    vm_api.config.get.return_value = {"name": "ubuntu-100"}
+
+    response = await server.mcp.call_tool(
+        "get_vm_interfaces", {"node": "node1", "vmid": "100"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "100"
+    assert result["name"] == "ubuntu-100"
+    assert result["primary_ip"] == "10.1.0.100"
+    iface_names = [i["name"] for i in result["interfaces"]]
+    assert "lo" not in iface_names
+    assert "eth0" in iface_names
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_no_ipv4(server, mock_proxmox):
+    """get_vm_interfaces returns primary_ip=None when only IPv6 exists."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.agent.return_value.get.return_value = [
+        {
+            "name": "eth0",
+            "ip-addresses": [
+                {"ip-address-type": "ipv6", "ip-address": "fe80::1", "prefix": 64},
+            ],
+        },
+    ]
+    vm_api.config.get.return_value = {"name": "vm-100"}
+
+    response = await server.mcp.call_tool(
+        "get_vm_interfaces", {"node": "node1", "vmid": "100"}
+    )
+    result = json.loads(response[0].text)
+
+    assert result["primary_ip"] is None
+    assert result["interfaces"][0]["name"] == "eth0"
+
+
+@pytest.mark.asyncio
+async def test_get_vm_interfaces_missing_parameters(server):
+    """get_vm_interfaces raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("get_vm_interfaces", {})
+
 
 @pytest.mark.asyncio
 async def test_execute_vm_command_success(server, mock_proxmox):

@@ -628,6 +628,71 @@ Clone Configuration:
                 raise ValueError(f"VM {vmid} not found on node {node}")
             self._handle_error(f"reset VM {vmid}", e)
 
+    def get_vm_interfaces(self, node: str, vmid: str) -> List[Content]:
+        """Return network interfaces for a VM via QEMU guest agent."""
+        try:
+            raw_interfaces = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+            config = self.proxmox.nodes(node).qemu(vmid).config.get()
+            vm_name = config.get("name") or f"vm-{vmid}"
+
+            if isinstance(raw_interfaces, dict):
+                interfaces_raw = raw_interfaces.get("result") or raw_interfaces.get("interfaces") or []
+            elif isinstance(raw_interfaces, list):
+                interfaces_raw = raw_interfaces
+            else:
+                interfaces_raw = []
+
+            interfaces: list[dict[str, Any]] = []
+            primary_ip: Optional[str] = None
+            for iface in interfaces_raw:
+                if not isinstance(iface, dict):
+                    continue
+                iface_name = iface.get("name") or iface.get("ifname")
+                if iface_name == "lo":
+                    continue
+
+                entry: dict[str, Any] = {"name": iface_name}
+                hardware_address = iface.get("hardware-address") or iface.get("hardware_address")
+                if hardware_address:
+                    entry["hardware_address"] = hardware_address
+
+                ip_rows: list[dict[str, Any]] = []
+                ip_addresses = iface.get("ip-addresses") or iface.get("ip_addresses") or []
+                if isinstance(ip_addresses, list):
+                    for ip_addr in ip_addresses:
+                        if not isinstance(ip_addr, dict):
+                            continue
+                        ip_value = ip_addr.get("ip-address") or ip_addr.get("ip_address")
+                        if not ip_value:
+                            continue
+                        ip_type = ip_addr.get("ip-address-type") or ip_addr.get("ip_address_type")
+                        prefix = ip_addr.get("prefix")
+                        ip_entry: dict[str, Any] = {"ip_address": ip_value}
+                        if ip_type:
+                            ip_entry["ip_address_type"] = ip_type
+                        if prefix is not None:
+                            ip_entry["prefix"] = prefix
+                        ip_rows.append(ip_entry)
+                        if (
+                            primary_ip is None
+                            and ip_value != "127.0.0.1"
+                            and (ip_type == "ipv4" or "." in ip_value)
+                        ):
+                            primary_ip = ip_value
+
+                entry["ip_addresses"] = ip_rows
+                interfaces.append(entry)
+
+            result = {
+                "vmid": vmid,
+                "name": vm_name,
+                "interfaces": interfaces,
+                "primary_ip": primary_ip,
+            }
+            return self._format_response(result)
+        except Exception as e:
+            self._handle_error(f"get VM interfaces for {vmid}", e)
+
     async def execute_command(
         self,
         node: str,
