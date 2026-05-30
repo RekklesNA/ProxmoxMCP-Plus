@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any, Awaitable, Callable, Literal, Optional
+from typing import Annotated, Any, Awaitable, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ from proxmox_mcp.tools.definitions import (
     DELETE_SNAPSHOT_DESC,
     DELETE_VM_DESC,
     DOWNLOAD_ISO_DESC,
+    UPDATE_VM_DESC,
     EXECUTE_CONTAINER_COMMAND_DESC,
     EXECUTE_VM_COMMAND_DESC,
     GET_JOB_DESC,
@@ -370,6 +371,75 @@ class VMToolsPlugin(RegistryPluginBase):
                 vmid,
                 force,
                 approval_token=approval_token,
+            )
+
+        @server.mcp.tool(description=UPDATE_VM_DESC)
+        def update_vm(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            cores: Annotated[Optional[int], Field(description="Number of CPU cores", ge=1, default=None)] = None,
+            sockets: Annotated[Optional[int], Field(description="Number of CPU sockets", ge=1, default=None)] = None,
+            cpu_type: Annotated[Optional[str], Field(description="CPU emulation type (e.g. 'host', 'kvm64')", default=None)] = None,
+            vcpus: Annotated[Optional[int], Field(description="Number of hotplugged vCPUs", ge=1, default=None)] = None,
+            memory: Annotated[Optional[int], Field(description="Memory size in MB", ge=16, default=None)] = None,
+            balloon: Annotated[Optional[int], Field(description="Balloon minimum memory in MB (0 to disable)", ge=0, default=None)] = None,
+            disks: Annotated[Optional[Dict[str, str]], Field(description="Dict of disk configs to add/update, e.g. {\"scsi0\": \"local-lvm:10,format=qcow2\"}", default=None)] = None,
+            disk_resize: Annotated[Optional[Dict[str, str]], Field(description="Dict of disks to resize, e.g. {\"scsi0\": \"+10G\"}", default=None)] = None,
+            disk_delete: Annotated[Optional[List[str]], Field(description="List of disk IDs to remove, e.g. [\"scsi1\"]", default=None)] = None,
+            net0: Annotated[Optional[str], Field(description="Network interface 0 config, e.g. \"virtio,bridge=vmbr0,tag=10\"", default=None)] = None,
+            net1: Annotated[Optional[str], Field(description="Network interface 1 config", default=None)] = None,
+            net2: Annotated[Optional[str], Field(description="Network interface 2 config", default=None)] = None,
+            net3: Annotated[Optional[str], Field(description="Network interface 3 config", default=None)] = None,
+            onboot: Annotated[Optional[bool], Field(description="Start VM automatically when node boots", default=None)] = None,
+            agent: Annotated[Optional[bool], Field(description="Enable QEMU guest agent", default=None)] = None,
+            boot: Annotated[Optional[str], Field(description="Boot order, e.g. \"order=scsi0;ide2\"", default=None)] = None,
+            bios: Annotated[Optional[str], Field(description="BIOS type: 'seabios' or 'ovmf'", default=None)] = None,
+            ostype: Annotated[Optional[str], Field(description="OS type, e.g. 'l26' for Linux", default=None)] = None,
+            tags: Annotated[Optional[str], Field(description="VM tags", default=None)] = None,
+            description: Annotated[Optional[str], Field(description="Description text", default=None)] = None,
+            startup: Annotated[Optional[str], Field(description="Startup and shutdown order", default=None)] = None,
+            scsihw: Annotated[Optional[str], Field(description="SCSI controller model", default=None)] = None,
+            vga: Annotated[Optional[str], Field(description="VGA type", default=None)] = None,
+            tablet: Annotated[Optional[bool], Field(description="Enable USB tablet", default=None)] = None,
+            kvm: Annotated[Optional[bool], Field(description="Enable KVM hardware virtualization", default=None)] = None,
+            machine: Annotated[Optional[str], Field(description="Machine type, e.g. 'q35' or 'pc'", default=None)] = None,
+            nameserver: Annotated[Optional[str], Field(description="DNS nameserver", default=None)] = None,
+            searchdomain: Annotated[Optional[str], Field(description="DNS search domain", default=None)] = None,
+            extra_config: Annotated[Optional[Dict[str, str]], Field(description="Additional Proxmox config keys (advanced)", default=None)] = None,
+            approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "update_vm", server.vm_tools.update_vm, high_risk=True)(
+                node=node,
+                vmid=vmid,
+                cores=cores,
+                sockets=sockets,
+                cpu_type=cpu_type,
+                vcpus=vcpus,
+                memory=memory,
+                balloon=balloon,
+                disks=disks,
+                disk_resize=disk_resize,
+                disk_delete=disk_delete,
+                net0=net0,
+                net1=net1,
+                net2=net2,
+                net3=net3,
+                onboot=onboot,
+                agent=agent,
+                boot=boot,
+                bios=bios,
+                ostype=ostype,
+                tags=tags,
+                description=description,
+                startup=startup,
+                scsihw=scsihw,
+                vga=vga,
+                tablet=tablet,
+                kvm=kvm,
+                machine=machine,
+                nameserver=nameserver,
+                searchdomain=searchdomain,
+                extra_config=extra_config,
             )
 
 

@@ -147,6 +147,10 @@
             "description": "Completely delete a virtual machine"
         },
         {
+            "name": "update_vm",
+            "description": "Update VM configuration (CPU, RAM, disks, network). VM must be stopped."
+        },
+        {
             "name": "get_storage",
             "description": "List available storage pools"
         },

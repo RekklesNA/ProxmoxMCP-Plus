@@ -566,6 +566,12 @@ class JobStore:
         self.register_retry_handler("vm.shutdown", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.shutdown.post())
         self.register_retry_handler("vm.reset", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.reset.post())
         self.register_retry_handler("vm.delete", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).delete())
+        self.register_retry_handler(
+            "vm.config.update",
+            lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).resize.put(
+                disk=params["disk"], size=params["size"]
+            ),
+        )
         self.register_retry_handler("ct.start", lambda params: self.proxmox.nodes(params["node"]).lxc(params["vmid"]).status.start.post())
         self.register_retry_handler(
             "ct.stop",

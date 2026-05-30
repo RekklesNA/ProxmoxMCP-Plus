@@ -344,8 +344,9 @@ async def test_list_tools(server):
     # LXC config tools (no SSH required)
     assert "get_container_config" in tool_names
     assert "get_container_ip" in tool_names
-    # VM config tool
+    # VM config tools
     assert "get_vm_config" in tool_names
+    assert "update_vm" in tool_names
 
 
 @pytest.mark.asyncio
@@ -1175,6 +1176,90 @@ async def test_get_vm_config_api_error(server, mock_proxmox):
 
     with pytest.raises(ToolError, match="get_vm_config"):
         await server.mcp.call_tool("get_vm_config", {"node": "node1", "vmid": "999"})
+
+
+# ---------------------------------------------------------------------------
+# update_vm
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_vm(server, mock_proxmox):
+    """update_vm modifies CPU, RAM, and resizes disk, registering a job for resize."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "stopped", "name": "test-vm"}
+    vm_api.config.put.return_value = {}
+    vm_api.resize.put.return_value = "UPID:node1:0000000000:00000000:resize:100:"
+
+    response = await server.mcp.call_tool(
+        "update_vm",
+        {
+            "node": "node1",
+            "vmid": "100",
+            "cores": 4,
+            "sockets": 2,
+            "memory": 8192,
+            "disk_resize": {"scsi0": "+20G"},
+            "net0": "virtio,bridge=vmbr0",
+            "onboot": True,
+            "agent": True,
+        },
+    )
+    result_text = response[0].text
+
+    assert "VM 100 (test-vm) configuration update on node1" in result_text
+    assert "cores=4" in result_text
+    assert "sockets=2" in result_text
+    assert "memory=8192MiB" in result_text
+    assert "scsi0+=+20G" in result_text
+    assert "net0=virtio,bridge=vmbr0" in result_text
+    assert "onboot=True" in result_text
+    assert "agent=True" in result_text
+    assert "Job ID:" in result_text
+
+    vm_api.config.put.assert_called_with(
+        cores=4, sockets=2, memory=8192, net0="virtio,bridge=vmbr0",
+        onboot=1, agent=1,
+    )
+    vm_api.resize.put.assert_called_with(disk="scsi0", size="+20G")
+
+
+@pytest.mark.asyncio
+async def test_update_vm_running_raises_error(server, mock_proxmox):
+    """update_vm raises ValueError when VM is running."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "running", "name": "test-vm"}
+
+    with pytest.raises(ToolError, match="currently running"):
+        await server.mcp.call_tool(
+            "update_vm",
+            {"node": "node1", "vmid": "100", "cores": 4},
+        )
+
+    vm_api.config.put.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_vm_disk_delete(server, mock_proxmox):
+    """update_vm deletes disks by setting them to 'none'."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.status.current.get.return_value = {"status": "stopped", "name": "test-vm"}
+    vm_api.config.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "update_vm",
+        {
+            "node": "node1",
+            "vmid": "100",
+            "disk_delete": ["scsi1", "ide2"],
+        },
+    )
+    result_text = response[0].text
+
+    assert "deleted scsi1" in result_text
+    assert "deleted ide2" in result_text
+
+    assert vm_api.config.put.call_args_list[0].kwargs == {"scsi1": "none"}
+    assert vm_api.config.put.call_args_list[1].kwargs == {"ide2": "none"}
 
 
 # ---------------------------------------------------------------------------

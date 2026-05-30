@@ -982,3 +982,243 @@ VM {vmid} ({vm_name}) is being deleted from node {node}"""
             raise e
         except Exception as e:
             self._handle_error(f"delete VM {vmid}", e)
+
+    def update_vm(
+        self,
+        node: str,
+        vmid: str,
+        cores: Optional[int] = None,
+        sockets: Optional[int] = None,
+        cpu_type: Optional[str] = None,
+        vcpus: Optional[int] = None,
+        memory: Optional[int] = None,
+        balloon: Optional[int] = None,
+        disks: Optional[Dict[str, str]] = None,
+        disk_resize: Optional[Dict[str, str]] = None,
+        disk_delete: Optional[List[str]] = None,
+        net0: Optional[str] = None,
+        net1: Optional[str] = None,
+        net2: Optional[str] = None,
+        net3: Optional[str] = None,
+        onboot: Optional[bool] = None,
+        agent: Optional[bool] = None,
+        boot: Optional[str] = None,
+        bios: Optional[str] = None,
+        ostype: Optional[str] = None,
+        tags: Optional[str] = None,
+        description: Optional[str] = None,
+        startup: Optional[str] = None,
+        scsihw: Optional[str] = None,
+        vga: Optional[str] = None,
+        tablet: Optional[bool] = None,
+        kvm: Optional[bool] = None,
+        machine: Optional[str] = None,
+        nameserver: Optional[str] = None,
+        searchdomain: Optional[str] = None,
+        extra_config: Optional[Dict[str, str]] = None,
+    ) -> List[Content]:
+        """Update configuration of a virtual machine.
+
+        VM must be stopped before modifying configuration.
+
+        Args:
+            node: Proxmox node name
+            vmid: VM ID number
+            cores: Number of CPU cores
+            sockets: Number of CPU sockets
+            cpu_type: CPU emulation type
+            vcpus: Number of hotplugged vCPUs
+            memory: Memory size in MB
+            balloon: Balloon minimum memory in MB
+            disks: Dict of disk configs to add/update
+            disk_resize: Dict of disks to resize
+            disk_delete: List of disk IDs to remove
+            net0-net3: Network interface configs
+            onboot: Start VM at boot
+            agent: QEMU guest agent
+            boot: Boot order
+            bios: BIOS type
+            ostype: OS type
+            tags: VM tags
+            description: Description text
+            startup: Startup order
+            scsihw: SCSI controller
+            vga: VGA type
+            tablet: USB tablet
+            kvm: KVM hardware virtualization
+            machine: Machine type
+            nameserver: DNS nameserver
+            searchdomain: DNS search domain
+            extra_config: Additional Proxmox config keys
+
+        Returns:
+            List of Content objects with update result
+
+        Raises:
+            ValueError: If VM is running or not found
+            RuntimeError: If update fails
+        """
+        try:
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            if vm_status.get("status") == "running":
+                raise ValueError(
+                    f"VM {vmid} is currently running on node {node}. "
+                    "Configuration changes can only be made on stopped VMs. "
+                    "Use stop_vm or shutdown_vm to stop it first."
+                )
+
+            vm_name = vm_status.get("name", f"VM-{vmid}")
+
+            config_params: Dict[str, Any] = {}
+            changes: List[str] = []
+
+            if cores is not None:
+                config_params["cores"] = cores
+                changes.append(f"cores={cores}")
+            if sockets is not None:
+                config_params["sockets"] = sockets
+                changes.append(f"sockets={sockets}")
+            if cpu_type is not None:
+                config_params["cpu"] = cpu_type
+                changes.append(f"cpu={cpu_type}")
+            if vcpus is not None:
+                config_params["vcpus"] = vcpus
+                changes.append(f"vcpus={vcpus}")
+            if memory is not None:
+                config_params["memory"] = memory
+                changes.append(f"memory={memory}MiB")
+            if balloon is not None:
+                config_params["balloon"] = balloon
+                changes.append(f"balloon={balloon}")
+            if disks is not None:
+                config_params.update(disks)
+                for k, v in disks.items():
+                    changes.append(f"{k}={v}")
+            if net0 is not None:
+                config_params["net0"] = net0
+                changes.append(f"net0={net0}")
+            if net1 is not None:
+                config_params["net1"] = net1
+                changes.append(f"net1={net1}")
+            if net2 is not None:
+                config_params["net2"] = net2
+                changes.append(f"net2={net2}")
+            if net3 is not None:
+                config_params["net3"] = net3
+                changes.append(f"net3={net3}")
+            if onboot is not None:
+                config_params["onboot"] = 1 if onboot else 0
+                changes.append(f"onboot={onboot}")
+            if agent is not None:
+                config_params["agent"] = 1 if agent else 0
+                changes.append(f"agent={agent}")
+            if boot is not None:
+                config_params["boot"] = boot
+                changes.append(f"boot={boot}")
+            if bios is not None:
+                config_params["bios"] = bios
+                changes.append(f"bios={bios}")
+            if ostype is not None:
+                config_params["ostype"] = ostype
+                changes.append(f"ostype={ostype}")
+            if tags is not None:
+                config_params["tags"] = tags
+                changes.append(f"tags={tags}")
+            if description is not None:
+                config_params["description"] = description
+                changes.append(f"description={description}")
+            if startup is not None:
+                config_params["startup"] = startup
+                changes.append(f"startup={startup}")
+            if scsihw is not None:
+                config_params["scsihw"] = scsihw
+                changes.append(f"scsihw={scsihw}")
+            if vga is not None:
+                config_params["vga"] = vga
+                changes.append(f"vga={vga}")
+            if tablet is not None:
+                config_params["tablet"] = 1 if tablet else 0
+                changes.append(f"tablet={tablet}")
+            if kvm is not None:
+                config_params["kvm"] = 1 if kvm else 0
+                changes.append(f"kvm={kvm}")
+            if machine is not None:
+                config_params["machine"] = machine
+                changes.append(f"machine={machine}")
+            if nameserver is not None:
+                config_params["nameserver"] = nameserver
+                changes.append(f"nameserver={nameserver}")
+            if searchdomain is not None:
+                config_params["searchdomain"] = searchdomain
+                changes.append(f"searchdomain={searchdomain}")
+            if extra_config is not None:
+                config_params.update(extra_config)
+                for k, v in extra_config.items():
+                    changes.append(f"{k}={v}")
+
+            applied: List[str] = list(changes)
+            errors: List[str] = []
+
+            if config_params:
+                try:
+                    self.proxmox.nodes(node).qemu(vmid).config.put(**config_params)
+                except Exception as e:
+                    errors.append(f"config update failed: {e}")
+
+            if disk_delete:
+                for disk_id in disk_delete:
+                    try:
+                        self.proxmox.nodes(node).qemu(vmid).config.put(**{disk_id: "none"})
+                        applied.append(f"deleted {disk_id}")
+                    except Exception as e:
+                        errors.append(f"delete {disk_id} failed: {e}")
+
+            job_id_str = "n/a"
+            if disk_resize:
+                for disk_id, size_str in disk_resize.items():
+                    try:
+                        upid = self.proxmox.nodes(node).qemu(vmid).resize.put(
+                            disk=disk_id, size=size_str
+                        )
+                        job = self._register_background_job(
+                            tool_name="update_vm",
+                            summary=f"Resize {disk_id} on VM {vmid} ({vm_name}) on {node}",
+                            node=node,
+                            upid=upid,
+                            metadata={"vmid": vmid, "disk": disk_id, "size": size_str},
+                            retry_spec={
+                                "kind": "vm.config.update",
+                                "params": {
+                                    "node": node,
+                                    "vmid": vmid,
+                                    "disk": disk_id,
+                                    "size": size_str,
+                                },
+                            },
+                            retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).resize.put(
+                                disk=disk_id, size=size_str,
+                            ),
+                            cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                        )
+                        job_id_str = job["job_id"] if job else "n/a"
+                        applied.append(f"{disk_id}+={size_str}")
+                    except Exception as e:
+                        errors.append(f"resize {disk_id} failed: {e}")
+
+            result_lines = [f"VM {vmid} ({vm_name}) configuration update on {node}"]
+            if applied:
+                result_lines.append(f"Applied: {', '.join(applied)}")
+            if errors:
+                result_lines.append(f"Errors: {'; '.join(errors)}")
+            if not applied and not errors:
+                result_lines.append("No changes requested")
+
+            if disk_resize:
+                result_lines.append(f"Job ID: {job_id_str}")
+
+            return [Content(type="text", text="\n".join(result_lines))]
+
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            self._handle_error(f"update VM {vmid}", e)
