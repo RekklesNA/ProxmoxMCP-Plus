@@ -61,6 +61,25 @@ vmid* - VM ID number (e.g. '100')
 Example:
 {"vmid": "100", "name": "ubuntu", "cores": 2, "memory": 4096, "scsi0": "local-lvm:vm-100-disk-0,size=20G"}"""
 
+GET_VM_INFO_DESC = """Get comprehensive configuration and runtime information for a virtual machine.
+
+Returns CPU, memory, disk, network configuration, and live IP addresses
+(via QEMU guest agent if available and VM is running).
+
+Parameters:
+node* - Host node name (e.g. 'pve')
+vmid* - VM ID number (e.g. '100')
+
+Returns a structured payload with:
+- Basic info: vmid, name, node, status
+- cpu: cores, sockets, type, usage percentage
+- memory: total and used in MiB
+- disks: bus, storage, size, format for each disk
+- network: configured interfaces (from config) and live IP info (from QEMU agent)
+
+Example:
+{"vmid": "100", "name": "ubuntu", "status": "running", "cpu": {"cores": 2}, "disks": [...], "network": {...}}"""
+
 CREATE_VM_DESC = """Create a new virtual machine with specified configuration.
 
 Parameters:

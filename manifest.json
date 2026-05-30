@@ -111,6 +111,10 @@
             "description": "Get full configuration for a QEMU virtual machine"
         },
         {
+            "name": "get_vm_info",
+            "description": "Get comprehensive VM configuration including CPU, RAM, disks, network, and live IP addresses"
+        },
+        {
             "name": "create_vm",
             "description": "Create a new virtual machine with specified resources"
         },

@@ -32,6 +32,7 @@ from proxmox_mcp.tools.definitions import (
     GET_STORAGE_DESC,
     GET_VMS_DESC,
     GET_VM_CONFIG_DESC,
+    GET_VM_INFO_DESC,
     LIST_JOBS_DESC,
     LIST_BACKUPS_DESC,
     LIST_ISOS_DESC,
@@ -253,6 +254,16 @@ class VMToolsPlugin(RegistryPluginBase):
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
         ) -> Any:
             return self._wrap_sync(server, "get_vm_config", server.vm_tools.get_vm_config)(
+                node=node,
+                vmid=vmid,
+            )
+
+        @server.mcp.tool(description=GET_VM_INFO_DESC)
+        def get_vm_info(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+        ) -> Any:
+            return self._wrap_sync(server, "get_vm_info", server.vm_tools.get_vm_info)(
                 node=node,
                 vmid=vmid,
             )

@@ -211,6 +211,181 @@ class VMTools(ProxmoxTool):
 
         return self._format_response(result, "vms")
 
+    def get_vm_info(self, node: str, vmid: str) -> List[Content]:
+        """Return comprehensive VM info including CPU, RAM, disks, network, and IP addresses.
+
+        Combines data from VM config, status, and QEMU guest agent.
+        """
+        try:
+            config = _as_dict(self.proxmox.nodes(node).qemu(vmid).config.get())
+            status = _as_dict(self.proxmox.nodes(node).qemu(vmid).status.current.get())
+
+            vm_name = config.get("name") or status.get("name") or f"VM-{vmid}"
+            vm_status = status.get("status", "unknown")
+
+            # --- CPU ---
+            cpu_info: Dict[str, Any] = {
+                "cores": config.get("cores", "N/A"),
+                "sockets": config.get("sockets", 1),
+                "type": config.get("cpu", "default"),
+            }
+            cpu_frac = status.get("cpu")
+            if cpu_frac is not None:
+                try:
+                    cpu_info["cpu_pct"] = round(float(cpu_frac) * 100.0, 2)
+                except Exception:
+                    pass
+
+            # --- Memory ---
+            memory_mib = config.get("memory")
+            memory_info: Dict[str, Any] = {
+                "total_mib": memory_mib if memory_mib is not None else "N/A",
+            }
+            mem_used = status.get("mem")
+            max_mem = status.get("maxmem")
+            if mem_used is not None:
+                try:
+                    memory_info["used_bytes"] = int(mem_used)
+                except Exception:
+                    pass
+            if max_mem is not None:
+                try:
+                    memory_info["total_bytes"] = int(max_mem)
+                except Exception:
+                    pass
+            if memory_info.get("used_bytes") and memory_info.get("total_bytes"):
+                try:
+                    memory_info["used_pct"] = round(
+                        memory_info["used_bytes"] / memory_info["total_bytes"] * 100.0, 2
+                    )
+                except Exception:
+                    pass
+
+            # --- Disks ---
+            disk_prefixes = ("scsi", "virtio", "ide", "sata")
+            disks: List[Dict[str, Any]] = []
+            for key, value in config.items():
+                if not isinstance(value, str):
+                    continue
+                if not key.startswith(disk_prefixes):
+                    continue
+                bus = key.rstrip("0123456789")
+                index = key[len(bus):]
+                if not index.isdigit():
+                    continue
+                parts = value.split(",")
+                disk_path = parts[0]
+                disk_entry: Dict[str, Any] = {
+                    "bus": key,
+                    "type": "cdrom" if key.startswith("ide") else "disk",
+                }
+                if ":" in disk_path:
+                    storage, vol = disk_path.split(":", 1)
+                    disk_entry["storage"] = storage
+                    disk_entry["volume"] = vol
+                for p in parts[1:]:
+                    if p.startswith("size="):
+                        disk_entry["size"] = p.split("=", 1)[1]
+                    elif p.startswith("format="):
+                        disk_entry["format"] = p.split("=", 1)[1]
+                    elif p == "media=cdrom":
+                        disk_entry["type"] = "cdrom"
+                if key.startswith("ide") and ("media=cdrom" not in value or "cloudinit" in value):
+                    disk_entry["type"] = "cloudinit" if "cloudinit" in value else "cdrom"
+                disks.append(disk_entry)
+
+            # --- Network (config) ---
+            net_interfaces: List[Dict[str, Any]] = []
+            for key, value in config.items():
+                if not key.startswith("net") or not isinstance(value, str):
+                    continue
+                index = key[3:]
+                if not index.isdigit():
+                    continue
+                iface: Dict[str, Any] = {"id": key}
+                parts = [p.strip() for p in value.split(",")]
+                for p in parts:
+                    if "=" in p:
+                        k, v = p.split("=", 1)
+                        if k == "bridge":
+                            iface["bridge"] = v
+                        elif k == "mac":
+                            iface["mac_address"] = v
+                        elif k == "tag":
+                            iface["vlan_tag"] = int(v)
+                        elif k == "rate":
+                            iface["rate_limit"] = v
+                        elif k == "firewall":
+                            iface["firewall"] = v
+                    elif p in ("virtio", "e1000", "rtl8139", "vmxnet3"):
+                        iface["model"] = p
+                net_interfaces.append(iface)
+
+            # --- Network (QEMU agent IP) ---
+            agent_info: Optional[List[Dict[str, Any]]] = None
+            if vm_status == "running":
+                try:
+                    raw_agent = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+                    agent_data = raw_agent
+                    if isinstance(agent_data, dict):
+                        agent_data = agent_data.get("result") or agent_data.get("data") or agent_data
+                    if isinstance(agent_data, list):
+                        agent_info = []
+                        for iface in agent_data:
+                            if not isinstance(iface, dict):
+                                continue
+                            name = iface.get("name", "unknown")
+                            if name == "lo":
+                                continue
+                            entry: Dict[str, Any] = {
+                                "name": name,
+                                "mac_address": iface.get("hardware-address", ""),
+                            }
+                            ip_list: List[Dict[str, Any]] = []
+                            for ip in iface.get("ip-addresses", []):
+                                if not isinstance(ip, dict):
+                                    continue
+                                ip_entry: Dict[str, Any] = {
+                                    "version": 4 if "ipv4" in str(ip.get("ip-address-type", "")).lower() else 6,
+                                    "address": ip.get("ip-address", ""),
+                                }
+                                prefix = ip.get("prefix")
+                                if prefix is not None:
+                                    try:
+                                        ip_entry["prefix"] = int(prefix)
+                                    except Exception:
+                                        pass
+                                ip_list.append(ip_entry)
+                            if ip_list:
+                                entry["ip_addresses"] = ip_list
+                            agent_info.append(entry)
+                        if not agent_info:
+                            agent_info = None
+                except Exception as e:
+                    self.logger.debug(
+                        "QEMU guest agent not available for VM %s on %s: %s", vmid, node, e
+                    )
+            else:
+                self.logger.debug("Skipping agent network query for stopped VM %s", vmid)
+
+            result = {
+                "vmid": vmid,
+                "name": vm_name,
+                "node": node,
+                "status": vm_status,
+                "cpu": cpu_info,
+                "memory": memory_info,
+                "disks": disks,
+                "network": {
+                    "interfaces": net_interfaces,
+                    "ip_info": agent_info,
+                },
+            }
+            return self._json_fmt(result)
+
+        except Exception as e:
+            return self._err("get_vm_info", e)
+
     def create_vm(
         self,
         node: str,
