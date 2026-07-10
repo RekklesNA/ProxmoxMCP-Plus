@@ -89,10 +89,21 @@ which is the same surface that already exists if an attacker compromises a conta
 
 ### SSH host key checking
 
-The implementation uses `paramiko.AutoAddPolicy`, which accepts host keys on first connect
-(trust-on-first-use). This is appropriate for use within a private cluster network. If your
-security requirements demand strict host key pinning, you can pre-populate `~/.ssh/known_hosts`
-on the MCP VM for each Proxmox node before starting the server.
+The implementation loads host keys from the MCP VM's `~/.ssh/known_hosts` (via
+`paramiko.SSHClient.load_system_host_keys`) and rejects any host whose key isn't already known
+(`paramiko.RejectPolicy`) — unknown or mismatched host keys fail loudly instead of being trusted
+silently. Before first use, connect once via a normal `ssh` client to each Proxmox node (or its
+`host_overrides` address) from the MCP VM, verify the fingerprint, and accept it so it's recorded
+in `known_hosts`:
+
+```bash
+ssh mcp-agent@pve1 "echo host key recorded"
+```
+
+If you keep host keys in a different file, point to it with `known_hosts_file` in the `ssh`
+config section. If a node's host key changes (e.g. after a legitimate reinstall), the connection
+will fail with a clear error — verify the new fingerprint out-of-band, run
+`ssh-keygen -R <host>`, and reconnect once via `ssh` to re-pin it.
 
 ### Key management
 
@@ -244,6 +255,11 @@ the sudoers rule on that node.
 - `key_file` is the path to the **private** key on the MCP VM (no `.pub` extension).
 - `use_sudo: true` tells the MCP server to prefix the `pct exec` call with `sudo`, required
   because `mcp-agent` is not root.
+
+The manual SSH test in Step 6 also serves a second purpose: it records each node's host key in
+`~/.ssh/known_hosts` on the MCP VM, which the server requires (see
+[SSH host key checking](#ssh-host-key-checking) above). If you keep known hosts in a non-default
+file, set `known_hosts_file` in this section to point to it.
 
 **Optional — if Proxmox node names don't resolve via DNS from the MCP VM**, add `host_overrides`
 to map node names to IPs directly:

@@ -79,6 +79,7 @@ class SSHConfig(BaseModel):
     password: Optional[str] = None   # fallback if no key_file
     host_overrides: Dict[str, str] = Field(default_factory=dict)
     use_sudo: bool = False  # prefix pct with sudo (for non-root SSH users)
+    known_hosts_file: Optional[str] = None  # path to known_hosts; defaults to ~/.ssh/known_hosts
 
 class MCPConfig(BaseModel):
     """Model for MCP server configuration.

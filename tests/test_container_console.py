@@ -2,6 +2,8 @@
 Tests for LXC container console operations via SSH + pct exec.
 """
 
+import os
+
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -20,6 +22,7 @@ class _SSHConfig:
     password = None
     host_overrides: dict = {}
     use_sudo = False
+    known_hosts_file = None
 
 
 @pytest.fixture
@@ -116,6 +119,65 @@ def test_execute_command_ssh_failure(MockSSHClient, manager):
 
     with pytest.raises(RuntimeError, match="SSH error"):
         manager.execute_command("pve1", "101", "uname -a")
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_unknown_host_key_is_rejected_not_trusted(MockSSHClient, manager):
+    """Unknown-host-key failures (RejectPolicy) surface a clear, actionable error."""
+    import paramiko
+    mock_client = MagicMock()
+    mock_client.connect.side_effect = paramiko.SSHException(
+        "Server 'pve1' not found in known_hosts"
+    )
+    MockSSHClient.return_value = mock_client
+
+    with pytest.raises(RuntimeError, match="known_hosts"):
+        manager.execute_command("pve1", "101", "uname -a")
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_host_key_mismatch_raises_clear_error(MockSSHClient, manager):
+    """A changed/spoofed host key (BadHostKeyException) fails loudly with guidance."""
+    import paramiko
+    mock_client = MagicMock()
+    bad_key = MagicMock()
+    mock_client.connect.side_effect = paramiko.BadHostKeyException(
+        "pve1", bad_key, bad_key
+    )
+    MockSSHClient.return_value = mock_client
+
+    with pytest.raises(RuntimeError, match="host key verification failed"):
+        manager.execute_command("pve1", "101", "uname -a")
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_uses_reject_policy_and_system_host_keys(MockSSHClient, manager):
+    """Host keys must come from known_hosts and unknown hosts must be rejected,
+    never silently auto-trusted."""
+    import paramiko
+    mock_client = _make_ssh_client(stdout_data=b"ok\n", exit_code=0)
+    MockSSHClient.return_value = mock_client
+
+    manager.execute_command("pve1", "101", "echo ok")
+
+    assert mock_client.load_system_host_keys.called
+    policy_arg = mock_client.set_missing_host_key_policy.call_args[0][0]
+    assert isinstance(policy_arg, paramiko.RejectPolicy)
+    assert not mock_client.load_host_keys.called
+
+
+@patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
+def test_custom_known_hosts_file_is_loaded(MockSSHClient, manager, ssh_cfg):
+    """A configured known_hosts_file is loaded in addition to the system default."""
+    ssh_cfg.known_hosts_file = "~/.ssh/proxmox_known_hosts"
+    mock_client = _make_ssh_client(stdout_data=b"ok\n", exit_code=0)
+    MockSSHClient.return_value = mock_client
+
+    manager.execute_command("pve1", "101", "echo ok")
+
+    mock_client.load_host_keys.assert_called_once_with(
+        os.path.expanduser("~/.ssh/proxmox_known_hosts")
+    )
 
 
 @patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")

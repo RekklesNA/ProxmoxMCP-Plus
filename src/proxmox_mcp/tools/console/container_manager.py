@@ -52,11 +52,16 @@ class ContainerConsoleManager:
         self.logger.info("Executing on CT %s@%s: %s", vmid, node, command)
 
         # 3. SSH to node and run command
+        ssh_host = self._ssh_host(node)
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.load_system_host_keys()
+        known_hosts_file = getattr(self.ssh_cfg, "known_hosts_file", None)
+        if known_hosts_file:
+            client.load_host_keys(os.path.expanduser(known_hosts_file))
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         connect_kwargs: Dict[str, Any] = dict(
-            hostname=self._ssh_host(node),
+            hostname=ssh_host,
             port=self.ssh_cfg.port,
             username=self.ssh_cfg.user,
             timeout=10,
@@ -78,8 +83,23 @@ class ContainerConsoleManager:
                 "error": err,
                 "exit_code": exit_code,
             }
+        except paramiko.BadHostKeyException as e:
+            self.logger.error("SSH host key MISMATCH for %s (%s): %s", node, ssh_host, e)
+            raise RuntimeError(
+                f"SSH host key verification failed for node {node} ({ssh_host}): the key "
+                f"presented by the server does not match the one recorded in known_hosts. "
+                f"This could mean the host key was legitimately rotated, or it could indicate "
+                f"a man-in-the-middle attack. Verify the new fingerprint out-of-band, then run "
+                f"`ssh-keygen -R {ssh_host}` and reconnect once via a normal `ssh` client to "
+                f"record the new key before retrying."
+            ) from e
         except paramiko.SSHException as e:
-            self.logger.error("SSH error connecting to %s: %s", node, e)
-            raise RuntimeError(f"SSH error connecting to node {node}: {e}") from e
+            self.logger.error("SSH error connecting to %s (%s): %s", node, ssh_host, e)
+            raise RuntimeError(
+                f"SSH error connecting to node {node} ({ssh_host}): {e}. If this is an "
+                f"unrecognized-host-key error, connect once via a normal `ssh` client to "
+                f"{ssh_host} to verify and record its host key in ~/.ssh/known_hosts "
+                f"(or the file configured via ssh.known_hosts_file), then retry."
+            ) from e
         finally:
             client.close()
