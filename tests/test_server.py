@@ -570,6 +570,33 @@ async def test_get_vms_skips_offline_node(server, mock_proxmox):
     assert "node1" in text
     assert "node2" not in text
 
+
+@pytest.mark.asyncio
+async def test_create_vm_passes_resource_pool_to_proxmox(server, mock_proxmox):
+    """create_vm should expose and forward the optional Proxmox resource pool."""
+    proxmox = mock_proxmox.return_value
+    node_api = proxmox.nodes.return_value
+    node_api.qemu.return_value.config.get.side_effect = RuntimeError("does not exist")
+    node_api.storage.get.return_value = [
+        {"storage": "local-lvm", "content": "images,rootdir", "type": "lvmthin"},
+    ]
+    node_api.qemu.create.return_value = "UPID:vm-create-pool"
+
+    await server.mcp.call_tool(
+        "create_vm",
+        {
+            "node": "node1",
+            "vmid": "210",
+            "name": "pool-vm",
+            "cpus": 2,
+            "memory": 2048,
+            "disk_size": 20,
+            "pool": "claude-lab",
+        },
+    )
+
+    assert node_api.qemu.create.call_args.kwargs["pool"] == "claude-lab"
+
 @pytest.mark.asyncio
 async def test_get_containers(server, mock_proxmox):
     """Test get_containers tool."""
@@ -734,6 +761,28 @@ async def test_create_container_with_lxc_options(server, mock_proxmox):
     )
     assert "Start on boot: Yes" in text
     assert "Nesting enabled: Yes" in text
+
+
+@pytest.mark.asyncio
+async def test_create_container_passes_resource_pool_to_proxmox(server, mock_proxmox):
+    """create_container should expose and forward the optional Proxmox resource pool."""
+    proxmox = mock_proxmox.return_value
+    proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
+    proxmox.nodes.return_value.lxc.get.return_value = []
+    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-pool"
+
+    await server.mcp.call_tool(
+        "create_container",
+        {
+            "node": "node1",
+            "vmid": "211",
+            "ostemplate": "local:vztmpl/debian-12-standard.tar.zst",
+            "pool": "claude-lab",
+        },
+    )
+
+    assert proxmox.nodes.return_value.lxc.create.call_args.kwargs["pool"] == "claude-lab"
 
 @pytest.mark.asyncio
 async def test_create_container_default_lxc_options(server, mock_proxmox):

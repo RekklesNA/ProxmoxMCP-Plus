@@ -268,6 +268,7 @@ class VMToolsPlugin(RegistryPluginBase):
             storage: Annotated[Optional[str], Field(description="Storage name (optional, will auto-detect)", default=None)] = None,
             ostype: Annotated[Optional[str], Field(description="OS type (optional, default: 'l26' for Linux)", default=None)] = None,
             network_bridge: Annotated[Optional[str], Field(description="Network bridge name (optional, default: 'vmbr0')", default=None)] = None,
+            pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_vm", server.vm_tools.create_vm)(
                 node,
@@ -279,6 +280,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 storage,
                 ostype,
                 network_bridge,
+                pool,
             )
 
         @server.mcp.tool(description=CLONE_VM_DESC)
@@ -464,6 +466,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
             onboot: Annotated[bool, Field(description="Start container automatically when node boots", default=False)] = False,
             nesting: Annotated[bool, Field(description="Enable LXC nesting (features: nesting=1)", default=False)] = False,
             unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
+            pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_container", server.container_tools.create_container)(
                 node=node,
@@ -482,6 +485,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 onboot=onboot,
                 nesting=nesting,
                 unprivileged=unprivileged,
+                pool=pool,
             )
 
         @server.mcp.tool(description=DELETE_CONTAINER_DESC)

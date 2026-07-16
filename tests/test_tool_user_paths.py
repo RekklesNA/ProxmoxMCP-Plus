@@ -61,6 +61,7 @@ def test_create_vm_auto_detects_lvm_storage_and_registers_job():
     created = node_api.qemu.create.call_args.kwargs
     assert created["scsi0"] == "local-lvm:20,format=raw"
     assert created["net0"] == "virtio,bridge=vmbr0"
+    assert "pool" not in created
     assert "Job ID: job-1" in response[0].text
     assert job_store.registered[0]["retry_spec"]["kind"] == "vm.create"
 
@@ -114,6 +115,7 @@ def test_create_container_auto_detects_storage_and_omits_secret_retry_spec():
     assert created["rootfs"] == "local-lvm:8"
     assert created["features"] == "nesting=1"
     assert created["onboot"] == 1
+    assert "pool" not in created
     assert job_store.registered[0]["retry_spec"] is None
     assert "Job ID: job-1" in response[0].text
 
