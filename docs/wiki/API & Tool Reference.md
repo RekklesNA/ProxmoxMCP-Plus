@@ -101,7 +101,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
 | `get_vms` | Read-only | none | none | Proxmox API reachable | partial node-query failures may reduce returned coverage |
-| `create_vm` | Mutating | `node`, `vmid`, `name`, `cpus`, `memory`, `disk_size` | `storage`, `ostype`, `network_bridge` | target node exists and selected storage is valid | duplicate `vmid`, invalid storage, insufficient resources |
+| `create_vm` | Mutating | `node`, `vmid`, `name`, `cpus`, `memory`, `disk_size` | `storage`, `ostype`, `network_bridge`, `pool` | target node exists and selected storage is valid | duplicate `vmid`, invalid storage or resource pool, insufficient permissions or resources |
 | `clone_vm` | Mutating | `node`, `source_vmid`, `target_vmid` | `name`, `target_node`, `full=true`, `storage`, `pool`, `snapname` | source VM exists and target VM ID is free | duplicate target VM ID, clone permission failure, invalid storage or snapshot |
 | `start_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
 | `stop_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, stop failure from Proxmox |
@@ -115,6 +115,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 - `stop_vm` is the force-stop path. Use `shutdown_vm` for graceful guest shutdown when supported.
 - `execute_vm_command` is not a generic SSH shell. It is mediated through QEMU Guest Agent and command-policy checks.
+- `create_vm.pool` is an optional Proxmox resource pool, not a storage pool. Pool-scoped API tokens also need `Pool.Allocate` on the target pool.
 - `create_vm`, `clone_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
 
 ## Container Tools
@@ -126,7 +127,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `stop_container` | Mutating | `selector` | `graceful=true`, `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, timeout on graceful shutdown, container already stopped |
 | `restart_container` | Mutating | `selector` | `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, reboot failure |
 | `update_container_resources` | Mutating | `selector` | `cores`, `memory`, `swap`, `disk_gb`, `disk=rootfs`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, invalid resize target, resource update rejected |
-| `create_container` | Mutating | `node`, `vmid`, `ostemplate` | `hostname`, `cores=1`, `memory=512`, `swap=512`, `disk_size=8`, `storage`, `password`, `ssh_public_keys`, `network_bridge=vmbr0`, `start_after_create=false`, `onboot=false`, `nesting=false`, `unprivileged=true` | target node exists, template path valid, target storage valid | duplicate `vmid`, missing template, invalid storage or bridge |
+| `create_container` | Mutating | `node`, `vmid`, `ostemplate` | `hostname`, `cores=1`, `memory=512`, `swap=512`, `disk_size=8`, `storage`, `password`, `ssh_public_keys`, `network_bridge=vmbr0`, `start_after_create=false`, `onboot=false`, `nesting=false`, `unprivileged=true`, `pool` | target node exists, template path valid, target storage valid | duplicate `vmid`, missing template, invalid storage, resource pool, or bridge |
 | `delete_container` | Mutating | `selector` | `force=false`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, running container without `force`, delete failure |
 | `execute_container_command` | Mutating | `selector`, `command` | `approval_token` | only registered when `ssh` config exists; container must be running; policy must allow command | tool unavailable without SSH config, no selector match, SSH failure, policy denial |
 | `update_container_ssh_keys` | Mutating/high-risk | `node`, `vmid`, `public_keys` | `mode=append\|replace`, `approval_token` | only registered when `ssh` config exists; target container reachable through configured execution path; high-risk policy must allow the operation | tool unavailable without SSH config, invalid container target, SSH failure, approval required |
@@ -139,6 +140,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 - `update_container_resources.disk_gb` is an additional resize amount for the selected disk, not a full replacement size target.
 - `create_container.start_after_create` controls immediate startup after provisioning.
 - `create_container.nesting` and `create_container.unprivileged` change container execution characteristics and should match your Proxmox policy.
+- `create_container.pool` is an optional Proxmox resource pool, not the `storage` used for `rootfs`. Pool-scoped API tokens also need `Pool.Allocate` on the target pool.
 - `create_container`, `start_container`, `stop_container`, `restart_container`, and `delete_container` create persistent job records for asynchronous task tracking.
 
 ## Snapshot Tools

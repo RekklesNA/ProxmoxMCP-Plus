@@ -635,6 +635,7 @@ class ContainerTools(ProxmoxTool):
         onboot: bool = False,
         nesting: bool = False,
         unprivileged: bool = True,
+        pool: Optional[str] = None,
     ) -> List[Content]:
         """Create a new LXC container.
 
@@ -655,6 +656,7 @@ class ContainerTools(ProxmoxTool):
             onboot: Start container automatically when node boots (default: False)
             nesting: Enable LXC nesting feature (default: False)
             unprivileged: Create unprivileged container (default: True)
+            pool: Proxmox resource pool to create the container in (optional)
 
         Returns:
             List[Content] with creation result
@@ -723,6 +725,8 @@ class ContainerTools(ProxmoxTool):
                 ct_config["ssh-public-keys"] = ssh_public_keys
             if nesting:
                 ct_config["features"] = "nesting=1"
+            if pool:
+                ct_config["pool"] = pool
 
             # Create the container
             result = self.proxmox.nodes(node).lxc.create(**ct_config)

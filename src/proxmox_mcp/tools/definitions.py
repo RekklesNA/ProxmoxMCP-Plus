@@ -73,6 +73,7 @@ disk_size* - Disk size in GB (e.g. 10, 20, 50)
 storage - Storage name (optional, will auto-detect if not specified)
 ostype - OS type (optional, default: 'l26' for Linux)
 network_bridge - Network bridge name (optional, default: 'vmbr0')
+pool - Target Proxmox resource pool (optional)
 
 Examples:
 - Create VM with 1 CPU, 2GB RAM, 10GB disk: node='pve', vmid='200', name='test-vm', cpus=1, memory=2048, disk_size=10
@@ -218,6 +219,7 @@ start_after_create - Start container after creation (optional, default: false)
 onboot - Start container automatically on host boot (optional, default: false)
 nesting - Enable LXC nesting (optional, sets features='nesting=1', default: false)
 unprivileged - Create unprivileged container (optional, default: true)
+pool - Target Proxmox resource pool (optional)
 
 Examples:
 - Create Alpine container: node='pveZ3', vmid='200', ostemplate='local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz'

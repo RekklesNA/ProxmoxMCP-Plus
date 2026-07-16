@@ -2,9 +2,10 @@
 -r base.in
 
 # Testing
-pytest>=7.0.0,<8.0.0
-pytest-asyncio>=0.21.0,<0.22.0
+pytest>=9.0.3,<10.0.0
+pytest-asyncio>=1.4.0,<2.0.0
 pytest-cov>=4.1.0,<7.0.0
+httpx2>=2.0.0,<3.0.0
 
 # Code quality
 black>=24.3.0,<27.0.0

@@ -18,6 +18,34 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.9`
+
+- Release date: 2026-07-16
+- Summary: adds optional Proxmox resource-pool targeting to VM and LXC creation, enabling pool-scoped API-token security boundaries (closes issue #104).
+- New tools or endpoints:
+  - no new runtime tools or endpoints
+- Changed behavior:
+  - `create_vm` accepts an optional `pool` argument and forwards it to `POST /nodes/{node}/qemu`
+  - `create_container` accepts an optional `pool` argument and forwards it to `POST /nodes/{node}/lxc`
+  - omitting `pool` preserves the previous request payload and behavior
+  - tests use Starlette's supported `httpx2` client path, eliminating the deprecated `httpx` fallback warning
+  - the development test stack now requires `pytest>=9.0.3` and `pytest-asyncio>=1.4.0`, removing the vulnerable pytest versions reported as `PYSEC-2026-1845`
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - no required runtime config migration
+  - development/test installs now include `httpx2>=2.0.0,<3.0.0`, `pytest>=9.0.3,<10.0.0`, and `pytest-asyncio>=1.4.0,<2.0.0`
+- Docs updated:
+  - `docs/releases/v0.5.9.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - no required migration
+  - pass `pool=<resource-pool-name>` only when VM/LXC creation should be scoped to a Proxmox resource pool
+  - grant `Pool.Allocate` on the target pool in addition to the required VM permissions
+- Rollback notes:
+  - downgrade to `v0.5.8` only if a client cannot accept the two new optional schema fields; omitting them is already backward compatible
+
 ### Version `0.5.8`
 
 - Release date: 2026-06-07

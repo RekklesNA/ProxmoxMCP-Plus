@@ -222,6 +222,7 @@ class VMTools(ProxmoxTool):
         storage: Optional[str] = None,
         ostype: Optional[str] = None,
         network_bridge: Optional[str] = None,
+        pool: Optional[str] = None,
     ) -> List[Content]:
         """Create a new virtual machine with specified configuration.
         
@@ -235,6 +236,7 @@ class VMTools(ProxmoxTool):
             storage: Storage name (e.g., 'local-lvm', 'vm-storage'). If None, will auto-detect
             ostype: OS type (e.g., 'l26' for Linux, 'win10' for Windows). Default: 'l26'
             network_bridge: Network bridge name (e.g., 'vmbr0'). If None, defaults to 'vmbr0'
+            pool: Proxmox resource pool to create the VM in. If None, no pool is specified
             
         Returns:
             List of Content objects containing creation result
@@ -333,6 +335,9 @@ class VMTools(ProxmoxTool):
             
             # Add storage configuration
             vm_config.update(vm_config_storage)
+
+            if pool:
+                vm_config["pool"] = pool
             
             # Create the VM
             task_result = self.proxmox.nodes(node).qemu.create(**vm_config)
