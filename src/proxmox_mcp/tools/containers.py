@@ -931,6 +931,25 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("get_container_config", e)
 
+    def set_container_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of an LXC container.
+
+        Uses PUT /nodes/{node}/lxc/{vmid}/config. Pass an empty string to clear
+        the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).lxc(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_container_description", e)
+
     def get_container_ip(self, node: str, vmid: str) -> List[Content]:
         """Return the current IP address(es) of a running LXC container.
 

@@ -343,9 +343,11 @@ async def test_list_tools(server):
     assert "update_container_ssh_keys" not in tool_names
     # LXC config tools (no SSH required)
     assert "get_container_config" in tool_names
+    assert "set_container_description" in tool_names
     assert "get_container_ip" in tool_names
     # VM config tool
     assert "get_vm_config" in tool_names
+    assert "set_vm_description" in tool_names
 
 
 @pytest.mark.asyncio
@@ -1235,6 +1237,49 @@ async def test_get_container_config_missing_parameters(server):
 
 
 # ---------------------------------------------------------------------------
+# set_container_description
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_container_description(server, mock_proxmox):
+    """set_container_description PUTs description and echoes it back."""
+    ct_api = mock_proxmox.return_value.nodes.return_value.lxc.return_value
+    ct_api.config.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "set_container_description",
+        {"node": "node1", "vmid": "101", "description": "GitLab Runner host"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "101"
+    assert result["node"] == "node1"
+    assert result["description"] == "GitLab Runner host"
+    ct_api.config.put.assert_called_with(description="GitLab Runner host")
+
+
+@pytest.mark.asyncio
+async def test_set_container_description_missing_parameters(server):
+    """set_container_description raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("set_container_description", {"node": "node1", "vmid": "101"})
+
+
+@pytest.mark.asyncio
+async def test_set_container_description_api_error(server, mock_proxmox):
+    """set_container_description surfaces Proxmox API errors via RuntimeError consistently."""
+    mock_proxmox.return_value.nodes.return_value.lxc.return_value.config.put.side_effect = (
+        Exception("permission denied")
+    )
+
+    with pytest.raises(ToolError, match="set_container_description"):
+        await server.mcp.call_tool(
+            "set_container_description",
+            {"node": "node1", "vmid": "999", "description": "x"},
+        )
+
+
+# ---------------------------------------------------------------------------
 # get_vm_config
 # ---------------------------------------------------------------------------
 
@@ -1280,6 +1325,49 @@ async def test_get_vm_config_api_error(server, mock_proxmox):
 
     with pytest.raises(ToolError, match="get_vm_config"):
         await server.mcp.call_tool("get_vm_config", {"node": "node1", "vmid": "999"})
+
+
+# ---------------------------------------------------------------------------
+# set_vm_description
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_vm_description(server, mock_proxmox):
+    """set_vm_description PUTs description and echoes it back."""
+    vm_api = mock_proxmox.return_value.nodes.return_value.qemu.return_value
+    vm_api.config.put.return_value = {}
+
+    response = await server.mcp.call_tool(
+        "set_vm_description",
+        {"node": "node1", "vmid": "100", "description": "Decommissioned"},
+    )
+    result = json.loads(response[0].text)
+
+    assert result["vmid"] == "100"
+    assert result["node"] == "node1"
+    assert result["description"] == "Decommissioned"
+    vm_api.config.put.assert_called_with(description="Decommissioned")
+
+
+@pytest.mark.asyncio
+async def test_set_vm_description_missing_parameters(server):
+    """set_vm_description raises ToolError when required parameters are missing."""
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("set_vm_description", {"node": "node1", "vmid": "100"})
+
+
+@pytest.mark.asyncio
+async def test_set_vm_description_api_error(server, mock_proxmox):
+    """set_vm_description surfaces Proxmox API errors via RuntimeError consistently."""
+    mock_proxmox.return_value.nodes.return_value.qemu.return_value.config.put.side_effect = (
+        Exception("VM does not exist")
+    )
+
+    with pytest.raises(ToolError, match="set_vm_description"):
+        await server.mcp.call_tool(
+            "set_vm_description",
+            {"node": "node1", "vmid": "999", "description": "x"},
+        )
 
 
 # ---------------------------------------------------------------------------
