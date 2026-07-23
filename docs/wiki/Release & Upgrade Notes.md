@@ -18,6 +18,31 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.10`
+
+- Release date: 2026-07-23
+- Summary: adds first-class MCP tools for setting or clearing the Proxmox Notes field on individual QEMU VMs and LXC containers.
+- New tools or endpoints:
+  - `set_vm_description`
+  - `set_container_description`
+- Changed behavior:
+  - callers can replace a VM or container description through the native Proxmox config endpoint
+  - passing an empty description clears the existing Notes field
+  - each call targets exactly one `node` and `vmid`; no selector or multi-target behavior is introduced
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - no runtime configuration migration
+- Docs updated:
+  - `docs/releases/v0.5.10.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - no migration is required
+  - ensure the configured Proxmox API token can update the target VM or container configuration before using the new tools
+- Rollback notes:
+  - downgrade to `v0.5.9` only if a client cannot accept the two additional MCP tool definitions
+
 ### Version `0.5.9`
 
 - Release date: 2026-07-16
