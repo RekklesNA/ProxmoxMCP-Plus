@@ -110,6 +110,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `delete_vm` | Mutating | `node`, `vmid` | `force=false` | VM exists | running VM without `force`, VM not found |
 | `execute_vm_command` | Mutating | `node`, `vmid`, `command` | `approval_token` | VM running, QEMU Guest Agent installed, policy allows command | guest agent unavailable, VM not running, policy denial |
 | `get_vm_config` | Read-only | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
+| `set_vm_description` | Mutating | `node`, `vmid`, `description` | none | VM exists and API token can update its config | VM not found, node mismatch, insufficient permissions |
 
 ### VM Notes
 
@@ -132,6 +133,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `execute_container_command` | Mutating | `selector`, `command` | `approval_token` | only registered when `ssh` config exists; container must be running; policy must allow command | tool unavailable without SSH config, no selector match, SSH failure, policy denial |
 | `update_container_ssh_keys` | Mutating/high-risk | `node`, `vmid`, `public_keys` | `mode=append\|replace`, `approval_token` | only registered when `ssh` config exists; target container reachable through configured execution path; high-risk policy must allow the operation | tool unavailable without SSH config, invalid container target, SSH failure, approval required |
 | `get_container_config` | Read-only | `node`, `vmid` | none | target container exists | container not found, node mismatch |
+| `set_container_description` | Mutating | `node`, `vmid`, `description` | none | target container exists and API token can update its config | container not found, node mismatch, insufficient permissions |
 | `get_container_ip` | Read-only | `node`, `vmid` | none | target container exists | container not found, IP information unavailable |
 
 ### Container Notes
