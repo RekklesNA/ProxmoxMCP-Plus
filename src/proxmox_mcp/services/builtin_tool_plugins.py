@@ -43,6 +43,8 @@ from proxmox_mcp.tools.definitions import (
     RESTORE_BACKUP_DESC,
     RETRY_JOB_DESC,
     ROLLBACK_SNAPSHOT_DESC,
+    SET_CONTAINER_DESCRIPTION_DESC,
+    SET_VM_DESCRIPTION_DESC,
     SHUTDOWN_VM_DESC,
     START_CONTAINER_DESC,
     START_VM_DESC,
@@ -255,6 +257,18 @@ class VMToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_vm_config", server.vm_tools.get_vm_config)(
                 node=node,
                 vmid=vmid,
+            )
+
+        @server.mcp.tool(description=SET_VM_DESCRIPTION_DESC)
+        def set_vm_description(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+        ) -> Any:
+            return self._wrap_sync(server, "set_vm_description", server.vm_tools.set_vm_description)(
+                node=node,
+                vmid=vmid,
+                description=description,
             )
 
         @server.mcp.tool(description=CREATE_VM_DESC)
@@ -551,6 +565,20 @@ class ContainerToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_container_config", server.container_tools.get_container_config)(
                 node=node,
                 vmid=vmid,
+            )
+
+        @server.mcp.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
+        def set_container_description(
+            node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+        ) -> Any:
+            return self._wrap_sync(
+                server, "set_container_description", server.container_tools.set_container_description
+            )(
+                node=node,
+                vmid=vmid,
+                description=description,
             )
 
         @server.mcp.tool(description=GET_CONTAINER_IP_DESC)

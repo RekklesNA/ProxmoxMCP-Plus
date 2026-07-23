@@ -61,6 +61,19 @@ vmid* - VM ID number (e.g. '100')
 Example:
 {"vmid": "100", "name": "ubuntu", "cores": 2, "memory": 4096, "scsi0": "local-lvm:vm-100-disk-0,size=20G"}"""
 
+SET_VM_DESCRIPTION_DESC = """Set/replace the description (Notes field in the UI) of a QEMU VM.
+
+Uses PUT /nodes/{node}/qemu/{vmid}/config. Pass an empty string to clear the notes.
+
+Parameters:
+node*        - Host node name (e.g. 'pve')
+vmid*        - VM ID number (e.g. '100')
+description* - New notes text (replaces any existing notes)
+
+Example:
+set_vm_description node='pve' vmid='100' description='Decommissioned - see #123'
+"""
+
 CREATE_VM_DESC = """Create a new virtual machine with specified configuration.
 
 Parameters:
@@ -435,6 +448,19 @@ vmid* - Container ID (e.g. '101')
 
 Example:
 {"vmid": "101", "hostname": "valkey", "cores": 1, "memory": 1024, "net0": "name=eth0,..."}
+"""
+
+SET_CONTAINER_DESCRIPTION_DESC = """Set/replace the description (Notes field in the UI) of an LXC container.
+
+Uses PUT /nodes/{node}/lxc/{vmid}/config. Pass an empty string to clear the notes.
+
+Parameters:
+node*        - Proxmox node name (e.g. 'pve')
+vmid*        - Container ID (e.g. '101')
+description* - New notes text (replaces any existing notes)
+
+Example:
+set_container_description node='pve' vmid='101' description='GitLab Runner host (ct101-alpine)'
 """
 
 GET_CONTAINER_IP_DESC = """Get the current IP address(es) of a running LXC container.

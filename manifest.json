@@ -111,6 +111,10 @@
             "description": "Get full configuration for a QEMU virtual machine"
         },
         {
+            "name": "set_vm_description",
+            "description": "Set/replace the description (Notes field) of a QEMU virtual machine"
+        },
+        {
             "name": "create_vm",
             "description": "Create a new virtual machine with specified resources"
         },
@@ -209,6 +213,10 @@
         {
             "name": "get_container_config",
             "description": "Get full configuration for an LXC container"
+        },
+        {
+            "name": "set_container_description",
+            "description": "Set/replace the description (Notes field) of an LXC container"
         },
         {
             "name": "get_container_ip",

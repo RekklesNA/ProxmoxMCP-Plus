@@ -119,6 +119,25 @@ class VMTools(ProxmoxTool):
         except Exception as e:
             return self._err("get_vm_config", e)
 
+    def set_vm_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of a QEMU VM.
+
+        Uses PUT /nodes/{node}/qemu/{vmid}/config. Pass an empty string to
+        clear the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: VM ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_vm_description", e)
+
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
 
