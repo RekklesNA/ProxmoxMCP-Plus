@@ -57,9 +57,22 @@ def test_setup_metadata_tracks_pyproject_runtime_contract():
 
 def test_ghcr_release_builds_pinned_multi_arch_images():
     workflow = (ROOT / ".github/workflows/publish-ghcr.yml").read_text(encoding="utf-8")
+    docker_actions = re.findall(
+        r"^\s*uses:\s+(docker/[^@\s]+)@([^\s#]+)",
+        workflow,
+        re.MULTILINE,
+    )
 
     assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
     assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
+    assert {name for name, _ in docker_actions} == {
+        "docker/setup-qemu-action",
+        "docker/setup-buildx-action",
+        "docker/login-action",
+        "docker/metadata-action",
+        "docker/build-push-action",
+    }
+    assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for _, ref in docker_actions)
     assert re.search(r"image: docker\.io/tonistiigi/binfmt@sha256:[0-9a-f]{64}", workflow)
     assert "platforms: arm64" in workflow
     assert "platforms: linux/amd64,linux/arm64" in workflow

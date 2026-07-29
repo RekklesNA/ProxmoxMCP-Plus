@@ -18,6 +18,31 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.12`
+
+- Release date: 2026-07-29
+- Summary: pins every third-party Docker Action used by the GHCR release workflow to a reviewed immutable commit SHA.
+- New tools or endpoints:
+  - no new runtime tools or endpoints
+- Changed behavior:
+  - `docker/login-action` is pinned to the signed v4.6.0 commit
+  - `docker/metadata-action` is pinned to the signed v6.2.0 commit
+  - `docker/build-push-action` is pinned to the signed v7.3.0 commit
+  - a regression test rejects mutable refs for every `docker/*` Action in the container release workflow
+  - the v0.5.11 native AMD64/ARM64 build and post-publication ARM64 health gate remain unchanged
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - no runtime configuration migration
+- Docs updated:
+  - `docs/releases/v0.5.12.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - upgrade normally from PyPI, GHCR, or source
+  - no application or Docker configuration change is required
+- Rollback notes:
+  - downgrade to `v0.5.11` only if the pinned release workflow is incompatible with a repository-specific Actions policy
+
 ### Version `0.5.11`
 
 - Release date: 2026-07-29
