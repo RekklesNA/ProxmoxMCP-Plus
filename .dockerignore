@@ -1,5 +1,9 @@
 .git
 .github
+.agents
+.codex
+.codex-run
+.playwright-cli
 .venv
 .mypy_cache
 .pytest_cache
@@ -14,5 +18,10 @@ assets
 proxmox_mcp.log
 *.log
 *.sqlite3
-proxmox-config/config.json
-proxmox-config/config.live.json
+.env
+.env.*
+*.key
+*.pem
+proxmox-config/*.json
+!proxmox-config/config.example.json
+!proxmox-config/config.live.example.json
