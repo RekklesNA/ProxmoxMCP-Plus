@@ -18,6 +18,33 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.11`
+
+- Release date: 2026-07-29
+- Summary: publishes the GHCR container as a native multi-architecture image for AMD64 and ARM64 hosts (closes issue #109).
+- New tools or endpoints:
+  - no new runtime tools or endpoints
+- Changed behavior:
+  - GHCR release tags now contain native `linux/amd64` and `linux/arm64` images under one multi-architecture manifest
+  - Docker automatically selects the matching image on Apple Silicon and other ARM64 hosts instead of falling back to AMD64 emulation
+  - the release workflow limits QEMU registration to ARM64, pins the new QEMU and Buildx actions to reviewed commit SHAs, and pins the QEMU helper image by OCI digest
+  - Docker build contexts exclude local tool state, environment files, private-key patterns, and non-example Proxmox JSON configuration files
+  - the final runtime image removes `pip`, `setuptools`, and `wheel` after installation to reduce dormant build-tool attack surface
+  - the multi-architecture Python base image is pinned by OCI digest
+  - a native ARM64 release job pulls the published image and verifies its manifest, architecture, non-root runtime, and `/livez` endpoint
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - no runtime configuration migration
+- Docs updated:
+  - `docs/releases/v0.5.11.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - pull `ghcr.io/rekklesna/proxmoxmcp-plus:0.5.11` or `latest` normally; Docker selects the host architecture automatically
+  - no Compose or MCP client configuration change is required
+- Rollback notes:
+  - use `v0.5.10` if a registry or Docker installation cannot consume a multi-architecture manifest
+
 ### Version `0.5.10`
 
 - Release date: 2026-07-23

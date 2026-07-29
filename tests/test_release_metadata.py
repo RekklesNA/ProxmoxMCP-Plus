@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -52,3 +53,41 @@ def test_setup_metadata_tracks_pyproject_runtime_contract():
     assert set(setup_kwargs["entry_points"]["console_scripts"]) == {
         f"{name}={target}" for name, target in pyproject["project"]["scripts"].items()
     }
+
+
+def test_ghcr_release_builds_pinned_multi_arch_images():
+    workflow = (ROOT / ".github/workflows/publish-ghcr.yml").read_text(encoding="utf-8")
+
+    assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
+    assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
+    assert re.search(r"image: docker\.io/tonistiigi/binfmt@sha256:[0-9a-f]{64}", workflow)
+    assert "platforms: arm64" in workflow
+    assert "platforms: linux/amd64,linux/arm64" in workflow
+    assert "runs-on: ubuntu-24.04-arm" in workflow
+    assert "docker pull --platform linux/arm64" in workflow
+    assert "http://127.0.0.1:18811/livez" in workflow
+    assert 'test "$(docker exec "$container_name" uname -m)" = "aarch64"' in workflow
+    assert "test ! -e /usr/local/bin/pip" in workflow
+
+
+def test_docker_context_excludes_local_secrets_and_tool_state():
+    patterns = {
+        line.strip()
+        for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert {".agents", ".codex", ".codex-run", ".playwright-cli"} <= patterns
+    assert {".env", ".env.*", "*.key", "*.pem", "proxmox-config/*.json"} <= patterns
+    assert {
+        "!proxmox-config/config.example.json",
+        "!proxmox-config/config.live.example.json",
+    } <= patterns
+
+
+def test_runtime_image_removes_python_packaging_toolchain():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert re.search(r"^FROM python:3\.11-slim@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
+    assert "python -m pip install --no-cache-dir ." in dockerfile
+    assert "python -m pip uninstall --yes pip setuptools wheel" in dockerfile

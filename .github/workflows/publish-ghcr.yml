@@ -12,11 +12,22 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.image.outputs.ref }}
     permissions:
       contents: read
       packages: write
     steps:
     - uses: actions/checkout@v6
+
+    - name: Set up QEMU for ARM64
+      uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8  # v4.2.0
+      with:
+        image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+        platforms: arm64
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
     - name: Log in to GHCR
       uses: docker/login-action@v4
@@ -37,10 +48,87 @@ jobs:
           type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
           type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name }}
 
+    - name: Select image tag for verification
+      id: image
+      shell: bash
+      env:
+        IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+      run: |
+        image_ref="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+        test -n "$image_ref"
+        echo "ref=$image_ref" >> "$GITHUB_OUTPUT"
+
     - name: Build and push image
       uses: docker/build-push-action@v7
       with:
         context: .
+        platforms: linux/amd64,linux/arm64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+
+  verify-arm64:
+    name: Verify published ARM64 image
+    needs: publish
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: read
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+    - name: Pull and verify the published image
+      shell: bash
+      env:
+        IMAGE_REF: ${{ needs.publish.outputs.image_ref }}
+      run: |
+        set -euo pipefail
+        docker pull --platform linux/arm64 "$IMAGE_REF"
+        test "$(docker image inspect "$IMAGE_REF" --format '{{.Architecture}}')" = "arm64"
+
+        docker buildx imagetools inspect --raw "$IMAGE_REF" > "$RUNNER_TEMP/image-manifest.json"
+        jq -e '
+          [.manifests[].platform
+            | select(.os == "linux")
+            | "\(.os)/\(.architecture)"]
+          | index("linux/amd64") != null
+            and index("linux/arm64") != null
+        ' "$RUNNER_TEMP/image-manifest.json"
+
+    - name: Run the ARM64 application health check
+      shell: bash
+      env:
+        IMAGE_REF: ${{ needs.publish.outputs.image_ref }}
+      run: |
+        set -euo pipefail
+        container_name="proxmox-mcp-arm64-release-smoke"
+        trap 'docker logs "$container_name" || true; docker rm -f "$container_name" || true' EXIT
+
+        docker run --detach \
+          --name "$container_name" \
+          --platform linux/arm64 \
+          --publish 127.0.0.1:18811:8811 \
+          --volume "$PWD/proxmox-config/config.example.json:/app/proxmox-config/config.json:ro" \
+          --env PROXMOX_API_KEY=release-smoke-check \
+          "$IMAGE_REF"
+
+        for attempt in {1..30}; do
+          if curl --fail --silent --show-error http://127.0.0.1:18811/livez > livez.json; then
+            break
+          fi
+          if test "$(docker inspect "$container_name" --format '{{.State.Running}}')" != "true"; then
+            exit 1
+          fi
+          sleep 2
+        done
+
+        curl --fail --silent --show-error http://127.0.0.1:18811/livez | jq -e '.status == "ok"'
+        test "$(docker exec "$container_name" uname -m)" = "aarch64"
+        test "$(docker exec "$container_name" id -u)" != "0"
+        docker exec "$container_name" sh -c 'test ! -e /usr/local/bin/pip && ! python -m pip --version >/dev/null 2>&1'
