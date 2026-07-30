@@ -4,6 +4,10 @@ Tests for the Proxmox MCP server.
 
 import os
 import json
+import signal
+import subprocess
+import sys
+import textwrap
 import pytest
 from typing import Any, cast
 from unittest.mock import Mock, patch
@@ -1628,3 +1632,109 @@ async def test_high_risk_job_retry_requires_approval_token(mock_proxmox, tmp_pat
 
     assert payload["upid"] == "UPID:retry-delete"
     retry_factory.assert_called_once()
+
+
+def _capture_signal_handlers(srv, monkeypatch):
+    """Run start() far enough to capture the handlers it installs."""
+    handlers: dict[int, Any] = {}
+    monkeypatch.setattr(
+        server_module.signal, "signal", lambda num, handler: handlers.setdefault(num, handler)
+    )
+    with patch("anyio.run"):
+        srv.start()
+    return handlers
+
+
+def _server_with_transport(tmp_path, transport):
+    config_path = tmp_path / f"config_{transport.lower()}.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "logging": {"level": "INFO"},
+        "mcp": {"host": "127.0.0.1", "port": 8000, "transport": transport},
+        "command_policy": {"mode": "audit_only"},
+    }))
+    return ProxmoxMCPServer(str(config_path))
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_stdio_signal_handler_exits_without_finalization(
+    mock_proxmox, tmp_path, monkeypatch, signum
+):
+    """Under stdio, shutdown must skip interpreter finalization.
+
+    Raising SystemExit here aborts the process with SIGABRT when the MCP SDK's
+    stdin reader thread is mid-read; see _exit_without_finalization.
+    """
+    srv = _server_with_transport(tmp_path, "STDIO")
+    handlers = _capture_signal_handlers(srv, monkeypatch)
+
+    exits: list[int] = []
+    monkeypatch.setattr(
+        server_module, "_exit_without_finalization", lambda status=0: exits.append(status)
+    )
+    srv.close = Mock()
+
+    handlers[signum](signum, None)
+
+    assert exits == [0]
+    srv.close.assert_called_once()
+
+
+def test_http_signal_handler_still_raises_system_exit(mock_proxmox, tmp_path, monkeypatch):
+    """HTTP transports have no stdin reader thread, so normal unwinding is kept."""
+    srv = _server_with_transport(tmp_path, "SSE")
+    handlers = _capture_signal_handlers(srv, monkeypatch)
+    srv.close = Mock()
+
+    with pytest.raises(SystemExit) as excinfo:
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    assert excinfo.value.code == 0
+    srv.close.assert_called_once()
+
+
+def test_stdio_shutdown_does_not_abort_at_interpreter_finalization(tmp_path):
+    """End-to-end guard against the SIGABRT regression.
+
+    Reproduces the shape mcp.server.stdio creates -- a second TextIOWrapper over
+    sys.stdin.buffer, read from a worker thread, so the shared BufferedReader
+    lock is held -- then signals the process. With _exit_without_finalization the
+    process exits 0. If shutdown goes back to raising SystemExit, CPython cannot
+    close sys.stdin at finalization and aborts with SIGABRT (-6 / 134).
+    """
+    script = textwrap.dedent(
+        """
+        import io, os, signal, sys, threading, time
+        from proxmox_mcp.server import _exit_without_finalization
+
+        signal.signal(signal.SIGTERM, lambda *_: _exit_without_finalization())
+
+        worker_view = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+        threading.Thread(target=worker_view.readline, daemon=True).start()
+        time.sleep(0.2)
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(10)
+        """
+    )
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(server_module.__file__)))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [src_dir, env.get("PYTHONPATH", "")]))
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.PIPE,      # stays open and empty: the read never completes
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    try:
+        _, stderr = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise
+
+    assert proc.returncode == 0, (
+        f"shutdown aborted instead of exiting cleanly "
+        f"(returncode={proc.returncode}): {stderr.decode(errors='replace')}"
+    )

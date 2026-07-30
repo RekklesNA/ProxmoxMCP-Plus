@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, NoReturn, Optional, cast
 
 from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
@@ -48,6 +48,37 @@ except ImportError:  # pragma: no cover - exercised only with older MCP SDKs
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
     return text[:max_length]
+
+
+def _exit_without_finalization(status: int = 0) -> NoReturn:
+    """Terminate the process without running interpreter finalization.
+
+    Raising ``SystemExit`` from a signal handler is unsafe under the stdio
+    transport. The MCP SDK reads stdin from an AnyIO worker thread, using its
+    own ``TextIOWrapper`` built on ``sys.stdin.buffer``
+    (``mcp.server.stdio.stdio_server``). A signal arriving mid-read leaves that
+    thread blocked inside ``readline()``, owning the lock of the
+    ``BufferedReader`` it shares with ``sys.stdin``.
+
+    ``SystemExit`` would then start interpreter finalization, which clears the
+    ``sys`` module dict, deallocates ``sys.stdin`` and tries to close that same
+    ``BufferedReader``. The lock is never released, so CPython gives up after
+    its one-second grace period and calls ``Py_FatalError``::
+
+        Fatal Python error: _enter_buffered_busy: could not acquire lock for
+        <_io.BufferedReader name='<stdin>'> at interpreter shutdown, possibly
+        due to daemon threads
+
+    which aborts the process with ``SIGABRT``. ``os._exit()`` skips
+    finalization entirely, so the shutdown is clean. Callers are responsible
+    for releasing anything that matters before calling this.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:  # pragma: no cover - best effort on a dying process
+            pass
+    os._exit(status)
 
 
 class ProxmoxMCPServer:
@@ -156,16 +187,23 @@ class ProxmoxMCPServer:
         """Start the MCP server with the configured transport."""
         import anyio
 
+        transport = self.config.mcp.transport
+        # Mirrors the dispatch below: anything that is not SSE or STREAMABLE
+        # is served over stdio.
+        uses_stdio = transport not in ("SSE", "STREAMABLE")
+
         def signal_handler(signum: int, frame: object) -> None:
             self.logger.info("Received signal to shutdown...")
             self.close()
-            sys.exit(0)
+            if uses_stdio:
+                _exit_without_finalization()
+            else:
+                sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
         try:
-            transport = self.config.mcp.transport
             self.logger.info("Starting Proxmox MCP Server with transport: %s", transport)
 
             if transport == "STDIO":
