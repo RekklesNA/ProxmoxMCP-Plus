@@ -14,6 +14,7 @@ Run read-only tools before mutating anything:
 | Check storage | `get_storage` |
 | Check snapshots | `list_snapshots` with `vm_type=qemu` or `vm_type=lxc` |
 | Check jobs | `list_jobs`, `get_job` |
+| Check logs | `get_node_syslog`, `get_cluster_log` |
 
 Discovery confirms node names, VMIDs, storage IDs, guest status, and whether the tool is visible in the connected client.
 
@@ -88,6 +89,19 @@ Use the job tools this way:
 | A running task should stop | `cancel_job` |
 
 Keep `jobs.sqlite_path` on durable storage when the deployment should preserve job history across restarts.
+
+## Log Inspection Workflows
+
+All log tools are read-only and safe to run at any time:
+
+| Operator goal | Tool sequence | Verify |
+| --- | --- | --- |
+| Investigate a node problem | `get_node_syslog` with `since`/`until` filters | narrowed log window around the incident |
+| Find out why a task failed | `get_task_log` with the task's `UPID` | task log output and exit status lines |
+| Audit recent cluster activity | `get_cluster_log` | cluster-wide event history |
+| Debug firewall behavior | `get_node_firewall_log` or `get_guest_firewall_log` | ACCEPT/DROP entries for the traffic in question |
+
+`get_task_log` accepts any Proxmox task `UPID`, including tasks started outside this server. Use `poll_job` instead when you are tracking a `job_id` created by a mutating tool.
 
 ## OpenAPI Workflows
 

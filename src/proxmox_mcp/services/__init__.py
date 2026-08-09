@@ -8,6 +8,7 @@ from .builtin_tool_plugins import (
     CoreToolsPlugin,
     ImageToolsPlugin,
     JobsToolsPlugin,
+    LogToolsPlugin,
     SnapshotToolsPlugin,
     VMToolsPlugin,
 )
@@ -23,4 +24,5 @@ __all__ = [
     "SnapshotToolsPlugin",
     "ImageToolsPlugin",
     "BackupToolsPlugin",
+    "LogToolsPlugin",
 ]

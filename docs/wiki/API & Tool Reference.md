@@ -214,6 +214,23 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `get_storage` | Read-only | none | none | Proxmox API reachable | auth failure, cluster query failure |
 | `get_cluster_status` | Read-only | none | none | Proxmox API reachable | auth failure, cluster query failure |
 
+## Log Inspection Tools
+
+| Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
+| --- | --- | --- | --- | --- | --- |
+| `get_node_syslog` | Read-only | `node` | `limit=100`, `start`, `since`, `until`, `service` | target node exists | unknown node, auth failure |
+| `get_task_log` | Read-only | `node`, `upid` | `start`, `limit=50` | task exists on the node | unknown `upid`, node mismatch |
+| `get_cluster_log` | Read-only | none | `max_entries=50` | Proxmox API reachable | auth failure, cluster query failure |
+| `get_node_firewall_log` | Read-only | `node` | `limit=100`, `start`, `since`, `until` | target node exists | unknown node, firewall logging disabled yields few or no entries |
+| `get_guest_firewall_log` | Read-only | `node`, `vmid` | `vm_type=qemu\|lxc`, `limit=100`, `start`, `since`, `until` | guest exists on the node | unknown guest, wrong `vm_type`, guest firewall logging disabled |
+
+### Log Inspection Notes
+
+- All tools in this group are read-only and never modify Proxmox state.
+- `get_node_syslog.since`/`until` take date/time strings (`YYYY-MM-DD[ HH:MM[:SS]]`); the firewall variants take UNIX epoch integers.
+- `get_task_log` accepts any Proxmox task `UPID` (for example the Task ID returned by mutating tools), while `poll_job` operates on the persistent job records created by this server's mutating tools.
+- Log content is returned as-is from Proxmox and may include sensitive operational details; scope API token permissions accordingly.
+
 ## Change Checklist For New Tools
 
 When adding or changing a tool, update all of the following:

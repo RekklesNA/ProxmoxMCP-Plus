@@ -250,6 +250,7 @@ Start with read-only discovery, then move to mutating tools only after the targe
 | Roll back risky changes | `list_snapshots` with `vm_type=qemu` or `vm_type=lxc` | `create_snapshot`, `rollback_snapshot`, `delete_snapshot` | Create a snapshot before destructive workflow tests |
 | Run commands inside guests | VM or container status tools | `execute_vm_command`, `execute_container_command` | VM path needs QEMU Guest Agent; LXC path needs SSH to the Proxmox node |
 | Track async work | mutation response with `job_id` | `poll_job`, `get_job`, `list_jobs`, `retry_job`, `cancel_job` | Use `job_id` for agent/user conversations and `task_id` for raw Proxmox traceability |
+| Inspect logs | `get_node_syslog`, `get_cluster_log` | `get_task_log`, `get_node_firewall_log`, `get_guest_firewall_log` | All log tools are read-only; `get_task_log` accepts any Proxmox `UPID` |
 | Automate from HTTP tools | `/openapi.json` | `/jobs`, `/health`, generated tool routes | Use bearer auth and keep CORS restricted outside local development |
 
 For the full tool map, see the [Tool Selection Guide](docs/wiki/Tool%20Selection%20Guide.md) and [API & Tool Reference](docs/wiki/API%20%26%20Tool%20Reference.md).
