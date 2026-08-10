@@ -488,3 +488,71 @@ mode         - 'append' (default) or 'replace'
 Returns:
 {"success": true, "keys_added": 1}
 """
+
+# Log tool descriptions
+GET_NODE_SYSLOG_DESC = """Read syslog entries from a Proxmox node.
+
+Parameters:
+node*   - Node name (e.g. 'pve', 'pve1')
+limit   - Maximum number of log lines to return (default: 100, max: 1000)
+start   - Start line for pagination (0-based, optional)
+since   - Show entries from this date/time onward
+          (format: YYYY-MM-DD or YYYY-MM-DD HH:MM or YYYY-MM-DD HH:MM:SS, optional)
+until   - Show entries up to this date/time (same format as since, optional)
+service - Filter by service name (e.g. 'pvedaemon', 'pveproxy', optional)
+
+Example:
+get_node_syslog node='pve' limit=50 service='pvedaemon'
+"""
+
+GET_TASK_LOG_DESC = """Get the log output of a specific Proxmox task by its UPID.
+
+Parameters:
+node*  - Node name that ran the task (e.g. 'pve')
+upid*  - Unique Process ID of the task (e.g. the Task ID returned by
+         VM/container operations or list_jobs)
+start  - Start line for pagination (0-based, optional)
+limit  - Maximum number of log lines to return (default: 50, max: 500)
+
+Example:
+get_task_log node='pve' upid='UPID:pve:00001234:...' limit=100
+"""
+
+GET_CLUSTER_LOG_DESC = """Read recent cluster-wide log entries.
+
+Parameters:
+max_entries - Maximum number of entries to return (default: 50, max: 1000)
+
+Each entry includes: time, node, user, tag (service), pri (priority), msg.
+
+Example:
+get_cluster_log max_entries=100
+"""
+
+GET_NODE_FIREWALL_LOG_DESC = """Read the host firewall log of a Proxmox node.
+
+Parameters:
+node*  - Node name (e.g. 'pve', 'pve1')
+limit  - Maximum number of log lines to return (default: 100, max: 1000)
+start  - Start line for pagination (0-based, optional)
+since  - Show entries since this UNIX epoch timestamp (optional)
+until  - Show entries until this UNIX epoch timestamp (optional)
+
+Example:
+get_node_firewall_log node='pve' limit=50
+"""
+
+GET_GUEST_FIREWALL_LOG_DESC = """Read the firewall log of a VM (qemu) or container (lxc).
+
+Parameters:
+node*   - Node hosting the guest (e.g. 'pve')
+vmid*   - VM/container ID (e.g. 100)
+vm_type - Guest type: 'qemu' (default) or 'lxc'
+limit   - Maximum number of log lines to return (default: 100, max: 1000)
+start   - Start line for pagination (0-based, optional)
+since   - Show entries since this UNIX epoch timestamp (optional)
+until   - Show entries until this UNIX epoch timestamp (optional)
+
+Example:
+get_guest_firewall_log node='pve' vmid=100 vm_type='qemu' limit=50
+"""

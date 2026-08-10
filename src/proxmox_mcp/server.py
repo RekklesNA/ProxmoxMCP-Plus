@@ -25,6 +25,7 @@ from proxmox_mcp.services.builtin_tool_plugins import (
     CoreToolsPlugin,
     ImageToolsPlugin,
     JobsToolsPlugin,
+    LogToolsPlugin,
     SnapshotToolsPlugin,
     VMToolsPlugin,
 )
@@ -33,6 +34,7 @@ from proxmox_mcp.tools.cluster import ClusterTools
 from proxmox_mcp.tools.containers import ContainerTools
 from proxmox_mcp.tools.iso import ISOTools
 from proxmox_mcp.tools.jobs import JobsTools
+from proxmox_mcp.tools.logs import LogTools
 from proxmox_mcp.tools.node import NodeTools
 from proxmox_mcp.tools.snapshots import SnapshotTools
 from proxmox_mcp.tools.storage import StorageTools
@@ -88,6 +90,7 @@ class ProxmoxMCPServer:
         self.iso_tools = ISOTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
         self.backup_tools = BackupTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
         self.jobs_tools = JobsTools(self.job_store)
+        self.log_tools = LogTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
 
         log_level = cast(
             Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -146,6 +149,7 @@ class ProxmoxMCPServer:
         self.tool_registry.add(SnapshotToolsPlugin())
         self.tool_registry.add(ImageToolsPlugin())
         self.tool_registry.add(BackupToolsPlugin())
+        self.tool_registry.add(LogToolsPlugin())
         self.tool_registry.register_all(self)
 
     def close(self) -> None:

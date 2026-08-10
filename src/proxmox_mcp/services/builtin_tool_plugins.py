@@ -23,13 +23,18 @@ from proxmox_mcp.tools.definitions import (
     EXECUTE_CONTAINER_COMMAND_DESC,
     EXECUTE_VM_COMMAND_DESC,
     GET_JOB_DESC,
+    GET_CLUSTER_LOG_DESC,
     GET_CLUSTER_STATUS_DESC,
     GET_CONTAINER_CONFIG_DESC,
     GET_CONTAINER_IP_DESC,
     GET_CONTAINERS_DESC,
+    GET_GUEST_FIREWALL_LOG_DESC,
+    GET_NODE_FIREWALL_LOG_DESC,
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
+    GET_NODE_SYSLOG_DESC,
     GET_STORAGE_DESC,
+    GET_TASK_LOG_DESC,
     GET_VMS_DESC,
     GET_VM_CONFIG_DESC,
     LIST_JOBS_DESC,
@@ -768,4 +773,134 @@ class BackupToolsPlugin(RegistryPluginBase):
                 storage=storage,
                 volid=volid,
                 approval_token=approval_token,
+            )
+
+
+class LogToolsPlugin(RegistryPluginBase):
+    """Registers read-only log tools: node syslog, task log, cluster log,
+    and node/guest firewall logs."""
+
+    def register(self, server: Any) -> None:
+        @server.mcp.tool(description=GET_NODE_SYSLOG_DESC)
+        def get_node_syslog(
+            node: Annotated[str, Field(description="Node name (e.g. 'pve', 'pve1')")],
+            limit: Annotated[
+                int,
+                Field(description="Maximum number of log lines to return", ge=1, le=1000, default=100),
+            ] = 100,
+            start: Annotated[
+                Optional[int],
+                Field(description="Start line for pagination (0-based)", ge=0, default=None),
+            ] = None,
+            since: Annotated[
+                Optional[str],
+                Field(
+                    description="Show entries from this date/time onward "
+                    "(YYYY-MM-DD or YYYY-MM-DD HH:MM or YYYY-MM-DD HH:MM:SS)",
+                    default=None,
+                ),
+            ] = None,
+            until: Annotated[
+                Optional[str],
+                Field(
+                    description="Show entries up to this date/time (same format as since)",
+                    default=None,
+                ),
+            ] = None,
+            service: Annotated[
+                Optional[str],
+                Field(description="Filter by service name (e.g. 'pvedaemon', 'pveproxy')", default=None),
+            ] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_syslog", server.log_tools.get_node_syslog)(
+                node=node, limit=limit, start=start, since=since, until=until, service=service
+            )
+
+        @server.mcp.tool(description=GET_TASK_LOG_DESC)
+        def get_task_log(
+            node: Annotated[str, Field(description="Node name that ran the task (e.g. 'pve')")],
+            upid: Annotated[str, Field(description="Unique Process ID (UPID) of the task")],
+            start: Annotated[
+                Optional[int],
+                Field(description="Start line for pagination (0-based)", ge=0, default=None),
+            ] = None,
+            limit: Annotated[
+                int,
+                Field(description="Maximum number of log lines to return", ge=1, le=500, default=50),
+            ] = 50,
+        ) -> Any:
+            return self._wrap_sync(server, "get_task_log", server.log_tools.get_task_log)(
+                node=node, upid=upid, start=start, limit=limit
+            )
+
+        @server.mcp.tool(description=GET_CLUSTER_LOG_DESC)
+        def get_cluster_log(
+            max_entries: Annotated[
+                int,
+                Field(description="Maximum number of cluster log entries to return", ge=1, le=1000, default=50),
+            ] = 50,
+        ) -> Any:
+            return self._wrap_sync(server, "get_cluster_log", server.log_tools.get_cluster_log)(
+                max_entries=max_entries
+            )
+
+        @server.mcp.tool(description=GET_NODE_FIREWALL_LOG_DESC)
+        def get_node_firewall_log(
+            node: Annotated[str, Field(description="Node name (e.g. 'pve', 'pve1')")],
+            limit: Annotated[
+                int,
+                Field(description="Maximum number of log lines to return", ge=1, le=1000, default=100),
+            ] = 100,
+            start: Annotated[
+                Optional[int],
+                Field(description="Start line for pagination (0-based)", ge=0, default=None),
+            ] = None,
+            since: Annotated[
+                Optional[int],
+                Field(description="Show entries since this UNIX epoch timestamp", default=None),
+            ] = None,
+            until: Annotated[
+                Optional[int],
+                Field(description="Show entries until this UNIX epoch timestamp", default=None),
+            ] = None,
+        ) -> Any:
+            return self._wrap_sync(
+                server, "get_node_firewall_log", server.log_tools.get_node_firewall_log
+            )(node=node, limit=limit, start=start, since=since, until=until)
+
+        @server.mcp.tool(description=GET_GUEST_FIREWALL_LOG_DESC)
+        def get_guest_firewall_log(
+            node: Annotated[str, Field(description="Node hosting the guest (e.g. 'pve')")],
+            vmid: Annotated[int, Field(description="VM/container ID (e.g. 100)", ge=100)],
+            vm_type: Annotated[
+                Literal["qemu", "lxc"],
+                Field(description="Guest type: 'qemu' (VM, default) or 'lxc' (container)", default="qemu"),
+            ] = "qemu",
+            limit: Annotated[
+                int,
+                Field(description="Maximum number of log lines to return", ge=1, le=1000, default=100),
+            ] = 100,
+            start: Annotated[
+                Optional[int],
+                Field(description="Start line for pagination (0-based)", ge=0, default=None),
+            ] = None,
+            since: Annotated[
+                Optional[int],
+                Field(description="Show entries since this UNIX epoch timestamp", default=None),
+            ] = None,
+            until: Annotated[
+                Optional[int],
+                Field(description="Show entries until this UNIX epoch timestamp", default=None),
+            ] = None,
+        ) -> Any:
+            return self._wrap_sync(
+                server, "get_guest_firewall_log", server.log_tools.get_guest_firewall_log
+            )(
+                node=node,
+                vmid=vmid,
+                vm_type=vm_type,
+                limit=limit,
+                start=start,
+                since=since,
+                until=until,
             )

@@ -269,6 +269,26 @@
         {
             "name": "delete_backup",
             "description": "Delete a specific backup"
+        },
+        {
+            "name": "get_node_syslog",
+            "description": "Read syslog entries from a Proxmox node"
+        },
+        {
+            "name": "get_task_log",
+            "description": "Get the log output of a specific Proxmox task by its UPID"
+        },
+        {
+            "name": "get_cluster_log",
+            "description": "Read recent cluster-wide log entries"
+        },
+        {
+            "name": "get_node_firewall_log",
+            "description": "Read the host firewall log of a Proxmox node"
+        },
+        {
+            "name": "get_guest_firewall_log",
+            "description": "Read the firewall log of a VM (qemu) or container (lxc)"
         }
     ],
     "keywords": [
