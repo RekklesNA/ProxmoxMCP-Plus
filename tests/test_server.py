@@ -4,6 +4,7 @@ Tests for the Proxmox MCP server.
 
 import os
 import json
+import select
 import signal
 import subprocess
 import sys
@@ -1657,6 +1658,23 @@ def _server_with_transport(tmp_path, transport):
     return ProxmoxMCPServer(str(config_path))
 
 
+def test_exit_without_finalization_does_not_flush_stdio(monkeypatch):
+    """Flushing a stream locked by an SDK worker would deadlock shutdown."""
+    stdout = Mock()
+    stderr = Mock()
+    monkeypatch.setattr(server_module, "sys", Mock(stdout=stdout, stderr=stderr))
+    exit_process = Mock(side_effect=SystemExit(7))
+    monkeypatch.setattr(server_module.os, "_exit", exit_process)
+
+    with pytest.raises(SystemExit) as excinfo:
+        server_module._exit_without_finalization(7)
+
+    assert excinfo.value.code == 7
+    exit_process.assert_called_once_with(7)
+    stdout.flush.assert_not_called()
+    stderr.flush.assert_not_called()
+
+
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
 def test_stdio_signal_handler_exits_without_finalization(
     mock_proxmox, tmp_path, monkeypatch, signum
@@ -1670,20 +1688,43 @@ def test_stdio_signal_handler_exits_without_finalization(
     handlers = _capture_signal_handlers(srv, monkeypatch)
 
     exits: list[int] = []
+    events: list[str] = []
     monkeypatch.setattr(
-        server_module, "_exit_without_finalization", lambda status=0: exits.append(status)
+        server_module,
+        "_exit_without_finalization",
+        lambda status=0: (events.append("exit"), exits.append(status)),
     )
-    srv.close = Mock()
+    srv.close = Mock(side_effect=lambda: events.append("close"))
 
     handlers[signum](signum, None)
 
     assert exits == [0]
+    assert events == ["close", "exit"]
     srv.close.assert_called_once()
 
 
-def test_http_signal_handler_still_raises_system_exit(mock_proxmox, tmp_path, monkeypatch):
+def test_stdio_signal_handler_exits_when_close_fails(mock_proxmox, tmp_path, monkeypatch):
+    """A cleanup error must not fall back to unsafe interpreter finalization."""
+    srv = _server_with_transport(tmp_path, "STDIO")
+    handlers = _capture_signal_handlers(srv, monkeypatch)
+    srv.close = Mock(side_effect=RuntimeError("cleanup failed"))
+    exit_process = Mock(side_effect=SystemExit(0))
+    monkeypatch.setattr(server_module, "_exit_without_finalization", exit_process)
+
+    with pytest.raises(SystemExit) as excinfo:
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    assert excinfo.value.code == 0
+    srv.close.assert_called_once()
+    exit_process.assert_called_once_with()
+
+
+@pytest.mark.parametrize("transport", ["SSE", "STREAMABLE"])
+def test_http_signal_handler_still_raises_system_exit(
+    mock_proxmox, tmp_path, monkeypatch, transport
+):
     """HTTP transports have no stdin reader thread, so normal unwinding is kept."""
-    srv = _server_with_transport(tmp_path, "SSE")
+    srv = _server_with_transport(tmp_path, transport)
     handlers = _capture_signal_handlers(srv, monkeypatch)
     srv.close = Mock()
 
@@ -1694,6 +1735,10 @@ def test_http_signal_handler_still_raises_system_exit(mock_proxmox, tmp_path, mo
     srv.close.assert_called_once()
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="SIGTERM handler delivery is POSIX-specific",
+)
 def test_stdio_shutdown_does_not_abort_at_interpreter_finalization(tmp_path):
     """End-to-end guard against the SIGABRT regression.
 
@@ -1711,10 +1756,12 @@ def test_stdio_shutdown_does_not_abort_at_interpreter_finalization(tmp_path):
         signal.signal(signal.SIGTERM, lambda *_: _exit_without_finalization())
 
         worker_view = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
-        threading.Thread(target=worker_view.readline, daemon=True).start()
+        reader = threading.Thread(target=worker_view.readline, daemon=True)
+        reader.start()
         time.sleep(0.2)
-        os.kill(os.getpid(), signal.SIGTERM)
-        time.sleep(10)
+        assert reader.is_alive()
+        print("READY", flush=True)
+        time.sleep(30)
         """
     )
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(server_module.__file__)))
@@ -1729,12 +1776,37 @@ def test_stdio_shutdown_does_not_abort_at_interpreter_finalization(tmp_path):
         env=env,
     )
     try:
-        _, stderr = proc.communicate(timeout=30)
+        assert proc.stdout is not None
+        assert proc.stderr is not None
+        assert proc.stdin is not None
+
+        # Keep stdin open while the reader thread is blocked. communicate()
+        # closes an unused stdin pipe before waiting, which releases the shared
+        # BufferedReader lock and turns this regression guard into a false pass.
+        readable, _, _ = select.select([proc.stdout], [], [], 10)
+        assert readable, "child did not become ready while holding the stdin lock"
+        assert proc.stdout.readline() == b"READY\n"
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=30)
+        stderr = proc.stderr.read()
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait()
         raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if proc.stdin is not None:
+            proc.stdin.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
 
     assert proc.returncode == 0, (
         f"shutdown aborted instead of exiting cleanly "
         f"(returncode={proc.returncode}): {stderr.decode(errors='replace')}"
     )
+    assert b"Fatal Python error" not in stderr
+    assert b"_enter_buffered_busy" not in stderr

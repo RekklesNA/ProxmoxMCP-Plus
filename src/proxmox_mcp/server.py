@@ -72,12 +72,14 @@ def _exit_without_finalization(status: int = 0) -> NoReturn:
     which aborts the process with ``SIGABRT``. ``os._exit()`` skips
     finalization entirely, so the shutdown is clean. Callers are responsible
     for releasing anything that matters before calling this.
+
+    Standard streams are intentionally not flushed here. The SDK also writes
+    stdout through an AnyIO worker thread and a second ``TextIOWrapper``. If
+    that worker is blocked on a full pipe while holding the shared buffered
+    writer lock, flushing from the signal handler would deadlock before
+    ``os._exit()`` can run. The signal handler calls ``close()`` first to
+    release application-owned resources.
     """
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.flush()
-        except Exception:  # pragma: no cover - best effort on a dying process
-            pass
     os._exit(status)
 
 
@@ -194,10 +196,13 @@ class ProxmoxMCPServer:
 
         def signal_handler(signum: int, frame: object) -> None:
             self.logger.info("Received signal to shutdown...")
-            self.close()
             if uses_stdio:
-                _exit_without_finalization()
+                try:
+                    self.close()
+                finally:
+                    _exit_without_finalization()
             else:
+                self.close()
                 sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
