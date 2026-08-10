@@ -18,13 +18,13 @@
     "url": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
     "source": "github"
   },
-  "version": "0.5.12",
+  "version": "0.5.13",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "proxmox-mcp-plus",
-      "version": "0.5.12",
+      "version": "0.5.13",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

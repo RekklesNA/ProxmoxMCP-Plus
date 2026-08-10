@@ -18,6 +18,38 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.13`
+
+- Release date: 2026-08-10
+- Summary: adds five read-only Proxmox log inspection tools and prevents CPython finalization aborts during STDIO signal shutdown.
+- New tools or endpoints:
+  - `get_node_syslog`
+  - `get_task_log`
+  - `get_cluster_log`
+  - `get_node_firewall_log`
+  - `get_guest_firewall_log` for QEMU VMs and LXC containers
+- Changed behavior:
+  - STDIO now closes application resources and exits without interpreter finalization when SIGINT or SIGTERM is received
+  - SSE and Streamable HTTP retain their existing `SystemExit` shutdown behavior
+  - log access remains governed by Proxmox permissions; the user or API token may need `Sys.Syslog`, `Sys.Audit`, or `VM.Console` depending on the endpoint and target
+  - returned logs may include sensitive operational details and should be shared only after review
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - no runtime configuration migration
+- Docs updated:
+  - `README.md`
+  - `docs/releases/v0.5.13.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Tool Selection Guide.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+- Upgrade steps:
+  - upgrade normally from PyPI, GHCR, or source
+  - reconnect or refresh the MCP client if it caches the server's tool list
+  - grant only the Proxmox log permissions required by the inspection workflow
+- Rollback notes:
+  - pin PyPI or source installs to `0.5.12`, or use the GHCR tag `0.5.12`
+
 ### Version `0.5.12`
 
 - Release date: 2026-07-29
