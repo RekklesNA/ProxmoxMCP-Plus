@@ -1,5 +1,7 @@
 # ProxmoxMCP-Plus
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.RekklesNA%2Fproxmox-mcp-plus.svg)](https://mcptoplist.com/server/io.github.RekklesNA%2Fproxmox-mcp-plus)
+
 <!-- mcp-name: io.github.RekklesNA/proxmox-mcp-plus -->
 
 <div align="center">
