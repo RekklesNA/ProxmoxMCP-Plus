@@ -34,6 +34,8 @@ services:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
       - MCP_TRANSPORT=STREAMABLE_HTTP
+      # Optional but strongly recommended for every remotely reachable deployment.
+      - MCP_API_KEY=${MCP_API_KEY:-}
       # For reverse proxy deployments, set explicit Host/Origin allowlists.
       # - MCP_DNS_REBINDING_PROTECTION=true
       # - MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:*

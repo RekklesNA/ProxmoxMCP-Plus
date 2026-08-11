@@ -18,6 +18,41 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.14`
+
+- Release date: 2026-08-11
+- Summary: adds optional Bearer authentication for the native Streamable HTTP `/mcp` endpoint.
+- New tools or endpoints:
+  - no new tools or endpoint paths
+- Changed behavior:
+  - setting `MCP_API_KEY` requires `Authorization: Bearer <MCP_API_KEY>` for native `/mcp` requests
+  - missing, malformed, or incorrect credentials return `401` with `WWW-Authenticate: Bearer`
+  - unauthenticated Streamable HTTP remains available for backward compatibility but logs a security warning
+  - successful SSE responses pass through the authentication layer without buffering
+- Removed or deprecated behavior:
+  - no removals or deprecations
+- Config changes:
+  - optional `MCP_API_KEY` environment variable for native Streamable HTTP only
+  - `PROXMOX_API_KEY` remains exclusive to the OpenAPI bridge
+- Docs updated:
+  - `README.md`
+  - `docs/releases/v0.5.14.md`
+  - `docs/wiki/API & Tool Reference.md`
+  - `docs/wiki/Home.md`
+  - `docs/wiki/Integrations Guide.md`
+  - `docs/wiki/Operator Guide.md`
+  - `docs/wiki/Security Guide.md`
+  - `docs/wiki/Troubleshooting.md`
+  - `docs/wiki/Release & Upgrade Notes.md`
+  - `docs/llms.txt`
+- Upgrade steps:
+  - generate a separate `MCP_API_KEY` for every remotely reachable native MCP HTTP deployment
+  - configure clients to send the Bearer header on every `/mcp` request
+  - retain TLS, ingress controls, and Host/Origin validation alongside caller authentication
+- Rollback notes:
+  - pin PyPI or source installs to `0.5.13`, or use the GHCR tag `0.5.13`
+  - retain external authentication when rolling back because `0.5.13` does not enforce `MCP_API_KEY`
+
 ### Version `0.5.13`
 
 - Release date: 2026-08-10

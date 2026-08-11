@@ -56,6 +56,7 @@ ProxmoxMCP-Plus is not a replacement for Proxmox RBAC or network isolation. It a
 
 - Proxmox API token permissions remain the backend source of authority.
 - OpenAPI mode requires `PROXMOX_API_KEY` by default.
+- Native MCP HTTP mode can require a separate `MCP_API_KEY` Bearer token.
 - TLS validation is enforced unless `security.dev_mode=true` is explicitly enabled.
 - `command_policy` and `approval_token` can gate command execution and high-risk operations.
 - MCP HTTP deployments can configure DNS rebinding protection plus Host and Origin allowlists.

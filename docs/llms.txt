@@ -18,7 +18,7 @@ Important operating notes:
 
 - Use read-only tools such as `get_nodes`, `get_vms`, `get_containers`, and `get_storage` before mutating Proxmox resources.
 - Use `job_id` for ProxmoxMCP-Plus job tracking and `task_id` for raw Proxmox `UPID` traceability.
-- MCP Streamable HTTP clients should connect to `/mcp` on the service running on port `8000`.
+- MCP Streamable HTTP clients should connect to `/mcp` on port `8000` and send `Authorization: Bearer <MCP_API_KEY>` when native authentication is configured.
 - OpenAPI clients should use the service on port `8811` and send `Authorization: Bearer <PROXMOX_API_KEY>`.
 - Container command execution appears only when the config includes an `ssh` section.
 - TLS verification should remain enabled outside explicit local development mode.

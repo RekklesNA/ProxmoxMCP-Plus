@@ -21,6 +21,8 @@ When `mcp.transport` is `STREAMABLE_HTTP` or `STREAMABLE`, the server exposes th
 | `/mcp` | MCP Streamable HTTP endpoint | use this for remote MCP clients that support Streamable HTTP |
 
 The Docker Compose `mcp-http` profile exposes this endpoint on port `8000`.
+When `MCP_API_KEY` is set, callers must send `Authorization: Bearer <MCP_API_KEY>`.
+Missing or incorrect credentials return `401` with `WWW-Authenticate: Bearer`.
 
 ## OpenAPI Service Endpoints
 
@@ -42,6 +44,7 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 ### Authentication and Authorization
 
 - Proxmox API access requires a valid `proxmox` and `auth` configuration.
+- Native MCP Streamable HTTP access optionally requires `Authorization: Bearer <MCP_API_KEY>` when `MCP_API_KEY` is configured.
 - OpenAPI access requires `Authorization: Bearer <PROXMOX_API_KEY>` by default. Startup without an API key requires the explicit local-development override `PROXMOX_ALLOW_NO_AUTH=true`.
 - SSH-backed container command workflows require a valid `ssh` configuration.
 - Command-execution tools are subject to command-policy checks. Depending on policy, a request can be allowed, denied, or require an `approval_token`.

@@ -9,6 +9,7 @@ ProxmoxMCP-Plus sits between clients and the Proxmox API. The main controls are:
 - Proxmox API token authentication
 - TLS verification for Proxmox API connections
 - required API key protection for OpenAPI exposure, unless `PROXMOX_ALLOW_NO_AUTH=true` is explicitly set for local development
+- optional `MCP_API_KEY` Bearer protection for native Streamable HTTP exposure
 - MCP transport DNS rebinding protection and Host/Origin allowlists for Streamable HTTP deployments
 - command policy checks for `execute_*` tools
 - optional SSH configuration for container command execution
@@ -19,6 +20,7 @@ ProxmoxMCP-Plus sits between clients and the Proxmox API. The main controls are:
 - Keep `proxmox.verify_ssl=true`
 - Only use `security.dev_mode=true` for local development
 - Set `PROXMOX_API_KEY` before starting OpenAPI mode
+- Set a separate `MCP_API_KEY` before exposing native Streamable HTTP beyond a trusted local environment
 - Keep MCP DNS rebinding protection enabled when exposing Streamable HTTP through a reverse proxy
 - Restrict who can reach the OpenAPI endpoint
 - Keep logs for sensitive operations
@@ -86,6 +88,15 @@ If you run the OpenAPI proxy:
 
 Native Streamable HTTP MCP deployments can configure DNS rebinding protection through the `mcp` config section or environment variables.
 
+Set `MCP_API_KEY` to require `Authorization: Bearer <MCP_API_KEY>` on the native
+`/mcp` endpoint. Missing, malformed, or incorrect credentials receive `401 Unauthorized`
+with `WWW-Authenticate: Bearer`. The token is compared in constant time. This setting is
+independent of `PROXMOX_API_KEY`, which protects only the OpenAPI service on port `8811`.
+
+For backward compatibility, leaving `MCP_API_KEY` unset keeps the native endpoint
+unauthenticated and emits a startup warning. Do not rely on Host or Origin validation as
+caller authentication: those settings mitigate DNS rebinding but do not identify clients.
+
 Recommended reverse proxy settings:
 
 ```json
@@ -103,9 +114,14 @@ Recommended reverse proxy settings:
 
 If these fields are omitted, ProxmoxMCP-Plus leaves transport-security defaults to the installed MCP SDK. Set `dns_rebinding_protection=false` only for a trusted local development setup.
 
+When Caddy or another reverse proxy is used, disable response buffering for
+`text/event-stream` traffic. For Caddy, `flush_interval -1` prevents Streamable HTTP SSE
+responses from being delayed behind the proxy buffer.
+
 ## Credential Handling
 
 - Keep Proxmox API tokens out of committed source files
+- Keep `MCP_API_KEY` and `PROXMOX_API_KEY` out of committed source files and rotate them independently
 - Use a dedicated config file or environment variables per environment
 - If using SSH for container execution, use a dedicated keypair for this service
 - Rotate API tokens and SSH keys on a schedule that fits your environment
@@ -113,6 +129,7 @@ If these fields are omitted, ProxmoxMCP-Plus leaves transport-security defaults 
 ## Hardening Checklist
 
 - Restrict ingress to networks you control
+- Require `MCP_API_KEY` for every remotely reachable native `/mcp` endpoint
 - Keep OpenAPI behind a reverse proxy you manage
 - Use per-environment credentials
 - Keep `dev_mode` off outside local testing
