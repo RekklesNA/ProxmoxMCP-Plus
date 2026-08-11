@@ -56,6 +56,7 @@ Typical requirements:
 For remote MCP clients, run the native MCP HTTP Docker mode:
 
 ```bash
+export MCP_API_KEY="${MCP_API_KEY:-$(openssl rand -hex 32)}"
 docker compose --profile mcp-http up -d proxmox-mcp-http
 ```
 
@@ -66,6 +67,8 @@ http://<docker-host>:8000/mcp
 ```
 
 The default OpenAPI service on port `8811` is not an MCP Streamable HTTP endpoint; MCP HTTP clients should use `/mcp` on the native MCP service.
+Configure the client to send `Authorization: Bearer <MCP_API_KEY>`. The native token is
+separate from `PROXMOX_API_KEY`, which applies only to the OpenAPI service.
 
 If the MCP HTTP service is reached through a reverse proxy or gateway, configure the expected external Host header:
 

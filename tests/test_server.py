@@ -2,6 +2,7 @@
 Tests for the Proxmox MCP server.
 """
 
+import asyncio
 import os
 import json
 import select
@@ -11,12 +12,13 @@ import sys
 import textwrap
 import pytest
 from typing import Any, cast
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
 import proxmox_mcp.server as server_module
 from proxmox_mcp.config.loader import load_config
+from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.server import ProxmoxMCPServer
 
 
@@ -105,6 +107,37 @@ def test_server_close_releases_job_store_and_proxmox_manager(server):
 
     server.job_store.close.assert_called_once()
     server.proxmox_manager.close.assert_called_once()
+
+
+def test_streamable_http_runner_wraps_app_when_api_key_is_set(server, monkeypatch):
+    base_app = Mock()
+    server.mcp.streamable_http_app = Mock(return_value=base_app)
+    monkeypatch.setenv("MCP_API_KEY", "mcp-secret")
+
+    with patch("uvicorn.Config") as config:
+        with patch("uvicorn.Server") as uvicorn_server:
+            uvicorn_server.return_value.serve = AsyncMock()
+            asyncio.run(server._run_streamable_http_async())
+
+    wrapped_app = config.call_args.args[0]
+    assert isinstance(wrapped_app, MCPBearerAuthMiddleware)
+    assert wrapped_app.app is base_app
+    uvicorn_server.return_value.serve.assert_awaited_once()
+
+
+def test_streamable_http_runner_preserves_no_auth_compatibility(server, monkeypatch, caplog):
+    base_app = Mock()
+    server.mcp.streamable_http_app = Mock(return_value=base_app)
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+
+    with patch("uvicorn.Config") as config:
+        with patch("uvicorn.Server") as uvicorn_server:
+            uvicorn_server.return_value.serve = AsyncMock()
+            asyncio.run(server._run_streamable_http_async())
+
+    assert config.call_args.args[0] is base_app
+    assert "running without MCP_API_KEY" in caplog.text
+    uvicorn_server.return_value.serve.assert_awaited_once()
 
 
 def test_server_applies_configured_http_host_and_port(mock_proxmox, tmp_path):

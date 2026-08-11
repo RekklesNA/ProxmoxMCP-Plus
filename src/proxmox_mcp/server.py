@@ -16,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
+from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
 from proxmox_mcp.services import JobStore, ToolRegistry
@@ -189,6 +190,29 @@ class ProxmoxMCPServer:
         self.job_store.close()
         self.proxmox_manager.close()
 
+    async def _run_streamable_http_async(self) -> None:
+        """Run Streamable HTTP with optional inbound Bearer authentication."""
+        import uvicorn
+
+        app: Any = self.mcp.streamable_http_app()
+        api_key = os.getenv("MCP_API_KEY")
+        if api_key:
+            app = MCPBearerAuthMiddleware(app, api_key=api_key)
+            self.logger.info("MCP Streamable HTTP bearer authentication is enabled")
+        else:
+            self.logger.warning(
+                "MCP Streamable HTTP is running without MCP_API_KEY; "
+                "any client that can reach the endpoint may invoke MCP tools"
+            )
+
+        config = uvicorn.Config(
+            app,
+            host=self.mcp.settings.host,
+            port=self.mcp.settings.port,
+            log_level=self.mcp.settings.log_level.lower(),
+        )
+        await uvicorn.Server(config).serve()
+
     def start(self) -> None:
         """Start the MCP server with the configured transport."""
         import anyio
@@ -221,7 +245,7 @@ class ProxmoxMCPServer:
                 anyio.run(self.mcp.run_sse_async)
             elif transport == "STREAMABLE":
                 try:
-                    anyio.run(self.mcp.run_streamable_http_async)
+                    anyio.run(self._run_streamable_http_async)
                 except AttributeError:
                     anyio.run(self.mcp.run_sse_async)
             else:

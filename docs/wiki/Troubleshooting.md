@@ -55,6 +55,21 @@ Check:
 
 Use `/livez` for unauthenticated liveness checks. Use authenticated `/readyz` or `/health` for backend readiness.
 
+## Native `/mcp` Returns `401`
+
+Native Streamable HTTP authentication is enabled when `MCP_API_KEY` is present in the
+server environment.
+
+Check:
+
+- the client sends `Authorization: Bearer <MCP_API_KEY>` on every `/mcp` request
+- the client and server use the same value without added quotes or whitespace
+- Docker Compose received `MCP_API_KEY` from the shell or `.env` file
+- `MCP_API_KEY` was not confused with the OpenAPI-only `PROXMOX_API_KEY`
+
+If the variable is deliberately omitted for trusted local development, startup logs a
+warning and `/mcp` retains its backward-compatible unauthenticated behavior.
+
 ## OpenAPI `/docs` Works But Tool Calls Fail
 
 Check:

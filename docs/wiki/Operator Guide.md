@@ -85,7 +85,9 @@ If startup succeeds, the server stays attached to stdio and waits for MCP client
 Set the MCP transport to `STREAMABLE_HTTP` and bind to an address reachable by the client:
 
 ```bash
-MCP_HOST=0.0.0.0 MCP_PORT=8000 MCP_TRANSPORT=STREAMABLE_HTTP python -m proxmox_mcp.server
+MCP_API_KEY="$(openssl rand -hex 32)" \
+MCP_HOST=0.0.0.0 MCP_PORT=8000 MCP_TRANSPORT=STREAMABLE_HTTP \
+python -m proxmox_mcp.server
 ```
 
 The MCP endpoint is:
@@ -96,12 +98,17 @@ http://<host>:8000/mcp
 
 This is the correct target for MCP clients that support Streamable HTTP. It is separate from the OpenAPI service on port `8811`.
 
+Clients should send `Authorization: Bearer <MCP_API_KEY>`. If `MCP_API_KEY` is unset,
+the endpoint remains unauthenticated for backward compatibility and the server logs a
+security warning. `PROXMOX_API_KEY` does not protect this endpoint.
+
 For reverse proxy deployments, configure the external hostnames explicitly instead of disabling DNS rebinding protection:
 
 ```bash
 MCP_HOST=0.0.0.0 \
 MCP_PORT=8000 \
 MCP_TRANSPORT=STREAMABLE_HTTP \
+MCP_API_KEY="$MCP_API_KEY" \
 MCP_DNS_REBINDING_PROTECTION=true \
 MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:* \
 MCP_ALLOWED_ORIGINS=https://mcp.example.com \
@@ -156,10 +163,12 @@ docker compose up -d --build
 To run the native MCP Streamable HTTP service from Docker Compose:
 
 ```bash
+export MCP_API_KEY="${MCP_API_KEY:-$(openssl rand -hex 32)}"
 docker compose --profile mcp-http up -d proxmox-mcp-http
 ```
 
-Then connect Streamable HTTP MCP clients to `http://<docker-host>:8000/mcp`.
+Then connect Streamable HTTP MCP clients to `http://<docker-host>:8000/mcp` and send
+`Authorization: Bearer <MCP_API_KEY>`.
 
 The same image can also be run directly:
 
@@ -169,6 +178,7 @@ docker run --rm -p 8000:8000 \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \
   -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -e MCP_API_KEY="$MCP_API_KEY" \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
@@ -181,6 +191,7 @@ Before exposing the service to users:
 - Keep `proxmox.verify_ssl=true` unless you are explicitly in development mode
 - Keep `security.dev_mode=false` outside local testing
 - Set `PROXMOX_API_KEY` for OpenAPI mode; only use `PROXMOX_ALLOW_NO_AUTH=true` for local unauthenticated development
+- Set `MCP_API_KEY` for every remotely reachable native MCP HTTP deployment
 - For MCP HTTP behind a proxy, keep `MCP_DNS_REBINDING_PROTECTION=true` and set `MCP_ALLOWED_HOSTS` to the exact public hostnames
 - Restrict ingress to networks you control
 - Monitor `/livez` for process liveness and authenticated `/health` or `/readyz` for backend readiness

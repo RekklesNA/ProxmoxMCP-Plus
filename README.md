@@ -120,11 +120,13 @@ Use this path when the MCP client launches a local stdio server.
 Use this path when a remote MCP client supports Streamable HTTP:
 
 ```bash
+export MCP_API_KEY="$(openssl rand -hex 32)"
 docker run --rm -p 8000:8000 \
   -e PROXMOX_MCP_MODE=mcp-http \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \
   -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -e MCP_API_KEY="$MCP_API_KEY" \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
@@ -135,6 +137,11 @@ Point MCP clients at:
 http://<docker-host>:8000/mcp
 ```
 
+Send `Authorization: Bearer <MCP_API_KEY>` with every MCP HTTP request. `MCP_API_KEY`
+is deliberately separate from the OpenAPI-only `PROXMOX_API_KEY`, so the two surfaces
+can be rotated independently. If `MCP_API_KEY` is unset, Streamable HTTP remains
+unauthenticated for backward compatibility and logs a security warning at startup.
+
 When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection enabled and allow only the hostnames you expect:
 
 ```bash
@@ -143,6 +150,7 @@ docker run --rm -p 8000:8000 \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \
   -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -e MCP_API_KEY="$MCP_API_KEY" \
   -e MCP_DNS_REBINDING_PROTECTION=true \
   -e MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:* \
   -e MCP_ALLOWED_ORIGINS=https://mcp.example.com \
@@ -263,6 +271,7 @@ The project gives operators several control points:
 
 - Proxmox API tokens decide what the backend can do.
 - `PROXMOX_API_KEY` protects the OpenAPI bridge by default.
+- `MCP_API_KEY` optionally protects the native Streamable HTTP `/mcp` endpoint with Bearer authentication.
 - TLS verification is enforced unless development mode is explicitly enabled.
 - `command_policy` controls command execution and high-risk operations.
 - `approval_token` can gate command execution and high-risk mutating actions.
