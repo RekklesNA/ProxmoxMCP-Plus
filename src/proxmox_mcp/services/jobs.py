@@ -98,8 +98,9 @@ class JobRecord:
 class JobStore:
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
-    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3") -> None:
+    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None) -> None:
         self.proxmox = proxmox_api
+        self.target_name = target_name
         self.sqlite_path = str(Path(sqlite_path).expanduser())
         Path(self.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, JobRecord] = {}
@@ -145,6 +146,9 @@ class JobStore:
     ) -> dict[str, Any]:
         job_id = str(uuid.uuid4())
         now = _utcnow()
+        job_metadata = dict(metadata or {})
+        if self.target_name is not None:
+            job_metadata.setdefault("target", self.target_name)
         record = JobRecord(
             job_id=job_id,
             tool_name=tool_name,
@@ -153,7 +157,7 @@ class JobStore:
             upid=str(upid) if upid is not None else None,
             created_at=now,
             updated_at=now,
-            metadata=dict(metadata or {}),
+            metadata=job_metadata,
             retry_spec=dict(retry_spec) if retry_spec else None,
             retry_factory=retry_factory,
             cancel_factory=cancel_factory,

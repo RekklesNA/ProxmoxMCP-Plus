@@ -11,6 +11,7 @@ import os
 import signal
 import sys
 from typing import Any, Literal, NoReturn, Optional, cast
+from types import SimpleNamespace
 
 from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
@@ -147,6 +148,46 @@ class ProxmoxMCPServer:
         self.jobs_tools = JobsTools(self.job_store)
         self.log_tools = LogTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
 
+        if self.target_registry.names == ("default",):
+            self.target_node_tools["default"] = self.node_tools
+            self.target_storage_tools["default"] = self.storage_tools
+            self.target_cluster_tools["default"] = self.cluster_tools
+
+        self.target_job_stores: dict[str, JobStore] = {}
+        self.target_toolsets: dict[str, SimpleNamespace] = {}
+        for name, manager in self.proxmox_managers.items():
+            if name == "default" and self.target_registry.names == ("default",):
+                self.target_job_stores[name] = self.job_store
+                self.target_toolsets[name] = SimpleNamespace(
+                    node_tools=self.node_tools,
+                    storage_tools=self.storage_tools,
+                    cluster_tools=self.cluster_tools,
+                    vm_tools=self.vm_tools,
+                    container_tools=self.container_tools,
+                    snapshot_tools=self.snapshot_tools,
+                    iso_tools=self.iso_tools,
+                    backup_tools=self.backup_tools,
+                    jobs_tools=self.jobs_tools,
+                    log_tools=self.log_tools,
+                )
+                continue
+            target = self.target_registry.resolve(name)
+            api = manager.get_api()
+            job_store = JobStore(api, sqlite_path=self.config.jobs.sqlite_path, target_name=name)
+            self.target_job_stores[name] = job_store
+            self.target_toolsets[name] = SimpleNamespace(
+                node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),
+                storage_tools=StorageTools(api, metrics=self.metrics, job_store=job_store),
+                cluster_tools=ClusterTools(api, metrics=self.metrics, job_store=job_store),
+                vm_tools=VMTools(api, command_policy=self.command_policy, metrics=self.metrics, job_store=job_store),
+                container_tools=ContainerTools(api, target.ssh or self.config.ssh, command_policy=self.command_policy, metrics=self.metrics, job_store=job_store),
+                snapshot_tools=SnapshotTools(api, metrics=self.metrics, job_store=job_store),
+                iso_tools=ISOTools(api, metrics=self.metrics, job_store=job_store),
+                backup_tools=BackupTools(api, metrics=self.metrics, job_store=job_store),
+                jobs_tools=JobsTools(job_store),
+                log_tools=LogTools(api, metrics=self.metrics, job_store=job_store),
+            )
+
         log_level = cast(
             Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             self.config.logging.level.upper(),
@@ -207,8 +248,15 @@ class ProxmoxMCPServer:
         self.tool_registry.add(LogToolsPlugin())
         self.tool_registry.register_all(self)
 
+    def target_tools(self, requested: str | None) -> SimpleNamespace:
+        name = self.target_registry.resolve(requested).name
+        return self.target_toolsets[name]
+
     def close(self) -> None:
         self.job_store.close()
+        for job_store in self.target_job_stores.values():
+            if job_store is not self.job_store:
+                job_store.close()
         for manager in self.proxmox_managers.values():
             manager.close()
 
