@@ -177,23 +177,41 @@ class RegistryPluginBase(ToolRegistryPlugin):
 
 class CoreToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        @server.mcp.tool(
+            description="List configured Proxmox targets without exposing credentials. "
+            "A target name is required for other tools when multiple targets are configured."
+        )
+        def list_targets() -> Any:
+            return server.target_registry.describe()
+
         @server.mcp.tool(description=GET_NODES_DESC)
-        def get_nodes() -> Any:
-            return self._wrap_sync(server, "get_nodes", server.node_tools.get_nodes)()
+        def get_nodes(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            target_name = server.target_registry.resolve(target).name
+            return self._wrap_sync(server, "get_nodes", server.target_node_tools[target_name].get_nodes)()
 
         @server.mcp.tool(description=GET_NODE_STATUS_DESC)
         def get_node_status(
-            node: Annotated[str, Field(description="Name/ID of node to query (e.g. 'pve1', 'proxmox-node2')")]
+            node: Annotated[str, Field(description="Name/ID of node to query (e.g. 'pve1', 'proxmox-node2')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_node_status", server.node_tools.get_node_status)(node)
+            target_name = server.target_registry.resolve(target).name
+            return self._wrap_sync(server, "get_node_status", server.target_node_tools[target_name].get_node_status)(node)
 
         @server.mcp.tool(description=GET_STORAGE_DESC)
-        def get_storage() -> Any:
-            return self._wrap_sync(server, "get_storage", server.storage_tools.get_storage)()
+        def get_storage(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            target_name = server.target_registry.resolve(target).name
+            return self._wrap_sync(server, "get_storage", server.target_storage_tools[target_name].get_storage)()
 
         @server.mcp.tool(description=GET_CLUSTER_STATUS_DESC)
-        def get_cluster_status() -> Any:
-            return self._wrap_sync(server, "get_cluster_status", server.cluster_tools.get_cluster_status)()
+        def get_cluster_status(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            target_name = server.target_registry.resolve(target).name
+            return self._wrap_sync(server, "get_cluster_status", server.target_cluster_tools[target_name].get_cluster_status)()
 
 
 class JobsToolsPlugin(RegistryPluginBase):

@@ -16,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
+from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
@@ -92,17 +93,37 @@ class ProxmoxMCPServer:
     def __init__(self, config_path: Optional[str] = None):
         self.config = load_config(config_path)
         self.logger = setup_logging(self.config.logging)
-
-        self.proxmox_manager = ProxmoxManager(
-            self.config.proxmox,
-            self.config.auth,
-            api_tunnel_config=self.config.api_tunnel,
-            ssh_config=self.config.ssh,
-        )
+        self.target_registry = TargetRegistry(self.config)
+        self.proxmox_managers = {
+            name: ProxmoxManager(
+                target.config,
+                target.auth,
+                api_tunnel_config=target.api_tunnel,
+                ssh_config=target.ssh,
+            )
+            for name in self.target_registry.names
+            for target in [self.target_registry.resolve(name)]
+        }
+        # Tool dispatch is kept on the legacy default manager until each tool
+        # receives its explicit target parameter. Multi-target callers use
+        # list_targets during this incremental migration.
+        self.proxmox_manager = next(iter(self.proxmox_managers.values()))
         self.proxmox = self.proxmox_manager.get_api()
         self.command_policy = CommandPolicyGate(self.config.command_policy)
         self.metrics = ToolMetrics()
         self.job_store = JobStore(self.proxmox, sqlite_path=self.config.jobs.sqlite_path)
+        self.target_node_tools = {
+            name: NodeTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
+            for name, manager in self.proxmox_managers.items()
+        }
+        self.target_storage_tools = {
+            name: StorageTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
+            for name, manager in self.proxmox_managers.items()
+        }
+        self.target_cluster_tools = {
+            name: ClusterTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
+            for name, manager in self.proxmox_managers.items()
+        }
 
         self.node_tools = NodeTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
         self.vm_tools = VMTools(
@@ -188,7 +209,8 @@ class ProxmoxMCPServer:
 
     def close(self) -> None:
         self.job_store.close()
-        self.proxmox_manager.close()
+        for manager in self.proxmox_managers.values():
+            manager.close()
 
     async def _run_streamable_http_async(self) -> None:
         """Run Streamable HTTP with optional inbound Bearer authentication."""

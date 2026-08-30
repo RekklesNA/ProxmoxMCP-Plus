@@ -1,5 +1,4 @@
-"""
-Configuration models for the Proxmox MCP server.
+"""Configuration models for the Proxmox MCP server.
 
 This module defines Pydantic models for configuration validation:
 - Proxmox connection settings
@@ -9,12 +8,13 @@ This module defines Pydantic models for configuration validation:
 
 The models provide:
 - Type validation
-- Default values
-- Field descriptions
+- Defaults and field descriptions
 - Required vs optional field handling
 """
+from __future__ import annotations
+
 from typing import Optional, Annotated, Literal, Dict, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -61,7 +61,7 @@ class APITunnelConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     """Model for Proxmox authentication configuration.
-    
+
     Defines the required parameters for API authentication
     using token-based authentication. All fields are required
     to ensure secure API access.
@@ -69,6 +69,22 @@ class AuthConfig(BaseModel):
     user: str  # Required: Username (e.g., 'root@pam')
     token_name: str  # Required: API token name
     token_value: str  # Required: API token secret
+
+
+class TargetConfig(BaseModel):
+    """Connection and authentication settings for one named target."""
+    host: str
+    port: int = 8006
+    timeout: int = 30
+    verify_ssl: bool | str = True
+    service: str = "PVE"
+    auth: AuthConfig
+    kind: Literal["cluster", "standalone"] = "standalone"
+    readonly: bool = False
+    api_tunnel: Optional[APITunnelConfig] = None
+    ssh: Optional[SSHConfig] = None
+    command_policy: Optional[CommandPolicyConfig] = None
+
 
 class LoggingConfig(BaseModel):
     """Model for logging configuration.
@@ -164,12 +180,25 @@ class Config(BaseModel):
     configuration object. All sections are required to ensure
     proper server operation.
     """
-    proxmox: ProxmoxConfig  # Required: Proxmox connection settings
+    proxmox: Optional[ProxmoxConfig] = None
+    targets: Optional[Dict[str, TargetConfig]] = None
     api_tunnel: Optional[APITunnelConfig] = None
-    auth: AuthConfig  # Required: Authentication credentials
-    logging: LoggingConfig  # Required: Logging configuration
+    auth: Optional[AuthConfig] = None
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     ssh: Optional[SSHConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     command_policy: CommandPolicyConfig = Field(default_factory=CommandPolicyConfig)
+
+    @model_validator(mode="after")
+    def validate_target_shape(self) -> "Config":
+        has_legacy = self.proxmox is not None or self.auth is not None
+        has_targets = self.targets is not None
+        if has_legacy and has_targets:
+            raise ValueError("Use either legacy proxmox/auth configuration or targets, not both")
+        if has_targets and not self.targets:
+            raise ValueError("At least one Proxmox target must be configured")
+        if not has_targets and (self.proxmox is None or self.auth is None):
+            raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
+        return self
     jobs: JobsConfig = Field(default_factory=JobsConfig)
