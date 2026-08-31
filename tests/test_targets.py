@@ -71,6 +71,21 @@ def test_target_tls_rejects_string_boolean():
         })
 
 
+def test_target_names_reject_path_traversal():
+    with pytest.raises(ValueError, match="target name"):
+        Config.model_validate({
+            "targets": {"../escape": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}}},
+        })
+
+
+def test_target_tunnels_require_distinct_remote_destinations_too():
+    data = {"targets": {}}
+    for name, host in (("a", "a"), ("b", "b")):
+        data["targets"][name] = {"host": host, "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "api_tunnel": {"enabled": True, "ssh_host": "jump", "local_port": 18000 + ord(name), "remote_host": "same", "remote_port": 8006}}
+    with pytest.raises(ValueError, match="remote endpoint"):
+        Config.model_validate(data)
+
+
 def test_target_tunnels_require_distinct_local_endpoints():
     data = {"targets": {}}
     for name, host in (("a", "a"), ("b", "b")):

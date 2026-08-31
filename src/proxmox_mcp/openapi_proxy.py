@@ -7,6 +7,7 @@ import base64
 import binascii
 import hmac
 import logging
+import re
 import os
 import sys
 import time
@@ -27,8 +28,13 @@ from proxmox_mcp.services.jobs import JobConflictError, JobNotFoundError
 LOGGER = logging.getLogger(__name__)
 
 
+_RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
+_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*\S+")
+
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
+    text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
+    text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
     return text[:max_length]
 
 

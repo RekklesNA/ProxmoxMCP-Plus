@@ -13,8 +13,11 @@ The models provide:
 """
 from __future__ import annotations
 
+import re
 from typing import Optional, Annotated, Literal, Dict, List
 from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+
+_TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -44,7 +47,7 @@ class ProxmoxConfig(BaseModel):
     host: str  # Required: Proxmox host address
     port: int = 8006  # Optional: API port (default: 8006)
     timeout: int = 30  # Optional: API timeout in seconds (default: 30)
-    verify_ssl: bool = True  # Optional: SSL verification (default: True)
+    verify_ssl: StrictBool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
 
 
@@ -77,6 +80,7 @@ class TargetConfig(BaseModel):
     port: int = 8006
     timeout: int = 30
     verify_ssl: StrictBool = True
+    allow_insecure_tls: StrictBool = False
     service: str = "PVE"
     auth: AuthConfig
     kind: Literal["cluster", "standalone"] = "standalone"
@@ -201,7 +205,13 @@ class Config(BaseModel):
         if not has_targets and (self.proxmox is None or self.auth is None):
             raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
         if self.targets:
+            for name in self.targets:
+                if not _TARGET_NAME_RE.match(name):
+                    raise ValueError(
+                        f"Proxmox target name {name!r} is invalid: must match ^[A-Za-z0-9_-]{{1,64}}$"
+                    )
             seen: dict[tuple[str, int], str] = {}
+            seen_remote: dict[tuple[str, str, int], str] = {}
             for name, target in self.targets.items():
                 tunnel = target.api_tunnel
                 if tunnel and tunnel.enabled:
@@ -212,5 +222,12 @@ class Config(BaseModel):
                             f"is shared by targets {seen[endpoint]!r} and {name!r}"
                         )
                     seen[endpoint] = name
+                    remote_key = (tunnel.ssh_host, tunnel.remote_host, tunnel.remote_port)
+                    if remote_key in seen_remote:
+                        raise ValueError(
+                            f"API tunnel remote endpoint {remote_key[0]}:{remote_key[1]}:{remote_key[2]} "
+                            f"via {remote_key[0]!r} is shared by targets {seen_remote[remote_key]!r} and {name!r}"
+                        )
+                    seen_remote[remote_key] = name
         return self
     jobs: JobsConfig = Field(default_factory=JobsConfig)

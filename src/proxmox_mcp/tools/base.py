@@ -11,30 +11,21 @@ All tool implementations inherit from the ProxmoxTool base class to ensure
 consistent behavior and error handling across the MCP server.
 """
 import logging
+import re
 import time
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
 from proxmox_mcp.observability import ToolMetrics
 
+_RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
+_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*\S+")
 
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
-    try:
-        parts = urlsplit(text)
-        host = parts.hostname or ""
-        if parts.port:
-            host += f":{parts.port}"
-        netloc = host if (parts.username or parts.password) else parts.netloc
-        query = urlencode([
-            (key, "[REDACTED]" if key.lower() in {"token", "password", "secret", "api_key", "authorization"} else item)
-            for key, item in parse_qsl(parts.query, keep_blank_values=True)
-        ])
-        text = urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
-    except ValueError:
-        pass
+    text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
+    text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
     return text[:max_length]
 
 

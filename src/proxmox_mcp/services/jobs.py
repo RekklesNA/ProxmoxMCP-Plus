@@ -7,7 +7,6 @@ import re
 import sqlite3
 import threading
 import uuid
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,29 +19,32 @@ _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _SECRET_KEYS = {"password", "token", "token_value", "api_key", "secret", "authorization", "approval_token"}
 
+# Regexes for outbound sanitization / _log_safe — sweep entire text, not whole-string urlsplit
+_RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
+_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*\S+")
+
+
+def _is_secret_key(key: str) -> bool:
+    lk = key.lower()
+    return any(secret in lk for secret in _SECRET_KEYS)
+
+
+def _sanitize_string(text: str) -> str:
+    text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
+    text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
+    return text
+
 
 def _sanitize(value: Any) -> Any:
+    """Outbound-only sanitization — redacts secrets for API responses/logs.
+    Uses regex sweeps so innocent URLs are not re-encoded or corrupted.
+    Persisted retry_spec is handled separately (see register_task)."""
     if isinstance(value, dict):
-        return {key: ("[REDACTED]" if str(key).lower() in _SECRET_KEYS else _sanitize(item)) for key, item in value.items()}
+        return {key: ("[REDACTED]" if _is_secret_key(str(key)) else _sanitize(item)) for key, item in value.items()}
     if isinstance(value, list):
         return [_sanitize(item) for item in value]
-    if isinstance(value, str) and "://" in value:
-        try:
-            parts = urlsplit(value)
-            host = parts.hostname or ""
-            if parts.port:
-                host += f":{parts.port}"
-            if parts.username or parts.password:
-                netloc = host
-            else:
-                netloc = parts.netloc
-            query = urlencode([
-                (key, "[REDACTED]" if key.lower() in _SECRET_KEYS else item)
-                for key, item in parse_qsl(parts.query, keep_blank_values=True)
-            ])
-            return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
-        except ValueError:
-            pass
+    if isinstance(value, str):
+        return _sanitize_string(value)
     return value
 
 
@@ -92,6 +94,7 @@ class JobRecord:
     previous_upids: list[str] = field(default_factory=list)
     audit_log: list[JobAuditEvent] = field(default_factory=list)
     retry_spec: Optional[dict[str, Any]] = None
+    retry_spec_redacted: bool = False
     retry_factory: Optional[Callable[[], Any]] = field(default=None, repr=False)
     cancel_factory: Optional[Callable[[str], Any]] = field(default=None, repr=False)
 
@@ -106,19 +109,20 @@ class JobRecord:
             "summary": self.summary,
             "node": self.node,
             "upid": self.upid,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "completed_at": self.completed_at,
             "status": self.status,
             "progress": self.progress,
             "attempts": self.attempts,
             "retry_count": self.retry_count,
             "last_error": _sanitize(self.last_error),
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "completed_at": self.completed_at,
             "result": _sanitize(self.result),
             "metadata": _sanitize(self.metadata),
             "previous_upids": self.previous_upids,
             "audit_log": [item.as_dict() for item in self.audit_log],
             "retry_spec": _sanitize(self.retry_spec),
+            "retry_spec_redacted": self.retry_spec_redacted,
         }
 
 
@@ -185,7 +189,8 @@ class JobStore:
             created_at=now,
             updated_at=now,
             metadata=job_metadata,
-            retry_spec=dict(retry_spec) if retry_spec else None,
+            retry_spec=_sanitize(retry_spec) if retry_spec else None,
+            retry_spec_redacted=bool(retry_spec and _sanitize(retry_spec) != retry_spec),
             retry_factory=retry_factory,
             cancel_factory=cancel_factory,
         )
@@ -279,6 +284,8 @@ class JobStore:
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             record = self._load_record_from_db(job_id)
+            if record.retry_spec_redacted:
+                raise JobConflictError(f"Job {job_id} retry recipe was redacted and cannot be retried")
             if record.status not in _RETRYABLE_STATUSES:
                 raise JobConflictError(
                     f"Job {job_id} cannot be retried while status is '{record.status}'. "
@@ -432,10 +439,15 @@ class JobStore:
                 metadata_json TEXT NOT NULL,
                 previous_upids_json TEXT NOT NULL,
                 audit_log_json TEXT NOT NULL,
-                retry_spec_json TEXT
+                retry_spec_json TEXT,
+                retry_spec_redacted INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        try:
+            self._conn.execute("ALTER TABLE jobs ADD COLUMN retry_spec_redacted INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs (status, created_at DESC)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tool_created_at ON jobs (tool_name, created_at DESC)")
@@ -444,6 +456,18 @@ class JobStore:
             (1, _utcnow()),
         )
         self._conn.commit()
+        # Migration warning: legacy jobs without target metadata cannot be safely isolated
+        try:
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
+            ).fetchone()[0]
+            if count:
+                import logging
+                logging.getLogger("proxmox-mcp.jobs").warning(
+                    "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
+                )
+        except Exception:
+            pass
 
     def _load_records(self) -> None:
         with self._lock:
@@ -479,6 +503,7 @@ class JobStore:
                 for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
             ],
             retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
+            retry_spec_redacted=bool(row["retry_spec_redacted"]) if "retry_spec_redacted" in row.keys() else False,
             retry_factory=existing.retry_factory if existing is not None else None,
             cancel_factory=existing.cancel_factory if existing is not None else None,
         )
@@ -530,8 +555,8 @@ class JobStore:
             INSERT OR REPLACE INTO jobs (
                 job_id, tool_name, summary, node, upid, created_at, updated_at, status,
                 progress, attempts, retry_count, last_error, completed_at, result_json,
-                metadata_json, previous_upids_json, audit_log_json, retry_spec_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                metadata_json, previous_upids_json, audit_log_json, retry_spec_json, retry_spec_redacted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.job_id,
@@ -551,7 +576,8 @@ class JobStore:
                 json.dumps(_sanitize(record.metadata), sort_keys=True),
                 json.dumps(record.previous_upids),
                 json.dumps(_sanitize([item.as_dict() for item in record.audit_log])),
-                json.dumps(_sanitize(record.retry_spec), sort_keys=True) if record.retry_spec is not None else None,
+                json.dumps(record.retry_spec, sort_keys=True) if record.retry_spec is not None else None,
+                int(record.retry_spec_redacted),
             ),
         )
         self._conn.commit()

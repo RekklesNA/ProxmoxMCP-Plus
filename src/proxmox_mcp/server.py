@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+from pathlib import Path
 from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
@@ -53,6 +54,11 @@ except ImportError:  # pragma: no cover - exercised only with older MCP SDKs
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
     return text[:max_length]
+
+
+def _job_sqlite_path(base_path: str, target_name: str) -> str:
+    base = Path(base_path)
+    return str(base.with_name(f"{base.name}-{target_name}"))
 
 
 def _exit_without_finalization(status: int = 0) -> NoReturn:
@@ -105,82 +111,26 @@ class ProxmoxMCPServer:
             for name in self.target_registry.names
             for target in [self.target_registry.resolve(name)]
         }
-        # Tool dispatch is kept on the legacy default manager until each tool
-        # receives its explicit target parameter. Multi-target callers use
-        # list_targets during this incremental migration.
-        self.proxmox_manager = next(iter(self.proxmox_managers.values()))
-        self.proxmox = self.proxmox_manager.get_api()
-        self.command_policy = CommandPolicyGate(self.config.command_policy)
         self.target_command_policies = {
             name: CommandPolicyGate(target.command_policy or self.config.command_policy)
             for name, target in ((name, self.target_registry.resolve(name)) for name in self.target_registry.names)
         }
+        # Retain the legacy policy attribute for compatibility; wrappers always
+        # select from target_command_policies using the resolved target.
+        self.command_policy = CommandPolicyGate(self.config.command_policy)
         self.metrics = ToolMetrics()
-        self.job_store = JobStore(self.proxmox, sqlite_path=self.config.jobs.sqlite_path)
-        self.target_node_tools = {
-            name: NodeTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
-            for name, manager in self.proxmox_managers.items()
-        }
-        self.target_storage_tools = {
-            name: StorageTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
-            for name, manager in self.proxmox_managers.items()
-        }
-        self.target_cluster_tools = {
-            name: ClusterTools(manager.get_api(), metrics=self.metrics, job_store=self.job_store)
-            for name, manager in self.proxmox_managers.items()
-        }
-
-        self.node_tools = NodeTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.vm_tools = VMTools(
-            self.proxmox,
-            command_policy=self.command_policy,
-            metrics=self.metrics,
-            job_store=self.job_store,
-        )
-        self.storage_tools = StorageTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.cluster_tools = ClusterTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.container_tools = ContainerTools(
-            self.proxmox,
-            self.config.ssh,
-            command_policy=self.command_policy,
-            metrics=self.metrics,
-            job_store=self.job_store,
-        )
-        self.snapshot_tools = SnapshotTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.iso_tools = ISOTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.backup_tools = BackupTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.jobs_tools = JobsTools(self.job_store)
-        self.log_tools = LogTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-
-        if self.target_registry.names == ("default",):
-            self.target_node_tools["default"] = self.node_tools
-            self.target_storage_tools["default"] = self.storage_tools
-            self.target_cluster_tools["default"] = self.cluster_tools
 
         self.target_job_stores: dict[str, JobStore] = {}
         self.target_toolsets: dict[str, SimpleNamespace] = {}
         for name, manager in self.proxmox_managers.items():
-            if name == "default" and self.target_registry.names == ("default",):
-                self.target_job_stores[name] = self.job_store
-                self.target_toolsets[name] = SimpleNamespace(
-                    node_tools=self.node_tools,
-                    storage_tools=self.storage_tools,
-                    cluster_tools=self.cluster_tools,
-                    vm_tools=self.vm_tools,
-                    container_tools=self.container_tools,
-                    snapshot_tools=self.snapshot_tools,
-                    iso_tools=self.iso_tools,
-                    backup_tools=self.backup_tools,
-                    jobs_tools=self.jobs_tools,
-                    log_tools=self.log_tools,
-                )
-                continue
             target = self.target_registry.resolve(name)
             api = manager.get_api()
             base_path = self.config.jobs.sqlite_path
-            path = base_path
-            if name != "default" or self.target_registry.names != ("default",):
-                path = f"{base_path}-{name}"
+            is_single_default = self.target_registry.names == ("default",)
+            if is_single_default:
+                path = base_path
+            else:
+                path = _job_sqlite_path(base_path, name)
             job_store = JobStore(api, sqlite_path=path, target_name=name)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
@@ -206,6 +156,24 @@ class ProxmoxMCPServer:
                 jobs_tools=JobsTools(job_store),
                 log_tools=LogTools(api, metrics=self.metrics, job_store=job_store),
             )
+
+        if self.target_registry.names == ("default",):
+            self.proxmox_manager = next(iter(self.proxmox_managers.values()))
+            self.proxmox = self.proxmox_manager.get_api()
+            self.command_policy = CommandPolicyGate(self.config.command_policy)
+            default_store = self.target_job_stores["default"]
+            self.job_store = default_store
+            ts = self.target_toolsets["default"]
+            self.node_tools = ts.node_tools
+            self.vm_tools = ts.vm_tools
+            self.storage_tools = ts.storage_tools
+            self.cluster_tools = ts.cluster_tools
+            self.container_tools = ts.container_tools
+            self.snapshot_tools = ts.snapshot_tools
+            self.iso_tools = ts.iso_tools
+            self.backup_tools = ts.backup_tools
+            self.jobs_tools = ts.jobs_tools
+            self.log_tools = ts.log_tools
 
         log_level = cast(
             Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -272,12 +240,27 @@ class ProxmoxMCPServer:
         return self.target_toolsets[name]
 
     def close(self) -> None:
-        self.job_store.close()
+        if hasattr(self, "job_store"):
+            try:
+                self.job_store.close()
+            except Exception:
+                pass
         for job_store in self.target_job_stores.values():
-            if job_store is not self.job_store:
+            if hasattr(self, "job_store") and job_store is getattr(self, "job_store", None):
+                continue
+            try:
                 job_store.close()
+            except Exception:
+                pass
         for manager in self.proxmox_managers.values():
             manager.close()
+
+    def __getattr__(self, name: str) -> Any:
+        if name in {"proxmox_manager", "proxmox", "command_policy", "job_store", "node_tools", "vm_tools", "storage_tools", "cluster_tools", "container_tools", "snapshot_tools", "iso_tools", "backup_tools", "jobs_tools", "log_tools"}:
+            raise AttributeError(
+                f"'{name}' is only available in single-target (legacy) mode; use target_registry/target_tools in multi-target mode"
+            )
+        raise AttributeError(name)
 
     async def _run_streamable_http_async(self) -> None:
         """Run Streamable HTTP with optional inbound Bearer authentication."""

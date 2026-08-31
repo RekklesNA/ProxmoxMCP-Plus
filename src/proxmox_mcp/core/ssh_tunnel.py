@@ -31,12 +31,19 @@ class SSHTunnelManager:
             return
 
         if self._is_local_endpoint_reachable():
-            self.logger.info(
-                "API tunnel already reachable on %s:%s",
-                self.tunnel_config.local_host,
-                self.tunnel_config.local_port,
+            if self._process is not None and self._process.poll() is None:
+                self.logger.info(
+                    "API tunnel already reachable on %s:%s (owned tunnel verified)",
+                    self.tunnel_config.local_host,
+                    self.tunnel_config.local_port,
+                )
+                return
+            raise RuntimeError(
+                f"Local endpoint {self.tunnel_config.local_host}:{self.tunnel_config.local_port} "
+                f"is already in use; tunnel identity for { _log_safe(self.tunnel_config.ssh_host)} "
+                f"-> { _log_safe(self.tunnel_config.remote_host)}:{ _log_safe(self.tunnel_config.remote_port)} "
+                f"cannot be verified"
             )
-            return
 
         self._start_process()
         self._wait_for_local_listener()

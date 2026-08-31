@@ -89,7 +89,8 @@ def test_api_tunnel_reuses_reachable_local_endpoint() -> None:
     with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), patch.object(
         manager, "_start_process"
     ) as start_process:
-        manager.ensure_tunnel()
+        with pytest.raises(RuntimeError, match="identity.*cannot be verified"):
+            manager.ensure_tunnel()
 
     start_process.assert_not_called()
 

@@ -211,12 +211,12 @@ def load_config(config_path: Optional[str] = None) -> Config:
     try:
         config = Config.model_validate(config_data)
         if config.targets is not None:
-            insecure = [name for name, target in config.targets.items() if not target.verify_ssl]
-            if insecure and not config.security.dev_mode:
+            insecure = [name for name, target in config.targets.items() if not target.verify_ssl and not target.allow_insecure_tls]
+            if insecure:
                 raise ValueError(
                     "Insecure TLS configuration blocked for target(s): "
                     + ", ".join(insecure)
-                    + ". Set verify_ssl=true or enable dev_mode."
+                    + ". Set verify_ssl=true or enable allow_insecure_tls for that target."
                 )
         elif config.proxmox is not None and not config.proxmox.verify_ssl and not config.security.dev_mode:
             raise ValueError(
