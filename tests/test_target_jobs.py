@@ -22,8 +22,9 @@ def test_named_job_stores_cannot_cross_target_access(tmp_path):
     try:
         job = one.register_task(tool_name="delete_vm", summary="x", node="pve", upid="UPID:1")
         assert two.list_jobs() == []
-        with pytest.raises(ValueError, match="Unknown job_id"):
-            two.get_job(job["job_id"])
+        for operation in (two.get_job, two.poll_job, two.cancel_job, two.retry_job):
+            with pytest.raises(ValueError, match="Unknown job_id"):
+                operation(job["job_id"])
     finally:
         one.close()
         two.close()

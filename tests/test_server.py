@@ -99,6 +99,42 @@ def test_server_initialization(server, mock_proxmox):
     mock_proxmox.assert_called_once()
 
 
+def test_named_target_toolsets_use_target_policy_and_job_store(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "targets": {
+            "deny": {
+                "host": "deny.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                "command_policy": {"mode": "deny_all"},
+            },
+            "allow": {
+                "host": "allow.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                "command_policy": {"mode": "allowlist", "allow_patterns": ["^echo\\\\s"]},
+            },
+        },
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+    }))
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI") as proxmox_api:
+        proxmox_api.return_value.nodes.get.return_value = [{"node": "node1"}]
+        target_server = ProxmoxMCPServer(str(config_path))
+
+    try:
+        deny = target_server.target_tools("deny")
+        allow = target_server.target_tools("allow")
+        assert deny.vm_tools.command_policy is target_server.target_command_policies["deny"]
+        assert allow.vm_tools.command_policy is target_server.target_command_policies["allow"]
+        assert deny.container_tools.command_policy is target_server.target_command_policies["deny"]
+        assert allow.container_tools.command_policy is target_server.target_command_policies["allow"]
+        assert deny.vm_tools.command_policy is not target_server.command_policy
+        assert deny.jobs_tools.job_store is target_server.target_job_stores["deny"]
+        assert allow.jobs_tools.job_store is target_server.target_job_stores["allow"]
+        assert deny.jobs_tools.job_store is not allow.jobs_tools.job_store
+    finally:
+        target_server.close()
+
+
 def test_server_close_releases_job_store_and_proxmox_manager(server):
     server.job_store.close = Mock()
     server.proxmox_manager.close = Mock()
