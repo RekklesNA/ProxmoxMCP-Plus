@@ -11,41 +11,25 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
-
+from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
 _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-_SECRET_KEYS = {"password", "token", "token_value", "api_key", "secret", "authorization", "approval_token"}
-
-# Regexes for outbound sanitization / _log_safe — sweep entire text, not whole-string urlsplit
-_RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
-_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*[^&\s]+")
-
-
 def _is_secret_key(key: str) -> bool:
-    lk = key.lower()
-    return any(secret in lk for secret in _SECRET_KEYS)
+    return is_secret_key(key)
 
 
 def _sanitize_string(text: str) -> str:
-    text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
-    text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
-    return text
+    return sanitize_string(text)
 
 
 def _sanitize(value: Any) -> Any:
     """Outbound-only sanitization — redacts secrets for API responses/logs.
     Uses regex sweeps so innocent URLs are not re-encoded or corrupted.
     Persisted retry_spec is handled separately (see register_task)."""
-    if isinstance(value, dict):
-        return {key: ("[REDACTED]" if _is_secret_key(str(key)) else _sanitize(item)) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_sanitize(item) for item in value]
-    if isinstance(value, str):
-        return _sanitize_string(value)
-    return value
+    return sanitize_value(value)
 
 
 def _utcnow() -> str:

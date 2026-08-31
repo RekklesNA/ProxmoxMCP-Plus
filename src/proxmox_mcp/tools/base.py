@@ -11,24 +11,16 @@ All tool implementations inherit from the ProxmoxTool base class to ensure
 consistent behavior and error handling across the MCP server.
 """
 import logging
-import re
 import time
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
 from proxmox_mcp.observability import ToolMetrics
-
-_RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
-_RE_AUTH = re.compile(r"(?i)(authorization)\s*[=:]\s*(?:Bearer|Basic)\s+\S+")
-_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|token_value)\s*[=:]\s*[^&\s]+")
+from proxmox_mcp.security.sanitization import sanitize_string
 
 def _log_safe(value: object, max_length: int = 200) -> str:
-    text = str(value).replace("\r", "").replace("\n", "")
-    text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
-    text = _RE_AUTH.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
-    text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
-    return text[:max_length]
+    return sanitize_string(value, max_length=max_length)
 
 
 class ProxmoxTool:

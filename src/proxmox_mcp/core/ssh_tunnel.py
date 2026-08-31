@@ -40,8 +40,8 @@ class SSHTunnelManager:
                 return
             raise RuntimeError(
                 f"Local endpoint {self.tunnel_config.local_host}:{self.tunnel_config.local_port} "
-                f"is already in use; tunnel identity for { _log_safe(self.tunnel_config.ssh_host)} "
-                f"-> { _log_safe(self.tunnel_config.remote_host)}:{ _log_safe(self.tunnel_config.remote_port)} "
+                f"is already in use; tunnel identity for {_log_safe(self.tunnel_config.ssh_host)} "
+                f"-> {_log_safe(self.tunnel_config.remote_host)}:{_log_safe(self.tunnel_config.remote_port)} "
                 f"cannot be verified. Free the port, or ensure the tunnel is owned by this process."
             )
 

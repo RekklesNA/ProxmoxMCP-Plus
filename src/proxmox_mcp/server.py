@@ -66,6 +66,13 @@ def _job_sqlite_path(base_path: str, target_name: str) -> str:
     return str(base.with_name(f"{base.name}.target-{target_name}"))
 
 
+_LEGACY_SINGLE_TARGET_ATTRS = (
+    "proxmox_manager", "proxmox", "job_store", "node_tools", "vm_tools",
+    "storage_tools", "cluster_tools", "container_tools", "snapshot_tools",
+    "iso_tools", "backup_tools", "jobs_tools", "log_tools",
+)
+
+
 def _exit_without_finalization(status: int = 0) -> NoReturn:
     """Terminate the process without running interpreter finalization.
 
@@ -251,15 +258,15 @@ class ProxmoxMCPServer:
         if hasattr(self, "job_store"):
             try:
                 self.job_store.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.warning("Failed to close default job store: %s", _log_safe(exc))
         for job_store in self.target_job_stores.values():
             if hasattr(self, "job_store") and job_store is getattr(self, "job_store", None):
                 continue
             try:
                 job_store.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.warning("Failed to close job store: %s", _log_safe(exc))
         for manager in self.proxmox_managers.values():
             try:
                 manager.close()
@@ -267,7 +274,7 @@ class ProxmoxMCPServer:
                 self.logger.warning("Failed to close Proxmox manager cleanly")
 
     def __getattr__(self, name: str) -> Any:
-        if name in {"proxmox_manager", "proxmox", "job_store", "node_tools", "vm_tools", "storage_tools", "cluster_tools", "container_tools", "snapshot_tools", "iso_tools", "backup_tools", "jobs_tools", "log_tools"}:
+        if name in _LEGACY_SINGLE_TARGET_ATTRS:
             raise AttributeError(
                 f"'{name}' is only available in single-target (legacy) mode; use target_registry/target_tools in multi-target mode"
             )

@@ -65,6 +65,17 @@ def test_log_safe_redacts_authorization_header():
     assert "abc.def.ghi" not in out
 
 
+def test_sanitizers_redact_json_and_hyphenated_api_keys():
+    from proxmox_mcp.services.jobs import _sanitize_string
+
+    for sanitizer in (base_log_safe, _sanitize_string):
+        output = sanitizer('{"token": "supersecret123", "password": "hunter2"}')
+        assert "supersecret123" not in output
+        assert "hunter2" not in output
+        output = sanitizer("X-Api-Key: LEAKED_KEY_VALUE")
+        assert "LEAKED_KEY_VALUE" not in output
+
+
 def test_log_safe_redacts_password_equals_pattern():
     msg = "Authentication failed for user root password=hunter2"
     assert "hunter2" not in base_log_safe(msg)
