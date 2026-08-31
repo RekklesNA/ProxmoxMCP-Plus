@@ -10,11 +10,11 @@ _RE_AUTH = re.compile(
     r"(?i)(authorization|x-api-key|api-key)\s*[=:]\s*(?:(?:Bearer|Basic)\s+\S+|PVEAPIToken=\S+)"
 )
 _RE_SECRET_KV = re.compile(
-    r"(?i)([\"']?(?:token|password|secret|api[_-]?key|authorization|approval_token)"
+    r"(?i)([\"']?(?:token|password|secret|api[_-]?key|authorization|approval_token|pveauthcookie)"
     r"[\"']?\s*[:=]\s*)([\"']?)([^\"'&,}\s]+)\2"
 )
 _SECRET_KEYS = {
-    "password", "token", "token_value", "api_key", "secret", "authorization", "approval_token",
+    "password", "token", "token_value", "api_key", "secret", "authorization", "approval_token", "pveauthcookie",
 }
 
 

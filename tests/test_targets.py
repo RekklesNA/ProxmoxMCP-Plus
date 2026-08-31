@@ -81,6 +81,22 @@ def test_discovery_is_deterministic_and_secret_free():
     assert "pl-v" not in rendered
 
 
+def test_describe_can_include_isolated_target_discovery():
+    registry = TargetRegistry(_multi_config())
+
+    def discover(target):
+        if target.name == "pl":
+            raise RuntimeError("https://u:secret@example.invalid")
+        return {"reachable": True, "nodes": ["pve1", "pve2", "pve3"]}
+
+    metadata = registry.describe(discover=discover)
+    assert metadata[0]["reachable"] is True
+    assert metadata[0]["nodes"] == ["pve1", "pve2", "pve3"]
+    assert metadata[1]["reachable"] is False
+    assert metadata[1]["error"] == "Unable to reach target 'pl'"
+    assert "secret" not in repr(metadata)
+
+
 def test_target_tls_rejects_string_boolean():
     with pytest.raises(ValueError):
         Config.model_validate({
@@ -92,6 +108,13 @@ def test_target_readonly_rejects_string_boolean():
     with pytest.raises(ValueError):
         Config.model_validate({
             "targets": {"a": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "readonly": "yes"}},
+        })
+
+
+def test_assume_external_rejects_string_boolean():
+    with pytest.raises(ValueError):
+        Config.model_validate({
+            "targets": {"a": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "api_tunnel": {"enabled": True, "assume_external": "true", "ssh_host": "jump"}}},
         })
 
 

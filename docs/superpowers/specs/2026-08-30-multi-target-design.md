@@ -33,6 +33,6 @@ Per-target read-only policy rejects mutation and command execution before contac
 
 Add public-interface tests for legacy loading, one-target defaulting, multi-target required selection, invalid targets, target discovery, unreachable targets, target-aware results/errors/jobs, independent credentials/managers, read-only rejection, and secret redaction. Preserve the existing single-target suite.
 
-Live acceptance requires authenticated read-only `get_nodes` against both `cluster` (returning pve1/pve2/pve3) and `pl`, plus concurrency and restart verification. The old service remains available for rollback until the new implementation passes.
+Live acceptance requires authenticated, read-only `get_nodes` requests against both `cluster` (returning pve1/pve2/pve3) and `pl`, plus concurrency and restart verification. The old service remains available for rollback until the new implementation passes.
 
 For an externally managed SSH port forward, set `api_tunnel.enabled` to `true` and `api_tunnel.assume_external` to `true`; the configured local endpoint is then reused without starting or stopping a tunnel process. This is an explicit operator opt-in because the endpoint's remote identity cannot be verified by this process. Without `assume_external`, the local port must be free or owned by this process.

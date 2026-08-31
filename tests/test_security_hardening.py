@@ -208,3 +208,19 @@ def test_vm_command_logging_redacts_command_and_output(caplog):
     assert "super-secret" not in caplog.text
     assert "secret-output" not in caplog.text
     assert "secret-error" not in caplog.text
+
+
+def test_vm_command_rejects_disabled_guest_exec_capability():
+    proxmox = MagicMock()
+    proxmox.nodes.return_value.qemu.return_value.status.current.get.return_value = {"status": "running"}
+    endpoint = Mock()
+    endpoint.side_effect = lambda action: Mock(get=Mock(return_value={
+        "supported_commands": [{"name": "guest-exec", "enabled": False}]
+    })) if action == "info" else Mock()
+    proxmox.nodes.return_value.qemu.return_value.agent = endpoint
+
+    manager = VMConsoleManager(proxmox)
+    with pytest.raises(RuntimeError, match="does not support guest-exec"):
+        asyncio.run(manager.execute_command("pve2", "104", "hostname"))
+
+    endpoint.assert_any_call("info")

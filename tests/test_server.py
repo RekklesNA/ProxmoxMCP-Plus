@@ -99,6 +99,35 @@ def test_server_initialization(server, mock_proxmox):
     mock_proxmox.assert_called_once()
 
 
+def test_list_targets_reports_reachability_and_nodes(tmp_path):
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(json.dumps({
+        "targets": {
+            "reachable": {"host": "reachable", "auth": {"user": "u", "token_name": "t", "token_value": "v"}},
+            "unreachable": {"host": "unreachable", "auth": {"user": "u", "token_name": "t", "token_value": "v"}},
+        },
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+    }))
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI") as api_factory:
+        reachable_api = Mock()
+        reachable_api.nodes.get.return_value = [{"node": "pve1"}, {"node": "pve2"}]
+        unreachable_api = Mock()
+        unreachable_api.nodes.get.side_effect = RuntimeError("https://u:secret@unreachable")
+        api_factory.side_effect = [reachable_api, unreachable_api]
+        instance = ProxmoxMCPServer(str(config_path))
+
+    result = asyncio.run(instance.mcp.call_tool("list_targets", {}))
+    data = [json.loads(item.text) for item in result]
+    assert data[0]["name"] == "reachable"
+    assert data[0]["reachable"] is True
+    assert data[0]["nodes"] == ["pve1", "pve2"]
+    assert data[1]["name"] == "unreachable"
+    assert data[1]["reachable"] is False
+    assert data[1]["error"] == "Unable to reach target 'unreachable'"
+    assert "secret" not in repr(data)
+    instance.close()
+
+
 def test_named_target_toolsets_use_target_policy_and_job_store(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({

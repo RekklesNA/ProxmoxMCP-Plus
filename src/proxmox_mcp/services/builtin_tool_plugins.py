@@ -235,7 +235,18 @@ class CoreToolsPlugin(RegistryPluginBase):
         def list_targets() -> Any:
             start = time.perf_counter()
             try:
-                result = server.target_registry.describe()
+                def discover(target: Any) -> dict[str, Any]:
+                    nodes = server.proxmox_managers[target.name].get_api().nodes.get()
+                    return {
+                        "reachable": True,
+                        "nodes": [
+                            str(node["node"])
+                            for node in nodes
+                            if isinstance(node, dict) and "node" in node
+                        ],
+                    }
+
+                result = server.target_registry.describe(discover=discover)
                 server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, True, target="all")
                 return result
             except Exception:

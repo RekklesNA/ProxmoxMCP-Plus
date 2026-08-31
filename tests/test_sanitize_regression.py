@@ -2,7 +2,7 @@
 from __future__ import annotations
 from unittest.mock import Mock
 
-from proxmox_mcp.services.jobs import JobConflictError, JobStore, _sanitize
+from proxmox_mcp.services.jobs import JobConflictError, JobStore, _sanitize, _sanitize_string
 from proxmox_mcp.tools.base import _log_safe as base_log_safe
 from proxmox_mcp.core.proxmox import _log_safe as proxmox_log_safe
 from proxmox_mcp.core.ssh_tunnel import _log_safe as ssh_log_safe
@@ -40,6 +40,12 @@ def test_sanitize_redacts_secret_dict_keys():
     assert sanitized["nested"]["api_key"] == "[REDACTED]"
     assert sanitized["nested"]["safe"] == "ok"
     assert "xyz" not in sanitized["url"]
+
+
+def test_sanitize_redacts_pve_auth_cookie():
+    assert "ticket-value" not in _sanitize_string("Cookie: PVEAuthCookie=ticket-value")
+    sanitized = _sanitize({"PVEAuthCookie": "ticket-value"})
+    assert sanitized["PVEAuthCookie"] == "[REDACTED]"
 
 
 def test_log_safe_redacts_embedded_userinfo_url():

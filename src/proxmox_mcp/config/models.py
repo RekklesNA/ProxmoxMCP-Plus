@@ -55,7 +55,7 @@ class APITunnelConfig(BaseModel):
     """Optional SSH local-forward config for the Proxmox API."""
 
     enabled: bool = False
-    assume_external: bool = False
+    assume_external: StrictBool = False
     ssh_host: str
     local_host: str = "127.0.0.1"
     local_port: int = 8006

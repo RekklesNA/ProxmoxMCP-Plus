@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from proxmox_mcp.config.models import Config, ProxmoxConfig, AuthConfig, TargetConfig
@@ -70,17 +71,34 @@ class TargetRegistry:
         available = ", ".join(sorted(self._targets))
         raise ValueError(f"Multiple Proxmox targets are configured; specify target: {available}")
 
-    def describe(self) -> list[dict[str, Any]]:
-        return [
-            {
+    def describe(
+        self,
+        discover: Callable[[ResolvedTarget], dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        descriptions = []
+        for target in sorted(self._targets.values(), key=lambda item: item.name):
+            item = {
                 "name": target.name,
                 "kind": target.kind,
                 "host": target.config.host,
                 "port": target.config.port,
                 "readonly": target.readonly,
             }
-            for target in sorted(self._targets.values(), key=lambda item: item.name)
-        ]
+            if discover is not None:
+                try:
+                    discovery = discover(target)
+                    item.update({
+                        "reachable": bool(discovery.get("reachable", False)),
+                        "nodes": list(discovery.get("nodes", [])),
+                    })
+                except Exception:
+                    item.update({
+                        "reachable": False,
+                        "nodes": [],
+                        "error": f"Unable to reach target '{target.name}'",
+                    })
+            descriptions.append(item)
+        return descriptions
 
     @property
     def names(self) -> tuple[str, ...]:
