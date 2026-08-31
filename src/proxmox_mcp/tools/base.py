@@ -20,11 +20,13 @@ from proxmox_mcp.formatting import ProxmoxTemplates
 from proxmox_mcp.observability import ToolMetrics
 
 _RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
-_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*\S+")
+_RE_AUTH = re.compile(r"(?i)(authorization)\s*[=:]\s*(?:Bearer|Basic)\s+\S+")
+_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|token_value)\s*[=:]\s*[^&\s]+")
 
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
     text = _RE_USERINFO.sub(lambda m: f"{m.group('scheme')}[REDACTED]@", text)
+    text = _RE_AUTH.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
     text = _RE_SECRET_KV.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
     return text[:max_length]
 
@@ -144,14 +146,15 @@ class ProxmoxTool:
             ValueError: For invalid input, missing resources, or permission issues
             RuntimeError: For unexpected errors or API failures
         """
-        error_msg = _log_safe(str(error))
+        raw_error_msg = str(error)
+        error_msg = _log_safe(raw_error_msg)
         self.logger.error("Failed to %s: %s", _log_safe(operation), _log_safe(error_msg))
 
-        if "not found" in error_msg.lower():
+        if "not found" in raw_error_msg.lower():
             raise ValueError(f"Resource not found: {error_msg}")
-        if "permission denied" in error_msg.lower():
+        if "permission denied" in raw_error_msg.lower():
             raise ValueError(f"Permission denied: {error_msg}")
-        if "invalid" in error_msg.lower():
+        if "invalid" in raw_error_msg.lower():
             raise ValueError(f"Invalid input: {error_msg}")
         
         raise RuntimeError(f"Failed to {operation}: {error_msg}")

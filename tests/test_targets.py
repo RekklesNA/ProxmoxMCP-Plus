@@ -78,6 +78,24 @@ def test_target_names_reject_path_traversal():
         })
 
 
+def test_target_names_reject_trailing_newline():
+    with pytest.raises(ValueError, match="target name"):
+        Config.model_validate({
+            "targets": {"safe\n": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}}},
+        })
+
+
+def test_target_tls_requires_explicit_insecure_opt_in():
+    data = {
+        "targets": {"a": {"host": "a", "verify_ssl": False,
+                            "auth": {"user": "u", "token_name": "t", "token_value": "v"}}},
+    }
+    with pytest.raises(ValueError, match="allow_insecure_tls"):
+        Config.model_validate(data)
+    data["targets"]["a"]["allow_insecure_tls"] = True
+    assert Config.model_validate(data).targets["a"].verify_ssl is False
+
+
 def test_target_tunnels_require_distinct_remote_destinations_too():
     data = {"targets": {}}
     for name, host in (("a", "a"), ("b", "b")):

@@ -148,12 +148,12 @@ class RegistryPluginBase(ToolRegistryPlugin):
             target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
             resolved_target = server.target_registry.resolve(target)
-            if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
-                raise ValueError(
-                    f"Target '{resolved_target.name}' is configured read-only; "
-                    f"tool '{tool_name}' is not permitted"
-                )
             try:
+                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
+                    raise ValueError(
+                        f"Target '{resolved_target.name}' is configured read-only; "
+                        f"tool '{tool_name}' is not permitted"
+                    )
                 self._enforce_operation_policy(
                     server,
                     tool_name,
@@ -199,12 +199,12 @@ class RegistryPluginBase(ToolRegistryPlugin):
             target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
             resolved_target = server.target_registry.resolve(target)
-            if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
-                raise ValueError(
-                    f"Target '{resolved_target.name}' is configured read-only; "
-                    f"tool '{tool_name}' is not permitted"
-                )
             try:
+                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
+                    raise ValueError(
+                        f"Target '{resolved_target.name}' is configured read-only; "
+                        f"tool '{tool_name}' is not permitted"
+                    )
                 self._enforce_operation_policy(
                     server,
                     tool_name,

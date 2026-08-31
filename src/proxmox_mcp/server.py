@@ -59,8 +59,8 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 def _job_sqlite_path(base_path: str, target_name: str) -> str:
     """Derive a collision-free per-target database path.
 
-    Target names cannot contain dots, so the delimiter cannot create an
-    ambiguity between names such as ``a-b``/``a`` and ``b``.
+    For a fixed base filename, the target-specific suffix makes distinct
+    target names produce distinct paths.
     """
     base = Path(base_path)
     return str(base.with_name(f"{base.name}.target-{target_name}"))
@@ -117,8 +117,10 @@ class ProxmoxMCPServer:
             for target in [self.target_registry.resolve(name)]
         }
         self.target_command_policies = {
-            name: CommandPolicyGate(target.command_policy or self.config.command_policy)
-            for name, target in ((name, self.target_registry.resolve(name)) for name in self.target_registry.names)
+            name: CommandPolicyGate(
+                self.target_registry.resolve(name).command_policy or self.config.command_policy
+            )
+            for name in self.target_registry.names
         }
         # Retain the legacy policy attribute for compatibility; wrappers always
         # select from target_command_policies using the resolved target.
@@ -154,6 +156,7 @@ class ProxmoxMCPServer:
                     command_policy=self.target_command_policies[name],
                     metrics=self.metrics,
                     job_store=job_store,
+                    target_name=name,
                 ),
                 snapshot_tools=SnapshotTools(api, metrics=self.metrics, job_store=job_store),
                 iso_tools=ISOTools(api, metrics=self.metrics, job_store=job_store),
@@ -165,7 +168,7 @@ class ProxmoxMCPServer:
         if self.target_registry.names == ("default",):
             self.proxmox_manager = next(iter(self.proxmox_managers.values()))
             self.proxmox = self.proxmox_manager.get_api()
-            self.command_policy = CommandPolicyGate(self.config.command_policy)
+            self.command_policy = self.target_command_policies["default"]
             default_store = self.target_job_stores["default"]
             self.job_store = default_store
             ts = self.target_toolsets["default"]
@@ -258,10 +261,13 @@ class ProxmoxMCPServer:
             except Exception:
                 pass
         for manager in self.proxmox_managers.values():
-            manager.close()
+            try:
+                manager.close()
+            except Exception:
+                self.logger.warning("Failed to close Proxmox manager cleanly")
 
     def __getattr__(self, name: str) -> Any:
-        if name in {"proxmox_manager", "proxmox", "command_policy", "job_store", "node_tools", "vm_tools", "storage_tools", "cluster_tools", "container_tools", "snapshot_tools", "iso_tools", "backup_tools", "jobs_tools", "log_tools"}:
+        if name in {"proxmox_manager", "proxmox", "job_store", "node_tools", "vm_tools", "storage_tools", "cluster_tools", "container_tools", "snapshot_tools", "iso_tools", "backup_tools", "jobs_tools", "log_tools"}:
             raise AttributeError(
                 f"'{name}' is only available in single-target (legacy) mode; use target_registry/target_tools in multi-target mode"
             )

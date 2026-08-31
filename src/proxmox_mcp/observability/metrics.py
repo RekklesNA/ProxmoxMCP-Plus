@@ -39,19 +39,20 @@ class ToolMetrics:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            grouped: dict[str, dict[str, dict[str, float | int]]] = {}
-            for (tool_name, status, _target), series in sorted(self._series.items()):
-                grouped.setdefault(tool_name, {}).setdefault(status, {
+            grouped: dict[str, dict[str, dict[str, dict[str, float | int]]]] = {}
+            for (tool_name, status, target), series in sorted(self._series.items()):
+                grouped.setdefault(tool_name, {}).setdefault(status, {}).setdefault(target, {
                     "calls": 0, "latency_ms_sum": 0.0, "latency_ms_avg": 0.0, "latency_ms_max": 0.0,
                 })
-                item = grouped[tool_name][status]
+                item = grouped[tool_name][status][target]
                 item["calls"] += series.count
                 item["latency_ms_sum"] += series.latency_ms_sum
                 item["latency_ms_max"] = max(item["latency_ms_max"], series.latency_ms_max)
             for statuses in grouped.values():
-                for item in statuses.values():
-                    item["latency_ms_sum"] = round(item["latency_ms_sum"], 3)
-                    item["latency_ms_avg"] = round(item["latency_ms_sum"] / item["calls"], 3) if item["calls"] else 0.0
+                for targets in statuses.values():
+                    for item in targets.values():
+                        item["latency_ms_sum"] = round(item["latency_ms_sum"], 3)
+                        item["latency_ms_avg"] = round(item["latency_ms_sum"] / item["calls"], 3) if item["calls"] else 0.0
             return grouped
 
     def render_prometheus(self, prefix: str = "proxmox_mcp_tool") -> str:

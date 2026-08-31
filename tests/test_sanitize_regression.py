@@ -62,6 +62,7 @@ def test_log_safe_redacts_authorization_header():
     msg = "proxmoxer.core.ResourceException: 401 Unauthorized: authorization: Bearer abc.def.ghi"
     out = base_log_safe(msg)
     assert "authorization=[REDACTED]" in out.lower() or "[REDACTED]" in out
+    assert "abc.def.ghi" not in out
 
 
 def test_log_safe_redacts_password_equals_pattern():

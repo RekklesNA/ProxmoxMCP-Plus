@@ -1633,8 +1633,8 @@ async def test_tool_metrics_record_calls(server, mock_proxmox):
     await server.mcp.call_tool("get_nodes", {})
     snapshot = server.metrics.snapshot()
 
-    assert snapshot["get_nodes"]["success"]["calls"] == 1
-    assert snapshot["get_nodes"]["success"]["latency_ms_sum"] >= 0
+    assert snapshot["get_nodes"]["success"]["default"]["calls"] == 1
+    assert snapshot["get_nodes"]["success"]["default"]["latency_ms_sum"] >= 0
 
 
 @pytest.mark.asyncio

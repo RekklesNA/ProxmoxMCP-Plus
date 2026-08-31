@@ -68,12 +68,14 @@ class ContainerTools(ProxmoxTool):
         command_policy: Any = None,
         metrics: Any = None,
         job_store: Any = None,
+        target_name: str = "default",
     ) -> None:
         super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
         self.command_policy = command_policy
+        self.target_name = target_name
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -883,7 +885,7 @@ class ContainerTools(ProxmoxTool):
             return self._err(
                 "execute_command",
                 RuntimeError(
-                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
                     "with user/key_file credentials for the Proxmox nodes."
                 ),
             )
@@ -1016,7 +1018,7 @@ class ContainerTools(ProxmoxTool):
             return self._err(
                 "update_container_ssh_keys",
                 RuntimeError(
-                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
                     "with user/key_file credentials for the Proxmox nodes."
                 ),
             )

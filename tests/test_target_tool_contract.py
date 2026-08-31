@@ -17,5 +17,19 @@ def test_every_operational_tool_accepts_optional_target():
             continue
         tools.append(node)
     assert tools
-    missing = [node.name for node in tools if "target" not in {arg.arg for arg in node.args.args}]
+    missing = []
+    for node in tools:
+        params = node.args.args + node.args.kwonlyargs
+        names = {arg.arg for arg in params}
+        if "target" not in names:
+            missing.append(node.name)
+            continue
+        if "target" in [arg.arg for arg in node.args.args]:
+            index = [arg.arg for arg in node.args.args].index("target")
+            optional = index >= len(node.args.args) - len(node.args.defaults)
+        else:
+            index = [arg.arg for arg in node.args.kwonlyargs].index("target")
+            optional = node.args.kw_defaults[index] is not None
+        if not optional:
+            missing.append(node.name)
     assert missing == []

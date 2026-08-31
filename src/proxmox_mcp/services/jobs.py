@@ -179,7 +179,7 @@ class JobStore:
         now = _utcnow()
         job_metadata = dict(metadata or {})
         if self.target_name is not None:
-            job_metadata.setdefault("target", self.target_name)
+            job_metadata["target"] = self.target_name
         record = JobRecord(
             job_id=job_id,
             tool_name=tool_name,

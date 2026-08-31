@@ -34,3 +34,5 @@ Per-target read-only policy rejects mutation and command execution before contac
 Add public-interface tests for legacy loading, one-target defaulting, multi-target required selection, invalid targets, target discovery, unreachable targets, target-aware results/errors/jobs, independent credentials/managers, read-only rejection, and secret redaction. Preserve the existing single-target suite.
 
 Live acceptance requires authenticated read-only `get_nodes` against both `cluster` (returning pve1/pve2/pve3) and `pl`, plus concurrency and restart verification. The old service remains available for rollback until the new implementation passes.
+
+For an externally managed SSH port forward, set `api_tunnel.enabled` to `false` and configure `proxmox.host` and `proxmox.port` to the existing local endpoint. When `api_tunnel.enabled` is true, the local port must be free or owned by this process.

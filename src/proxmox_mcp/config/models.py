@@ -206,13 +206,17 @@ class Config(BaseModel):
             raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
         if self.targets:
             for name in self.targets:
-                if not _TARGET_NAME_RE.match(name):
+                if _TARGET_NAME_RE.fullmatch(name) is None:
                     raise ValueError(
                         f"Proxmox target name {name!r} is invalid: must match ^[A-Za-z0-9_-]{{1,64}}$"
                     )
             seen: dict[tuple[str, int], str] = {}
             seen_remote: dict[tuple[str, str, int], str] = {}
             for name, target in self.targets.items():
+                if not target.verify_ssl and not target.allow_insecure_tls:
+                    raise ValueError(
+                        f"Target {name!r} disables TLS verification without allow_insecure_tls=true"
+                    )
                 tunnel = target.api_tunnel
                 if tunnel and tunnel.enabled:
                     endpoint = (tunnel.local_host, tunnel.local_port)

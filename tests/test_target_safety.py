@@ -1,5 +1,7 @@
 import json
 
+from unittest.mock import patch
+
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -21,16 +23,16 @@ def _readonly_config(path):
 
 
 @pytest.mark.asyncio
-async def test_readonly_target_rejects_mutation_before_api_call(tmp_path, monkeypatch):
+async def test_readonly_target_rejects_mutation_before_api_call(tmp_path):
     config_path = tmp_path / "readonly.json"
     _readonly_config(config_path)
-    server = ProxmoxMCPServer(str(config_path))
-    try:
-        with pytest.raises(ToolError, match="read-only"):
-            await server.mcp.call_tool(
-                "start_vm", {"target": "safe", "node": "pve1", "vmid": "100"}
-            )
-        api = server.proxmox_managers["safe"].get_api()
-        api.nodes.assert_not_called()
-    finally:
-        server.close()
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI") as proxmox_api:
+        server = ProxmoxMCPServer(str(config_path))
+        try:
+            with pytest.raises(ToolError, match="read-only"):
+                await server.mcp.call_tool(
+                    "start_vm", {"target": "safe", "node": "pve1", "vmid": "100"}
+                )
+            proxmox_api.return_value.nodes.assert_not_called()
+        finally:
+            server.close()
