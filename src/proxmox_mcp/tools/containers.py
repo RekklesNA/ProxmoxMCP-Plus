@@ -2,7 +2,7 @@ from typing import List, Dict, Optional, Tuple, Any, Union, Callable
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
-from .base import ProxmoxTool
+from .base import ProxmoxTool, _log_safe
 from .console.container_manager import ContainerConsoleManager
 
 
@@ -88,7 +88,7 @@ class ContainerTools(ProxmoxTool):
         try:
             resources = self.proxmox.cluster.resources.get(type="vm")
         except Exception as error:
-            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", error)
+            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", _log_safe(error))
             return None
         if not isinstance(resources, list):
             return None
@@ -124,7 +124,7 @@ class ContainerTools(ProxmoxTool):
                 raw = self.proxmox.nodes(node).lxc.get()
             except Exception as e:
                 self.logger.warning(
-                    "Skipping node %s while listing containers: %s", node, e
+                    "Skipping node %s while listing containers: %s", node, _log_safe(e)
                 )
                 return out
 
@@ -151,7 +151,7 @@ class ContainerTools(ProxmoxTool):
                     raw = self.proxmox.nodes(nname).lxc.get()
                 except Exception as node_error:
                     self.logger.warning(
-                        "Skipping node %s while listing containers: %s", nname, node_error
+                        "Skipping node %s while listing containers: %s", nname, _log_safe(node_error)
                     )
                     continue
 

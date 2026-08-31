@@ -21,7 +21,7 @@ _SECRET_KEYS = {"password", "token", "token_value", "api_key", "secret", "author
 
 # Regexes for outbound sanitization / _log_safe — sweep entire text, not whole-string urlsplit
 _RE_USERINFO = re.compile(r"(?P<scheme>\w+://)(?P<userinfo>[^/@\s]+)@")
-_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*\S+")
+_RE_SECRET_KV = re.compile(r"(?i)(token|password|secret|api_key|authorization|token_value)\s*[=:]\s*[^&\s]+")
 
 
 def _is_secret_key(key: str) -> bool:
@@ -284,7 +284,7 @@ class JobStore:
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             record = self._load_record_from_db(job_id)
-            if record.retry_spec_redacted:
+            if record.retry_spec_redacted and record.retry_factory is None:
                 raise JobConflictError(f"Job {job_id} retry recipe was redacted and cannot be retried")
             if record.status not in _RETRYABLE_STATUSES:
                 raise JobConflictError(

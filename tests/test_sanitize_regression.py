@@ -23,6 +23,9 @@ def test_sanitize_redacts_secret_query_param():
     assert "token=[REDACTED]" in sanitized
     assert "ver=22.04" in sanitized  # non-secret preserved
 
+    trailing = _sanitize("https://cdn.example/file?token=sig123&arch=amd64&ver=1")
+    assert trailing == "https://cdn.example/file?token=[REDACTED]&arch=amd64&ver=1"
+
 
 def test_sanitize_redacts_userinfo():
     url = "https://root:hunter2@10.0.0.1:8006/api2/json"

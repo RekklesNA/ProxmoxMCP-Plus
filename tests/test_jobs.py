@@ -307,6 +307,26 @@ def test_job_store_retry_rejects_running_and_completed_jobs(tmp_path: Path):
     retry.assert_not_called()
 
 
+def test_redacted_recipe_can_retry_with_live_factory(tmp_path: Path):
+    proxmox = Mock()
+    retry = Mock(return_value="UPID:retry")
+    store = JobStore(proxmox, sqlite_path=str(tmp_path / "jobs.sqlite3"))
+    created = store.register_task(
+        tool_name="download_iso",
+        summary="Download ISO",
+        node="pve",
+        upid="UPID:original",
+        retry_spec={"kind": "iso.download", "params": {"url": "https://x/?token=secret&arch=amd64"}},
+        retry_factory=retry,
+    )
+    store._conn.execute("UPDATE jobs SET status = 'failed' WHERE job_id = ?", (created["job_id"],))
+    store._conn.commit()
+
+    retried = store.retry_job(created["job_id"])
+    assert retried["upid"] == "UPID:retry"
+    retry.assert_called_once_with()
+
+
 def test_job_store_retry_claim_blocks_concurrent_retry(tmp_path: Path):
     proxmox = Mock()
     db_path = tmp_path / "jobs.sqlite3"
