@@ -159,7 +159,7 @@ class ProxmoxMCPServer:
                 ),
                 container_tools=ContainerTools(
                     api,
-                    target.ssh or self.config.ssh,
+                    target.ssh if self.target_registry.names != ("default",) else self.config.ssh,
                     command_policy=self.target_command_policies[name],
                     metrics=self.metrics,
                     job_store=job_store,

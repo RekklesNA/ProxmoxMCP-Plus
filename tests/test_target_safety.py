@@ -36,3 +36,29 @@ async def test_readonly_target_rejects_mutation_before_api_call(tmp_path):
             proxmox_api.return_value.nodes.assert_not_called()
         finally:
             server.close()
+
+
+def test_named_target_without_ssh_does_not_inherit_global_ssh(tmp_path):
+    config_path = tmp_path / "global-ssh.json"
+    config_path.write_text(json.dumps({
+        "targets": {
+            "without-ssh": {
+                "host": "a.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+            },
+            "with-ssh": {
+                "host": "b.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                "ssh": {"user": "target-user", "key_file": str(tmp_path / "target-key")},
+            },
+        },
+        "ssh": {"user": "legacy-global", "key_file": str(tmp_path / "global-key")},
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+    }))
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI"):
+        server = ProxmoxMCPServer(str(config_path))
+        try:
+            assert server.target_tools("without-ssh").container_tools.console_manager is None
+            assert server.target_tools("with-ssh").container_tools.console_manager is not None
+        finally:
+            server.close()

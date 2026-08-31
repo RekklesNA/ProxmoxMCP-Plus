@@ -628,19 +628,23 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        has_target_ssh = bool(server.config.ssh) or any(
-            server.target_registry.resolve(name).ssh is not None
-            for name in server.target_registry.names
+        target_registry = getattr(server, "target_registry", None)
+        target_names = target_registry.names if target_registry is not None else ("default",)
+        has_target_ssh_names = tuple(
+            name for name in target_names
+            if target_registry is not None and server.target_registry.resolve(name).ssh is not None
+        )
+        has_target_ssh = bool(has_target_ssh_names) or (
+            target_names == ("default",) and bool(server.config.ssh)
         )
         if has_target_ssh:
-            configured_ssh = server.config.ssh or next(
-                server.target_registry.resolve(name).ssh
-                for name in server.target_registry.names
-                if server.target_registry.resolve(name).ssh is not None
+            configured_names = (
+                ("default",) if server.config.ssh and target_names == ("default",)
+                else has_target_ssh_names
             )
             server.logger.info(
-                "Container command execution enabled (SSH configured for user '%s')",
-                configured_ssh.user,
+                "Container command execution enabled (SSH configured for targets: %s)",
+                ", ".join(configured_names),
             )
 
             @server.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
