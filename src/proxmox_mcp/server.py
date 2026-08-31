@@ -57,8 +57,13 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 
 def _job_sqlite_path(base_path: str, target_name: str) -> str:
+    """Derive a collision-free per-target database path.
+
+    Target names cannot contain dots, so the delimiter cannot create an
+    ambiguity between names such as ``a-b``/``a`` and ``b``.
+    """
     base = Path(base_path)
-    return str(base.with_name(f"{base.name}-{target_name}"))
+    return str(base.with_name(f"{base.name}.target-{target_name}"))
 
 
 def _exit_without_finalization(status: int = 0) -> NoReturn:
