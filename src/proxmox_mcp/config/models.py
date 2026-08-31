@@ -202,6 +202,10 @@ class Config(BaseModel):
             raise ValueError("Use either legacy proxmox/auth configuration or targets, not both")
         if has_targets and not self.targets:
             raise ValueError("At least one Proxmox target must be configured")
+        if has_targets and self.ssh is not None:
+            raise ValueError("Top-level ssh is only valid for legacy configuration; configure ssh inside each target")
+        if has_targets and self.api_tunnel is not None:
+            raise ValueError("Top-level api_tunnel is only valid for legacy configuration; configure api_tunnel inside each target")
         if not has_targets and (self.proxmox is None or self.auth is None):
             raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
         if self.targets:

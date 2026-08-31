@@ -38,7 +38,7 @@ async def test_readonly_target_rejects_mutation_before_api_call(tmp_path):
             server.close()
 
 
-def test_named_target_without_ssh_does_not_inherit_global_ssh(tmp_path):
+def test_named_targets_reject_global_ssh_configuration(tmp_path):
     config_path = tmp_path / "global-ssh.json"
     config_path.write_text(json.dumps({
         "targets": {
@@ -55,10 +55,5 @@ def test_named_target_without_ssh_does_not_inherit_global_ssh(tmp_path):
         "ssh": {"user": "legacy-global", "key_file": str(tmp_path / "global-key")},
         "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
     }))
-    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI"):
-        server = ProxmoxMCPServer(str(config_path))
-        try:
-            assert server.target_tools("without-ssh").container_tools.console_manager is None
-            assert server.target_tools("with-ssh").container_tools.console_manager is not None
-        finally:
-            server.close()
+    with pytest.raises(ValueError, match="Top-level ssh.*targets"):
+        ProxmoxMCPServer(str(config_path))

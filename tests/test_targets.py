@@ -110,3 +110,21 @@ def test_target_tunnels_require_distinct_local_endpoints():
         data["targets"][name] = {"host": host, "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "api_tunnel": {"enabled": True, "ssh_host": "jump"}}
     with pytest.raises(ValueError, match="shared by targets"):
         Config.model_validate(data)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("ssh", {"user": "root", "key_file": "/tmp/key"}),
+    ("api_tunnel", {"enabled": True, "ssh_host": "jump", "local_port": 19001}),
+])
+def test_named_targets_reject_legacy_top_level_connection_settings(field, value):
+    data = {
+        "targets": {
+            "cluster": {
+                "host": "cluster.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+            },
+        },
+        field: value,
+    }
+    with pytest.raises(ValueError, match=f"{field}.*targets"):
+        Config.model_validate(data)
