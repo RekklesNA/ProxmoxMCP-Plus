@@ -36,7 +36,7 @@ cp proxmox-config/config.example.json proxmox-config/config.json
 The main sections are:
 
 - `proxmox`: host, port, TLS verification, service type
-- `api_tunnel`: optional SSH local forward for the Proxmox API
+- `api_tunnel`: optional SSH local forward for the Proxmox API; set `assume_external: true` only when an external tunnel supervisor owns the local listener
 - `auth`: Proxmox API user and token
 - `logging`: log level, format, optional log file
 - `mcp`: MCP host, port, transport, and optional transport Host/Origin allowlists

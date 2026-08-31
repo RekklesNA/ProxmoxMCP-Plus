@@ -24,9 +24,10 @@ class TargetRegistry:
     """Resolve legacy or named target configuration without guessing."""
 
     def __init__(self, config: Config):
+        self.is_legacy = config.targets is None
         if config.targets is not None and (config.proxmox is not None or config.auth is not None):
             raise ValueError("Use either legacy proxmox/auth configuration or targets, not both")
-        if config.targets is not None:
+        if not self.is_legacy:
             if not config.targets:
                 raise ValueError("At least one Proxmox target must be configured")
             self._targets = {

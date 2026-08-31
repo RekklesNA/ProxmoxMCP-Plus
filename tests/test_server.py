@@ -1637,6 +1637,27 @@ async def test_tool_metrics_record_calls(server, mock_proxmox):
     assert snapshot["get_nodes"]["success"]["default"]["latency_ms_sum"] >= 0
 
 
+def test_target_resolution_failures_are_recorded_in_metrics():
+    from proxmox_mcp.observability import ToolMetrics
+    from proxmox_mcp.services.builtin_tool_plugins import RegistryPluginBase
+
+    class Registry:
+        def resolve(self, requested):
+            raise ValueError("target required")
+
+    class FakeServer:
+        target_registry = Registry()
+        metrics = ToolMetrics()
+
+    wrapper = RegistryPluginBase()._wrap_sync(
+        FakeServer(), "get_nodes", lambda tools: tools,
+    )
+    with pytest.raises(ValueError, match="target required"):
+        wrapper()
+
+    assert FakeServer.metrics.snapshot()["get_nodes"]["error"]["unresolved"]["calls"] == 1
+
+
 @pytest.mark.asyncio
 async def test_high_risk_operation_requires_approval_token(mock_proxmox, tmp_path):
     config_path = tmp_path / "config_high_risk.json"

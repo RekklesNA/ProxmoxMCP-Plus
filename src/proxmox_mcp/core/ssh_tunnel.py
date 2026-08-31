@@ -31,6 +31,13 @@ class SSHTunnelManager:
             return
 
         if self._is_local_endpoint_reachable():
+            if getattr(self.tunnel_config, "assume_external", False):
+                self.logger.info(
+                    "Using externally managed API tunnel on %s:%s",
+                    self.tunnel_config.local_host,
+                    self.tunnel_config.local_port,
+                )
+                return
             if self._process is not None and self._process.poll() is None:
                 self.logger.info(
                     "API tunnel already reachable on %s:%s (owned tunnel verified)",

@@ -35,6 +35,23 @@ def test_legacy_config_resolves_implicit_single_target():
     target = registry.resolve()
     assert target.name == "default"
     assert target.config.host == "cluster"
+    assert registry.is_legacy is True
+
+
+def test_named_default_target_is_not_legacy_mode():
+    config = Config.model_validate({
+        "targets": {
+            "default": {
+                "host": "pve.example",
+                "auth": {"user": "u", "token_name": "n", "token_value": "v"},
+                "ssh": {"user": "root", "key_file": "/tmp/key"},
+            }
+        }
+    })
+    registry = TargetRegistry(config)
+
+    assert registry.is_legacy is False
+    assert registry.resolve().ssh is not None
 
 
 def test_multiple_targets_require_explicit_target():
@@ -68,6 +85,13 @@ def test_target_tls_rejects_string_boolean():
     with pytest.raises(ValueError):
         Config.model_validate({
             "targets": {"a": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "verify_ssl": "false"}},
+        })
+
+
+def test_target_readonly_rejects_string_boolean():
+    with pytest.raises(ValueError):
+        Config.model_validate({
+            "targets": {"a": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "readonly": "yes"}},
         })
 
 

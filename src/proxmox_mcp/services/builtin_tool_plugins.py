@@ -147,8 +147,9 @@ class RegistryPluginBase(ToolRegistryPlugin):
             success = False
             target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
-            resolved_target = server.target_registry.resolve(target)
+            resolved_target = None
             try:
+                resolved_target = server.target_registry.resolve(target)
                 if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
                     raise ValueError(
                         f"Target '{resolved_target.name}' is configured read-only; "
@@ -181,7 +182,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name)
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
 
         return wrapped
 
@@ -198,8 +199,9 @@ class RegistryPluginBase(ToolRegistryPlugin):
             success = False
             target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
-            resolved_target = server.target_registry.resolve(target)
+            resolved_target = None
             try:
+                resolved_target = server.target_registry.resolve(target)
                 if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
                     raise ValueError(
                         f"Target '{resolved_target.name}' is configured read-only; "
@@ -219,7 +221,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name)
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
 
         return wrapped
 

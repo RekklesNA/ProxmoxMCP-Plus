@@ -95,6 +95,22 @@ def test_api_tunnel_reuses_reachable_local_endpoint() -> None:
     start_process.assert_not_called()
 
 
+def test_api_tunnel_can_explicitly_reuse_external_endpoint() -> None:
+    tunnel_config = SimpleNamespace(
+        enabled=True, assume_external=True, ssh_host="jump-host",
+        local_host="127.0.0.1", local_port=18006,
+        remote_host="10.0.0.10", remote_port=8006, connect_timeout=15,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), patch.object(
+        manager, "_start_process"
+    ) as start_process:
+        manager.ensure_tunnel()
+
+    start_process.assert_not_called()
+
+
 def test_api_tunnel_starts_and_waits_when_local_endpoint_unreachable() -> None:
     tunnel_config = SimpleNamespace(
         enabled=True,

@@ -140,7 +140,7 @@ class ProxmoxMCPServer:
             target = self.target_registry.resolve(name)
             api = manager.get_api()
             base_path = self.config.jobs.sqlite_path
-            is_single_default = self.target_registry.names == ("default",)
+            is_single_default = self.target_registry.is_legacy
             if is_single_default:
                 path = base_path
             else:
@@ -159,7 +159,7 @@ class ProxmoxMCPServer:
                 ),
                 container_tools=ContainerTools(
                     api,
-                    target.ssh if self.target_registry.names != ("default",) else self.config.ssh,
+                    target.ssh if not self.target_registry.is_legacy else self.config.ssh,
                     command_policy=self.target_command_policies[name],
                     metrics=self.metrics,
                     job_store=job_store,
@@ -172,7 +172,7 @@ class ProxmoxMCPServer:
                 log_tools=LogTools(api, metrics=self.metrics, job_store=job_store),
             )
 
-        if self.target_registry.names == ("default",):
+        if self.target_registry.is_legacy:
             self.proxmox_manager = next(iter(self.proxmox_managers.values()))
             self.proxmox = self.proxmox_manager.get_api()
             self.command_policy = self.target_command_policies["default"]

@@ -35,4 +35,4 @@ Add public-interface tests for legacy loading, one-target defaulting, multi-targ
 
 Live acceptance requires authenticated read-only `get_nodes` against both `cluster` (returning pve1/pve2/pve3) and `pl`, plus concurrency and restart verification. The old service remains available for rollback until the new implementation passes.
 
-For an externally managed SSH port forward, set `api_tunnel.enabled` to `false` and configure `proxmox.host` and `proxmox.port` to the existing local endpoint. When `api_tunnel.enabled` is true, the local port must be free or owned by this process.
+For an externally managed SSH port forward, set `api_tunnel.enabled` to `true` and `api_tunnel.assume_external` to `true`; the configured local endpoint is then reused without starting or stopping a tunnel process. This is an explicit operator opt-in because the endpoint's remote identity cannot be verified by this process. Without `assume_external`, the local port must be free or owned by this process.
