@@ -155,6 +155,27 @@ class VMConsoleManager:
             endpoint = self.proxmox.nodes(node).qemu(vmid).agent
             self.logger.debug("Using VM guest-agent endpoint for VM %s on node %s", _log_safe(vmid), _log_safe(node))
             
+            # Check the agent capability before attempting guest-exec. Some
+            # appliances expose the QEMU guest agent for inspection only.
+            try:
+                agent_info = endpoint("info").get()
+                supported = agent_info.get("supported_commands", []) if isinstance(agent_info, dict) else []
+                supported_names = {
+                    item.get("name") for item in supported if isinstance(item, dict)
+                }
+                if supported_names and "guest-exec" not in supported_names:
+                    raise RuntimeError(
+                        "QEMU guest agent on VM "
+                        f"{vmid} does not support guest-exec; install/configure a guest agent "
+                        "with command execution support"
+                    )
+            except RuntimeError:
+                raise
+            except Exception as e:
+                # Older Proxmox/QEMU-agent versions may not expose info; keep
+                # the existing exec path in that case.
+                self.logger.debug("Unable to inspect guest-agent capabilities: %s", _log_safe(e))
+
             # Execute the command using two-step process
             try:
                 # Start command execution
@@ -166,7 +187,14 @@ class VMConsoleManager:
                     self.logger.info("Command started on VM %s with pid=%s", _log_safe(vmid), _log_safe(exec_result.get("pid") if isinstance(exec_result, dict) else "unknown"))
                 except Exception as e:
                     self.logger.error("Failed to start command on VM %s: %s", _log_safe(vmid), _log_safe(e))
-                    raise RuntimeError(f"Failed to start command: {str(e)}")
+                    error_text = str(e)
+                    if "596" in error_text and "TLS negotiation" in error_text:
+                        raise RuntimeError(
+                            "QEMU guest agent rejected guest-exec on VM "
+                            f"{vmid}; the agent is reachable but command execution is unavailable "
+                            "for this guest"
+                        ) from e
+                    raise RuntimeError(f"Failed to start command: {error_text}") from e
 
                 if 'pid' not in exec_result:
                     raise RuntimeError("No PID returned from command execution")
