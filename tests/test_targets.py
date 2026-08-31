@@ -62,3 +62,18 @@ def test_discovery_is_deterministic_and_secret_free():
     rendered = repr(metadata)
     assert "cluster-v" not in rendered
     assert "pl-v" not in rendered
+
+
+def test_target_tls_rejects_string_boolean():
+    with pytest.raises(ValueError):
+        Config.model_validate({
+            "targets": {"a": {"host": "a", "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "verify_ssl": "false"}},
+        })
+
+
+def test_target_tunnels_require_distinct_local_endpoints():
+    data = {"targets": {}}
+    for name, host in (("a", "a"), ("b", "b")):
+        data["targets"][name] = {"host": host, "auth": {"user": "u", "token_name": "t", "token_value": "v"}, "api_tunnel": {"enabled": True, "ssh_host": "jump"}}
+    with pytest.raises(ValueError, match="shared by targets"):
+        Config.model_validate(data)

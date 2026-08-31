@@ -12,6 +12,7 @@ consistent behavior and error handling across the MCP server.
 """
 import logging
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
@@ -21,6 +22,19 @@ from proxmox_mcp.observability import ToolMetrics
 
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
+    try:
+        parts = urlsplit(text)
+        host = parts.hostname or ""
+        if parts.port:
+            host += f":{parts.port}"
+        netloc = host if (parts.username or parts.password) else parts.netloc
+        query = urlencode([
+            (key, "[REDACTED]" if key.lower() in {"token", "password", "secret", "api_key", "authorization"} else item)
+            for key, item in parse_qsl(parts.query, keep_blank_values=True)
+        ])
+        text = urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+    except ValueError:
+        pass
     return text[:max_length]
 
 
@@ -139,7 +153,7 @@ class ProxmoxTool:
             ValueError: For invalid input, missing resources, or permission issues
             RuntimeError: For unexpected errors or API failures
         """
-        error_msg = str(error)
+        error_msg = _log_safe(str(error))
         self.logger.error("Failed to %s: %s", _log_safe(operation), _log_safe(error_msg))
 
         if "not found" in error_msg.lower():

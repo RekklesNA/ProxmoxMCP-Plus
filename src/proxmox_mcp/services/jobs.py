@@ -7,6 +7,7 @@ import re
 import sqlite3
 import threading
 import uuid
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,32 @@ _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
 _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+_SECRET_KEYS = {"password", "token", "token_value", "api_key", "secret", "authorization", "approval_token"}
+
+
+def _sanitize(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: ("[REDACTED]" if str(key).lower() in _SECRET_KEYS else _sanitize(item)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize(item) for item in value]
+    if isinstance(value, str) and "://" in value:
+        try:
+            parts = urlsplit(value)
+            host = parts.hostname or ""
+            if parts.port:
+                host += f":{parts.port}"
+            if parts.username or parts.password:
+                netloc = host
+            else:
+                netloc = parts.netloc
+            query = urlencode([
+                (key, "[REDACTED]" if key.lower() in _SECRET_KEYS else item)
+                for key, item in parse_qsl(parts.query, keep_blank_values=True)
+            ])
+            return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+        except ValueError:
+            pass
+    return value
 
 
 def _utcnow() -> str:
@@ -83,15 +110,15 @@ class JobRecord:
             "progress": self.progress,
             "attempts": self.attempts,
             "retry_count": self.retry_count,
-            "last_error": self.last_error,
+            "last_error": _sanitize(self.last_error),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "completed_at": self.completed_at,
-            "result": self.result,
-            "metadata": self.metadata,
+            "result": _sanitize(self.result),
+            "metadata": _sanitize(self.metadata),
             "previous_upids": self.previous_upids,
             "audit_log": [item.as_dict() for item in self.audit_log],
-            "retry_spec": self.retry_spec,
+            "retry_spec": _sanitize(self.retry_spec),
         }
 
 
@@ -461,6 +488,9 @@ class JobStore:
         if row is None:
             self._jobs.pop(job_id, None)
             raise JobNotFoundError(f"Unknown job_id: {job_id}")
+        stored_target = json.loads(row["metadata_json"] or "{}").get("target")
+        if self.target_name is not None and stored_target != self.target_name:
+            raise JobNotFoundError(f"Unknown job_id: {job_id}")
         record = self._row_to_record(row)
         self._jobs[record.job_id] = record
         return record
@@ -481,6 +511,9 @@ class JobStore:
         if tool_name:
             where.append("tool_name = ?")
             params.append(tool_name)
+        if self.target_name is not None:
+            where.append("metadata_json LIKE ?")
+            params.append('%"target": "' + self.target_name.replace('"', '') + '"%')
         where_clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._conn.execute(
             f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
@@ -512,13 +545,13 @@ class JobStore:
                 record.progress,
                 record.attempts,
                 record.retry_count,
-                record.last_error,
+                _sanitize(record.last_error),
                 record.completed_at,
-                json.dumps(record.result, sort_keys=True) if record.result is not None else None,
-                json.dumps(record.metadata, sort_keys=True),
+                json.dumps(_sanitize(record.result), sort_keys=True) if record.result is not None else None,
+                json.dumps(_sanitize(record.metadata), sort_keys=True),
                 json.dumps(record.previous_upids),
-                json.dumps([item.as_dict() for item in record.audit_log]),
-                json.dumps(record.retry_spec, sort_keys=True) if record.retry_spec is not None else None,
+                json.dumps(_sanitize([item.as_dict() for item in record.audit_log])),
+                json.dumps(_sanitize(record.retry_spec), sort_keys=True) if record.retry_spec is not None else None,
             ),
         )
         self._conn.commit()

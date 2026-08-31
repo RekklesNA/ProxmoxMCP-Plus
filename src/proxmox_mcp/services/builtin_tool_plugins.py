@@ -99,7 +99,11 @@ class RegistryPluginBase(ToolRegistryPlugin):
     ) -> None:
         if not high_risk:
             return
-        decision = server.command_policy.evaluate_operation(
+        policy = server.target_command_policies.get(
+            server.target_registry.resolve(_ACTIVE_TARGET.get()).name,
+            server.command_policy,
+        )
+        decision = policy.evaluate_operation(
             tool_name,
             approval_token=approval_token,
         )
@@ -117,7 +121,11 @@ class RegistryPluginBase(ToolRegistryPlugin):
     ) -> None:
         job = server.target_tools(target).jobs_tools.job_store.get_job(job_id)
         operation_name = str(job.get("tool_name") or "")
-        decision = server.command_policy.evaluate_operation(
+        policy = server.target_command_policies.get(
+            server.target_registry.resolve(target or _ACTIVE_TARGET.get()).name,
+            server.command_policy,
+        )
+        decision = policy.evaluate_operation(
             operation_name,
             approval_token=approval_token,
         )
@@ -146,6 +154,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
             approval_token = kwargs.get("approval_token")
             requested_target = kwargs.get("target")
             resolved_target = server.target_registry.resolve(requested_target or _ACTIVE_TARGET.get())
+            _ACTIVE_TARGET.set(resolved_target.name)
             if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
                 raise ValueError(f"Target '{resolved_target.name}' is configured read-only; tool '{tool_name}' is not permitted")
             try:
@@ -179,6 +188,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
             approval_token = kwargs.get("approval_token")
             requested_target = kwargs.get("target")
             resolved_target = server.target_registry.resolve(requested_target or _ACTIVE_TARGET.get())
+            _ACTIVE_TARGET.set(resolved_target.name)
             if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
                 raise ValueError(f"Target '{resolved_target.name}' is configured read-only; tool '{tool_name}' is not permitted")
             try:
@@ -569,10 +579,19 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 approval_token=approval_token,
             )
 
-        if server.config.ssh is not None:
+        has_target_ssh = bool(server.config.ssh) or any(
+            server.target_registry.resolve(name).ssh is not None
+            for name in server.target_registry.names
+        )
+        if has_target_ssh:
+            configured_ssh = server.config.ssh or next(
+                server.target_registry.resolve(name).ssh
+                for name in server.target_registry.names
+                if server.target_registry.resolve(name).ssh is not None
+            )
             server.logger.info(
                 "Container command execution enabled (SSH configured for user '%s')",
-                server.config.ssh.user,
+                configured_ssh.user,
             )
 
             @server.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)

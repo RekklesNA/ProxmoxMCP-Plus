@@ -14,7 +14,7 @@ The models provide:
 from __future__ import annotations
 
 from typing import Optional, Annotated, Literal, Dict, List
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -76,7 +76,7 @@ class TargetConfig(BaseModel):
     host: str
     port: int = 8006
     timeout: int = 30
-    verify_ssl: bool | str = True
+    verify_ssl: StrictBool = True
     service: str = "PVE"
     auth: AuthConfig
     kind: Literal["cluster", "standalone"] = "standalone"
@@ -200,5 +200,17 @@ class Config(BaseModel):
             raise ValueError("At least one Proxmox target must be configured")
         if not has_targets and (self.proxmox is None or self.auth is None):
             raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
+        if self.targets:
+            seen: dict[tuple[str, int], str] = {}
+            for name, target in self.targets.items():
+                tunnel = target.api_tunnel
+                if tunnel and tunnel.enabled:
+                    endpoint = (tunnel.local_host, tunnel.local_port)
+                    if endpoint in seen:
+                        raise ValueError(
+                            f"API tunnel local endpoint {endpoint[0]}:{endpoint[1]} "
+                            f"is shared by targets {seen[endpoint]!r} and {name!r}"
+                        )
+                    seen[endpoint] = name
         return self
     jobs: JobsConfig = Field(default_factory=JobsConfig)

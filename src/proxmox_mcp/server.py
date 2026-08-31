@@ -111,6 +111,10 @@ class ProxmoxMCPServer:
         self.proxmox_manager = next(iter(self.proxmox_managers.values()))
         self.proxmox = self.proxmox_manager.get_api()
         self.command_policy = CommandPolicyGate(self.config.command_policy)
+        self.target_command_policies = {
+            name: CommandPolicyGate(target.command_policy or self.config.command_policy)
+            for name, target in ((name, self.target_registry.resolve(name)) for name in self.target_registry.names)
+        }
         self.metrics = ToolMetrics()
         self.job_store = JobStore(self.proxmox, sqlite_path=self.config.jobs.sqlite_path)
         self.target_node_tools = {
@@ -173,7 +177,11 @@ class ProxmoxMCPServer:
                 continue
             target = self.target_registry.resolve(name)
             api = manager.get_api()
-            job_store = JobStore(api, sqlite_path=self.config.jobs.sqlite_path, target_name=name)
+            base_path = self.config.jobs.sqlite_path
+            path = base_path
+            if name != "default" or self.target_registry.names != ("default",):
+                path = f"{base_path}-{name}"
+            job_store = JobStore(api, sqlite_path=path, target_name=name)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
                 node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),
