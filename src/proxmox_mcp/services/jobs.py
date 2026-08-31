@@ -68,7 +68,7 @@ class JobAuditEvent:
         return {
             "timestamp": self.timestamp,
             "event": self.event,
-            "details": self.details,
+            "details": _sanitize(self.details),
         }
 
 
@@ -512,8 +512,8 @@ class JobStore:
             where.append("tool_name = ?")
             params.append(tool_name)
         if self.target_name is not None:
-            where.append("metadata_json LIKE ?")
-            params.append('%"target": "' + self.target_name.replace('"', '') + '"%')
+            where.append("json_extract(metadata_json, '$.target') = ?")
+            params.append(self.target_name)
         where_clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._conn.execute(
             f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
