@@ -45,6 +45,57 @@ The main sections are:
 - `command_policy`: rules for `execute_*` tools and high-risk mutating operations
 - `ssh`: optional SSH settings for LXC command execution
 
+## Named Targets
+
+For multiple independent Proxmox environments, use the `targets` map instead of the
+legacy top-level `proxmox` and `auth` sections. Each target has its own endpoint,
+credentials, TLS settings, and optional SSH/command-policy configuration:
+
+```json
+{
+  "targets": {
+    "primary": {
+      "host": "pve.example.test",
+      "port": 8006,
+      "verify_ssl": true,
+      "auth": {
+        "user": "root@pam",
+        "token_name": "automation",
+        "token_value": "<secret>"
+      }
+    },
+    "lab": {
+      "host": "lab-pve.example.test",
+      "port": 8006,
+      "verify_ssl": true,
+      "auth": {
+        "user": "root@pam",
+        "token_name": "automation",
+        "token_value": "<secret>"
+      },
+      "readonly": true
+    }
+  }
+}
+```
+
+Target names are selected explicitly through the optional `target` argument on
+operational MCP tools. Omitting `target` is allowed only when exactly one target is
+configured; with multiple targets, the server rejects the request before contacting
+Proxmox. Use the read-only `list_targets` tool to inspect configured target names,
+endpoint identity, reachability, and discovered node names without exposing credentials.
+
+Named targets are isolated: credentials, managers, SSH settings, command policies,
+read-only behavior, and asynchronous jobs are not shared between targets. Do not mix
+legacy top-level `proxmox`, `auth`, `ssh`, or `api_tunnel` settings with a `targets` map;
+configuration loading rejects ambiguous combinations.
+
+For an externally managed local API tunnel, set both `api_tunnel.enabled` and
+`api_tunnel.assume_external` to `true`. This explicitly tells the server to reuse the
+listener without starting or stopping a tunnel process. Only use it when the external
+supervisor owns and has verified the tunnel destination; the server cannot verify that
+remote identity itself.
+
 ## Environment Variable Fallback
 
 If `PROXMOX_MCP_CONFIG` is not set or the file is missing, the loader falls back to environment variables.
