@@ -233,3 +233,51 @@ def test_proxmox_manager_close_without_tunnel_is_noop() -> None:
     manager.tunnel_manager = None
 
     manager.close()
+
+
+def test_assume_external_never_spawns_own_tunnel_process() -> None:
+    """assume_external promises another supervisor owns the listener.
+
+    If the external listener is temporarily unavailable, the server must fail
+    loudly rather than silently spawning (and later killing) its own ssh.
+    """
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=False), \
+         patch.object(manager, "_start_process") as start, \
+         patch.object(manager, "_wait_for_local_listener") as wait:
+        with pytest.raises(RuntimeError, match="(?i)externally managed"):
+            manager.ensure_tunnel()
+
+    start.assert_not_called()
+    wait.assert_not_called()
+
+
+def test_assume_external_reuses_reachable_external_listener() -> None:
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), \
+         patch.object(manager, "_start_process") as start:
+        manager.ensure_tunnel()
+
+    start.assert_not_called()

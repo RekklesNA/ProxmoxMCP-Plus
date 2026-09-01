@@ -1,4 +1,4 @@
-from proxmox_mcp.services.jobs import JobStore
+from proxmox_mcp.services.jobs import JobNotFoundError, JobStore
 
 
 import pytest
@@ -84,3 +84,46 @@ def test_target_names_with_wildcards_cannot_cross_list_jobs(tmp_path):
     finally:
         wildcard_target.close()
         literal_target.close()
+
+
+def test_legacy_untargeted_jobs_remain_visible_in_legacy_mode(tmp_path):
+    """Upgrading a legacy deployment must not hide pre-existing jobs.
+
+    Jobs written before this feature have no metadata.target. In legacy mode
+    (single unambiguous target) they must stay listable and controllable.
+    """
+    path = str(tmp_path / "legacy.sqlite3")
+    old = JobStore(object(), sqlite_path=path)
+    try:
+        legacy = old.register_task(
+            tool_name="start_vm", summary="legacy", node="pve", upid="UPID:legacy"
+        )
+    finally:
+        old.close()
+
+    upgraded = JobStore(object(), sqlite_path=path, target_name="default", legacy_mode=True)
+    try:
+        assert [job["job_id"] for job in upgraded.list_jobs()] == [legacy["job_id"]]
+        assert upgraded.get_job(legacy["job_id"])["job_id"] == legacy["job_id"]
+    finally:
+        upgraded.close()
+
+
+def test_named_target_mode_still_hides_untargeted_jobs(tmp_path):
+    """Isolation must not regress: named targets never inherit untargeted jobs."""
+    path = str(tmp_path / "named.sqlite3")
+    old = JobStore(object(), sqlite_path=path)
+    try:
+        legacy = old.register_task(
+            tool_name="start_vm", summary="legacy", node="pve", upid="UPID:legacy"
+        )
+    finally:
+        old.close()
+
+    named = JobStore(object(), sqlite_path=path, target_name="cluster")
+    try:
+        assert named.list_jobs() == []
+        with pytest.raises(JobNotFoundError):
+            named.get_job(legacy["job_id"])
+    finally:
+        named.close()

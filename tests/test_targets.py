@@ -191,3 +191,56 @@ def test_named_targets_reject_legacy_top_level_connection_settings(field, value)
     }
     with pytest.raises(ValueError, match=f"{field}.*targets"):
         Config.model_validate(data)
+
+
+def test_distinct_ssh_gateways_may_share_remote_destination():
+    """Two targets reaching the same remote host through different SSH
+    services (different user/port) are a valid configuration."""
+    auth = {"user": "root@pam", "token_name": "t", "token_value": "v"}
+
+    def target(local_port, ssh_user, ssh_port):
+        return {
+            "host": "node.example",
+            "auth": auth,
+            "api_tunnel": {
+                "enabled": True,
+                "ssh_host": "gw.example",
+                "local_host": "127.0.0.1",
+                "local_port": local_port,
+                "remote_host": "127.0.0.1",
+                "remote_port": 8006,
+            },
+            "ssh": {"user": ssh_user, "port": ssh_port},
+        }
+
+    config = Config.model_validate(
+        {
+            "targets": {
+                "a": target(18007, "opa", 22),
+                "b": target(18008, "opb", 2222),
+            }
+        }
+    )
+    assert set(config.targets) == {"a", "b"}
+
+
+def test_identical_ssh_gateways_still_reject_shared_remote_destination():
+    auth = {"user": "root@pam", "token_name": "t", "token_value": "v"}
+
+    def target(local_port):
+        return {
+            "host": "node.example",
+            "auth": auth,
+            "api_tunnel": {
+                "enabled": True,
+                "ssh_host": "gw.example",
+                "local_host": "127.0.0.1",
+                "local_port": local_port,
+                "remote_host": "127.0.0.1",
+                "remote_port": 8006,
+            },
+            "ssh": {"user": "same", "port": 22},
+        }
+
+    with pytest.raises(ValueError, match="remote endpoint"):
+        Config.model_validate({"targets": {"a": target(18007), "b": target(18008)}})

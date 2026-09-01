@@ -216,7 +216,7 @@ class Config(BaseModel):
                         f"Proxmox target name {name!r} is invalid: must match ^[A-Za-z0-9_-]{{1,64}}$"
                     )
             seen: dict[tuple[str, int], str] = {}
-            seen_remote: dict[tuple[str, str, int], str] = {}
+            seen_remote: dict[tuple[str, str | None, int | None, str, int], str] = {}
             for name, target in self.targets.items():
                 if not target.verify_ssl and not target.allow_insecure_tls:
                     raise ValueError(
@@ -231,11 +231,24 @@ class Config(BaseModel):
                             f"is shared by targets {seen[endpoint]!r} and {name!r}"
                         )
                     seen[endpoint] = name
-                    remote_key = (tunnel.ssh_host, tunnel.remote_host, tunnel.remote_port)
+                    # The gateway identity must include the effective SSH user and
+                    # port: SSHTunnelManager uses per-target ssh settings when
+                    # building the command, so the same ssh_host reached as a
+                    # different user or port is a genuinely different endpoint.
+                    ssh_user = target.ssh.user if target.ssh is not None else None
+                    ssh_port = target.ssh.port if target.ssh is not None else None
+                    remote_key = (
+                        tunnel.ssh_host,
+                        ssh_user,
+                        ssh_port,
+                        tunnel.remote_host,
+                        tunnel.remote_port,
+                    )
                     if remote_key in seen_remote:
                         raise ValueError(
-                            f"API tunnel remote endpoint {remote_key[0]}:{remote_key[1]}:{remote_key[2]} "
-                            f"via {remote_key[0]!r} is shared by targets {seen_remote[remote_key]!r} and {name!r}"
+                            f"API tunnel remote endpoint {tunnel.remote_host}:{tunnel.remote_port} "
+                            f"via {tunnel.ssh_host!r} is shared by targets "
+                            f"{seen_remote[remote_key]!r} and {name!r}"
                         )
                     seen_remote[remote_key] = name
         return self

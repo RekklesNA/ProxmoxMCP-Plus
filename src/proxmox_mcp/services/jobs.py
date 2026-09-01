@@ -113,9 +113,12 @@ class JobRecord:
 class JobStore:
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
-    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None) -> None:
+    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False) -> None:
         self.proxmox = proxmox_api
         self.target_name = target_name
+        # Legacy mode: a single unambiguous target owns the whole database, so
+        # jobs written before target metadata existed must stay reachable.
+        self.legacy_mode = legacy_mode
         self.sqlite_path = str(Path(sqlite_path).expanduser())
         Path(self.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, JobRecord] = {}
@@ -440,18 +443,21 @@ class JobStore:
             (1, _utcnow()),
         )
         self._conn.commit()
-        # Migration warning: legacy jobs without target metadata cannot be safely isolated
-        try:
-            count = self._conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
-            ).fetchone()[0]
-            if count:
-                import logging
-                logging.getLogger("proxmox-mcp.jobs").warning(
-                    "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
-                )
-        except Exception:
-            pass
+        # Migration warning: legacy jobs without target metadata cannot be safely
+        # isolated between named targets. In legacy mode this store owns the whole
+        # database and still serves those jobs, so no warning is warranted.
+        if self.target_name is not None and not self.legacy_mode:
+            try:
+                count = self._conn.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
+                ).fetchone()[0]
+                if count:
+                    import logging
+                    logging.getLogger("proxmox-mcp.jobs").warning(
+                        "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
+                    )
+            except Exception:
+                pass
 
     def _load_records(self) -> None:
         with self._lock:
@@ -492,13 +498,26 @@ class JobStore:
             cancel_factory=existing.cancel_factory if existing is not None else None,
         )
 
+    def _target_matches(self, stored_target: Any) -> bool:
+        """Whether a stored job belongs to this store's target.
+
+        In legacy mode the store owns the entire database, so jobs written
+        before target metadata existed (stored_target is None) remain visible.
+        Named targets never inherit untargeted jobs.
+        """
+        if self.target_name is None:
+            return True
+        if stored_target == self.target_name:
+            return True
+        return self.legacy_mode and stored_target is None
+
     def _load_record_from_db(self, job_id: str) -> JobRecord:
         row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
             self._jobs.pop(job_id, None)
             raise JobNotFoundError(f"Unknown job_id: {job_id}")
         stored_target = json.loads(row["metadata_json"] or "{}").get("target")
-        if self.target_name is not None and stored_target != self.target_name:
+        if not self._target_matches(stored_target):
             raise JobNotFoundError(f"Unknown job_id: {job_id}")
         record = self._row_to_record(row)
         self._jobs[record.job_id] = record
@@ -521,7 +540,15 @@ class JobStore:
             where.append("tool_name = ?")
             params.append(tool_name)
         if self.target_name is not None:
-            where.append("json_extract(metadata_json, '$.target') = ?")
+            if self.legacy_mode:
+                # Legacy upgrade: this store owns the database, so also surface
+                # jobs recorded before target metadata was introduced.
+                where.append(
+                    "(json_extract(metadata_json, '$.target') = ? "
+                    "OR json_extract(metadata_json, '$.target') IS NULL)"
+                )
+            else:
+                where.append("json_extract(metadata_json, '$.target') = ?")
             params.append(self.target_name)
         where_clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._conn.execute(

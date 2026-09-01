@@ -145,7 +145,7 @@ class ProxmoxMCPServer:
                 path = base_path
             else:
                 path = _job_sqlite_path(base_path, name)
-            job_store = JobStore(api, sqlite_path=path, target_name=name)
+            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
                 node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),

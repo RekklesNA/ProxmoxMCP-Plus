@@ -523,6 +523,12 @@ def main() -> None:
                     "OpenAPI proxy does not support named multi-target configurations; "
                     "use the native MCP server"
                 )
+            # Config validation guarantees legacy mode supplies both sections; assert
+            # explicitly so the invariant is enforced at runtime and visible to mypy.
+            if config.proxmox is None or config.auth is None:
+                raise RuntimeError(
+                    "OpenAPI proxy requires legacy proxmox and auth configuration sections"
+                )
             command_policy = CommandPolicyGate(config.command_policy)
             proxmox = ProxmoxManager(
                 config.proxmox,

@@ -2,6 +2,9 @@
 from __future__ import annotations
 from unittest.mock import Mock
 
+import pytest
+
+from proxmox_mcp.security.sanitization import sanitize_string
 from proxmox_mcp.services.jobs import JobConflictError, JobStore, _sanitize, _sanitize_string
 from proxmox_mcp.tools.base import _log_safe as base_log_safe
 from proxmox_mcp.core.proxmox import _log_safe as proxmox_log_safe
@@ -140,3 +143,40 @@ def test_sanitize_preserves_non_secret_retry_spec(tmp_path):
     retry_spec = {"kind": "vm.start", "params": {"node": "pve", "vmid": "100"}}
     job = store.register_task(tool_name="start_vm", summary="start", node="pve", upid="UPID:1", retry_spec=retry_spec)
     assert job["retry_spec"] == retry_spec
+
+
+@pytest.mark.parametrize(
+    "raw, secret",
+    [
+        ('{"password": "two words"}', "two words"),
+        ("{'token': 'a b c'}", "a b c"),
+        ('password="hunter two"', "hunter two"),
+        ('{"api_key": "key with spaces"}', "key with spaces"),
+        ('{"token_value": "multi word secret here"}', "multi word secret here"),
+    ],
+)
+def test_sanitize_redacts_quoted_secrets_containing_whitespace(raw, secret):
+    cleaned = sanitize_string(raw)
+    assert secret not in cleaned
+    assert "[REDACTED]" in cleaned
+
+
+def test_sanitize_quoted_secret_does_not_swallow_following_fields():
+    cleaned = sanitize_string('{"password": "two words", "node": "pve1"}')
+    assert "two words" not in cleaned
+    assert "pve1" in cleaned
+
+
+def test_sanitize_string_is_linear_on_unterminated_quoted_secret():
+    """Guard against ReDoS: a naive alternation backtracks quadratically here.
+
+    With quadratic behavior this input takes tens of seconds; linear matching
+    completes in milliseconds. The bound is deliberately generous so the test
+    is robust on slow CI runners while still failing catastrophic backtracking.
+    """
+    import time
+
+    payload = '{"password": "' + "a" * 200_000
+    started = time.monotonic()
+    sanitize_string(payload)
+    assert time.monotonic() - started < 2.0
