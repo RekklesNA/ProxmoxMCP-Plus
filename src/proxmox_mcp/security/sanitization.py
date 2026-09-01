@@ -19,18 +19,19 @@ _SECRET_KEY_PATTERN = (
     r"(?:token_value|token|password|secret|api[_-]?key|authorization"
     r"|approval_token|pveauthcookie)"
 )
-# The quoted branches use a single flat character class ([^"]* / [^']*) rather than
-# a nested quantifier such as [^"\\]*(?:\\.[^"\\]*)*. Nested quantifiers backtrack
-# quadratically when the closing quote is missing, which is a ReDoS vector on
-# attacker-influenced error text; a flat class is one linear scan that fails fast.
-# A backslash-escaped quote therefore ends the match early, which is safe: the
-# secret is still replaced, only the trailing fragment survives.
+# Quoted values use the "unrolled loop" form [^"\\]*(?:\\.[^"\\]*)* so a
+# backslash-escaped quote does not end the match early. Terminating at an escaped
+# quote would leave the remainder of the secret in the output — a partial
+# credential leak. This form is still linear: each character is consumed by
+# exactly one branch, so there is no ambiguity to backtrack over. (The earlier
+# ReDoS in this module came from an unbounded scheme in _RE_USERINFO, not from
+# this construct.) Unquoted values still stop at the first delimiter.
 _RE_SECRET_KV = re.compile(
     r"(?i)([\"']?" + _SECRET_KEY_PATTERN + r"[\"']?\s*[:=]\s*)"
     r"(?:"
-    r"\"(?P<dq>[^\"]*)\""
+    r"\"(?P<dq>[^\"\\]*(?:\\.[^\"\\]*)*)\""
     r"|"
-    r"'(?P<sq>[^']*)'"
+    r"'(?P<sq>[^'\\]*(?:\\.[^'\\]*)*)'"
     r"|"
     r"(?P<bare>[^\"'&,}\s]+)"
     r")"

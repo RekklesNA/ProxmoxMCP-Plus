@@ -244,3 +244,50 @@ def test_identical_ssh_gateways_still_reject_shared_remote_destination():
 
     with pytest.raises(ValueError, match="remote endpoint"):
         Config.model_validate({"targets": {"a": target(18007), "b": target(18008)}})
+
+
+def test_identical_gateways_without_ssh_sections_still_rejected():
+    """Two targets sharing a gateway with no per-target ssh config remain duplicates."""
+    auth = {"user": "root@pam", "token_name": "t", "token_value": "v"}
+
+    def target(local_port):
+        return {
+            "host": "node.example",
+            "auth": auth,
+            "api_tunnel": {
+                "enabled": True,
+                "ssh_host": "gw.example",
+                "local_host": "127.0.0.1",
+                "local_port": local_port,
+                "remote_host": "127.0.0.1",
+                "remote_port": 8006,
+            },
+        }
+
+    with pytest.raises(ValueError, match="remote endpoint"):
+        Config.model_validate({"targets": {"a": target(18007), "b": target(18008)}})
+
+
+def test_shared_local_port_rejected_even_with_distinct_ssh_gateways():
+    """Local endpoint collisions are always invalid, regardless of gateway identity."""
+    auth = {"user": "root@pam", "token_name": "t", "token_value": "v"}
+
+    def target(ssh_user, ssh_port):
+        return {
+            "host": "node.example",
+            "auth": auth,
+            "api_tunnel": {
+                "enabled": True,
+                "ssh_host": "gw.example",
+                "local_host": "127.0.0.1",
+                "local_port": 18007,
+                "remote_host": "127.0.0.1",
+                "remote_port": 8006,
+            },
+            "ssh": {"user": ssh_user, "port": ssh_port},
+        }
+
+    with pytest.raises(ValueError, match="local endpoint"):
+        Config.model_validate(
+            {"targets": {"a": target("opa", 22), "b": target("opb", 2222)}}
+        )

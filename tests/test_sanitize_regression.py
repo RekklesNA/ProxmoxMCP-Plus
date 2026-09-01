@@ -180,3 +180,30 @@ def test_sanitize_string_is_linear_on_unterminated_quoted_secret():
     started = time.monotonic()
     sanitize_string(payload)
     assert time.monotonic() - started < 2.0
+
+
+@pytest.mark.parametrize(
+    "raw, leaked_fragment",
+    [
+        (r'{"password": "he said \"hi\" ok"}', "ok"),
+        (r'{"password": "tail\"frag"}', "frag"),
+        (r"{'token': 'a\'b c'}", "b c"),
+        (r'{"token_value": "x\"secret tail here"}', "secret tail here"),
+    ],
+)
+def test_sanitize_redacts_secrets_containing_escaped_quotes(raw, leaked_fragment):
+    """A backslash-escaped quote must not end redaction early.
+
+    Terminating at the escaped quote leaves the remainder of the secret in
+    the output, which is a partial credential leak rather than a cosmetic
+    formatting artifact.
+    """
+    cleaned = sanitize_string(raw)
+    assert leaked_fragment not in cleaned
+    assert "[REDACTED]" in cleaned
+
+
+def test_sanitize_escaped_quote_still_preserves_following_fields():
+    cleaned = sanitize_string(r'{"password": "a\"b", "node": "pve1"}')
+    assert "pve1" in cleaned
+    assert "[REDACTED]" in cleaned

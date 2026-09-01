@@ -281,3 +281,25 @@ def test_assume_external_reuses_reachable_external_listener() -> None:
         manager.ensure_tunnel()
 
     start.assert_not_called()
+
+
+def test_external_tunnel_is_never_owned_or_terminated() -> None:
+    """An externally supervised tunnel must not be adopted as our process."""
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True):
+        manager.ensure_tunnel()
+
+    assert manager._process is None
+    manager.close()
+    assert manager._process is None

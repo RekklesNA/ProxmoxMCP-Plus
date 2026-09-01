@@ -127,3 +127,45 @@ def test_named_target_mode_still_hides_untargeted_jobs(tmp_path):
             named.get_job(legacy["job_id"])
     finally:
         named.close()
+
+
+def test_legacy_mode_still_refuses_other_named_targets_jobs(tmp_path):
+    """legacy_mode must widen visibility only to untargeted jobs.
+
+    It must never expose jobs explicitly owned by a different named target.
+    """
+    path = str(tmp_path / "mixed.sqlite3")
+    seed = JobStore(object(), sqlite_path=path)
+    try:
+        untargeted = seed.register_task(
+            tool_name="t", summary="untargeted", node="n", upid="U:0"
+        )
+    finally:
+        seed.close()
+    cluster = JobStore(object(), sqlite_path=path, target_name="cluster")
+    try:
+        owned = cluster.register_task(tool_name="t", summary="cluster", node="n", upid="U:1")
+    finally:
+        cluster.close()
+
+    legacy = JobStore(object(), sqlite_path=path, target_name="default", legacy_mode=True)
+    try:
+        assert [job["summary"] for job in legacy.list_jobs()] == ["untargeted"]
+        assert legacy.get_job(untargeted["job_id"])["job_id"] == untargeted["job_id"]
+        with pytest.raises(JobNotFoundError):
+            legacy.get_job(owned["job_id"])
+    finally:
+        legacy.close()
+
+
+def test_legacy_mode_tags_newly_created_jobs_with_target(tmp_path):
+    """Reading legacy jobs is a compatibility shim; new writes stay tagged."""
+    store = JobStore(
+        object(), sqlite_path=str(tmp_path / "new.sqlite3"),
+        target_name="default", legacy_mode=True,
+    )
+    try:
+        job = store.register_task(tool_name="t", summary="fresh", node="n", upid="U:1")
+        assert job["metadata"]["target"] == "default"
+    finally:
+        store.close()
