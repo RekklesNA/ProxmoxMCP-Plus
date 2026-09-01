@@ -97,6 +97,22 @@ def test_describe_can_include_isolated_target_discovery():
     assert "secret" not in repr(metadata)
 
 
+def test_describe_sanitizes_url_credentials_in_host():
+    config = Config.model_validate({
+        "targets": {
+            "unsafe": {
+                "host": "https://user:secret@example.invalid",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+            }
+        }
+    })
+
+    metadata = TargetRegistry(config).describe()
+
+    assert metadata[0]["host"] == "https://[REDACTED]@example.invalid"
+    assert "secret" not in repr(metadata)
+
+
 def test_target_tls_rejects_string_boolean():
     with pytest.raises(ValueError):
         Config.model_validate({

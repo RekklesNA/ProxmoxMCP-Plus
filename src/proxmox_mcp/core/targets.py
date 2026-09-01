@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from proxmox_mcp.config.models import Config, ProxmoxConfig, AuthConfig, TargetConfig
+from proxmox_mcp.security.sanitization import sanitize_string
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ class TargetRegistry:
             item = {
                 "name": target.name,
                 "kind": target.kind,
-                "host": target.config.host,
+                "host": sanitize_string(target.config.host),
                 "port": target.config.port,
                 "readonly": target.readonly,
             }
