@@ -30,7 +30,9 @@
         "transport": "STDIO",
         "dns_rebinding_protection": null,
         "allowed_hosts": [],
-        "allowed_origins": []
+        "allowed_origins": [],
+        "tool_allowlist": null,
+        "tool_denylist": null
     },
     "security": {
         "dev_mode": false

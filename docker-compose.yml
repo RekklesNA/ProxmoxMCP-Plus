@@ -40,6 +40,9 @@ services:
       # - MCP_DNS_REBINDING_PROTECTION=true
       # - MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:*
       # - MCP_ALLOWED_ORIGINS=https://mcp.example.com
+      # Optionally expose only selected tools, or exclude selected tools. Do not set both.
+      # - MCP_TOOL_ALLOWLIST=get_nodes,get_vms,get_containers,get_storage
+      # - MCP_TOOL_DENYLIST=create_vm,delete_vm,create_container,delete_container
     restart: unless-stopped
     networks:
       - proxmox-network

@@ -20,6 +20,8 @@ from proxmox_mcp.services.builtin_tool_plugins import (
     SnapshotToolsPlugin,
     VMToolsPlugin,
 )
+from proxmox_mcp.services.tool_catalog import BUILTIN_TOOL_NAMES
+from proxmox_mcp.services.tool_registry import ToolExposurePolicy, ToolRegistry
 from proxmox_mcp.tools.base import ProxmoxTool
 from proxmox_mcp.tools.console.container_manager import ContainerConsoleManager
 from proxmox_mcp.tools.console.manager import VMConsoleManager
@@ -45,8 +47,13 @@ def test_manifest_declares_all_registered_tools():
     manifest_tools = {tool["name"] for tool in manifest["tools"]}
 
     fake_mcp = _FakeMCP()
+    tool_registry = ToolRegistry(
+        fake_mcp,
+        ToolExposurePolicy(known_tools=BUILTIN_TOOL_NAMES),
+    )
     fake_server = SimpleNamespace(
         mcp=fake_mcp,
+        tool_registry=tool_registry,
         config=SimpleNamespace(ssh=SimpleNamespace(user="root")),
         logger=Mock(),
     )
@@ -65,6 +72,8 @@ def test_manifest_declares_all_registered_tools():
     registered_tools = fake_mcp.tools
 
     assert registered_tools
+    assert registered_tools == tool_registry.registered_tools
+    assert BUILTIN_TOOL_NAMES == manifest_tools
     assert registered_tools - manifest_tools == set()
     assert manifest_tools - registered_tools == set()
 

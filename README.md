@@ -92,6 +92,25 @@ Optional job persistence config:
 }
 ```
 
+Optional tool exposure filtering can reduce the schemas sent to MCP clients. It is
+disabled by default, so existing configurations continue to expose every available
+tool. Configure exactly one mode under `mcp`:
+
+```json
+{
+  "mcp": {
+    "tool_allowlist": ["get_nodes", "get_vms", "get_containers", "get_storage"]
+  }
+}
+```
+
+Alternatively, use `tool_denylist`, or the comma-separated environment variables
+`MCP_TOOL_ALLOWLIST` and `MCP_TOOL_DENYLIST`. Do not configure both modes. Environment
+selection replaces the file-level filtering mode. An empty allowlist exposes no tools;
+an empty denylist hides none. Exact lowercase tool names are required, and unknown names
+fail startup so a typo cannot silently widen access. Restart or reconnect the MCP server
+after changing the filter.
+
 ### 2. Choose One Runtime Path
 
 | Path | Best for | Start command | Verify |
@@ -276,6 +295,7 @@ The project gives operators several control points:
 - `command_policy` controls command execution and high-risk operations.
 - `approval_token` can gate command execution and high-risk mutating actions.
 - MCP Streamable HTTP deployments can use DNS rebinding protection plus Host and Origin allowlists.
+- Optional MCP tool allowlists or denylists reduce the runtime tool surface; they do not replace Proxmox RBAC.
 - Logs are designed to avoid exposing command and credential material.
 
 Read the [Security Guide](docs/wiki/Security%20Guide.md) before exposing the server outside a trusted local environment.

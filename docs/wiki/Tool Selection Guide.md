@@ -18,6 +18,18 @@ Run read-only tools before mutating anything:
 
 Discovery confirms node names, VMIDs, storage IDs, guest status, and whether the tool is visible in the connected client.
 
+## Limit Tool Schema Exposure
+
+Operators that need only a subset of the catalog can set `mcp.tool_allowlist` or
+`MCP_TOOL_ALLOWLIST`. To hide a smaller set instead, use `mcp.tool_denylist` or
+`MCP_TOOL_DENYLIST`. Filtering is disabled when neither mode is configured, preserving
+the complete available tool surface for existing users. Configure only one mode and use
+the exact lowercase names shown in this guide. Restart the server and reconnect the MCP
+client after changing the selection.
+
+Tool filtering keeps hidden schemas out of `tools/list`, reducing client context usage.
+It does not grant Proxmox permissions or replace API-token least privilege.
+
 ## VM Workflows
 
 | Operator goal | Tool sequence | Verify |

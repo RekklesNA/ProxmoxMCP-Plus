@@ -342,6 +342,8 @@ def _isolated_proxy_env(monkeypatch):
         "PROXMOX_STRICT_AUTH",
         "PROXMOX_ALLOW_NO_AUTH",
         "PROXMOX_MCP_CONFIG",
+        "MCP_TOOL_ALLOWLIST",
+        "MCP_TOOL_DENYLIST",
         "MCPO_CORS_ALLOW_ORIGINS",
         "PROXMOX_RATE_LIMIT_RPM",
     ):

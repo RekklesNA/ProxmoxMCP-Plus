@@ -60,6 +60,20 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
     if allowed_origins is not None:
         overrides["allowed_origins"] = allowed_origins
 
+    tool_allowlist_present = "MCP_TOOL_ALLOWLIST" in os.environ
+    tool_denylist_present = "MCP_TOOL_DENYLIST" in os.environ
+    if tool_allowlist_present and tool_denylist_present:
+        raise ValueError(
+            "MCP_TOOL_ALLOWLIST and MCP_TOOL_DENYLIST are mutually exclusive"
+        )
+    if tool_allowlist_present:
+        overrides["tool_allowlist"] = _parse_csv_env("MCP_TOOL_ALLOWLIST")
+        # Environment selection replaces the complete file-level filter mode.
+        overrides["tool_denylist"] = None
+    elif tool_denylist_present:
+        overrides["tool_denylist"] = _parse_csv_env("MCP_TOOL_DENYLIST")
+        overrides["tool_allowlist"] = None
+
     if not overrides:
         return
 

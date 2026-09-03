@@ -19,7 +19,12 @@ from proxmox_mcp.core.proxmox import ProxmoxManager
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
-from proxmox_mcp.services import JobStore, ToolRegistry
+from proxmox_mcp.services import (
+    BUILTIN_TOOL_NAMES,
+    JobStore,
+    ToolExposurePolicy,
+    ToolRegistry,
+)
 from proxmox_mcp.services.builtin_tool_plugins import (
     BackupToolsPlugin,
     ContainerToolsPlugin,
@@ -91,6 +96,11 @@ class ProxmoxMCPServer:
 
     def __init__(self, config_path: Optional[str] = None):
         self.config = load_config(config_path)
+        self.tool_exposure_policy = ToolExposurePolicy(
+            known_tools=BUILTIN_TOOL_NAMES,
+            allowlist=self.config.mcp.tool_allowlist,
+            denylist=self.config.mcp.tool_denylist,
+        )
         self.logger = setup_logging(self.config.logging)
 
         self.proxmox_manager = ProxmoxManager(
@@ -146,7 +156,7 @@ class ProxmoxMCPServer:
                 log_level=log_level,
                 transport_security=transport_security,
             )
-        self.tool_registry = ToolRegistry()
+        self.tool_registry = ToolRegistry(self.mcp, self.tool_exposure_policy)
         self._setup_tools()
 
     def _build_transport_security(self) -> Any | None:
@@ -185,6 +195,24 @@ class ProxmoxMCPServer:
         self.tool_registry.add(BackupToolsPlugin())
         self.tool_registry.add(LogToolsPlugin())
         self.tool_registry.register_all(self)
+
+        unavailable = self.tool_registry.requested_but_unavailable
+        if unavailable:
+            self.logger.warning(
+                "Allowlisted MCP tools unavailable under the current capability config: %s",
+                ", ".join(sorted(unavailable)),
+            )
+        self.logger.info(
+            "MCP tool exposure mode=%s, registered=%d, available=%d, catalog=%d",
+            self.tool_exposure_policy.mode,
+            len(self.tool_registry.registered_tools),
+            len(self.tool_registry.declared_tools),
+            len(BUILTIN_TOOL_NAMES),
+        )
+        self.logger.debug(
+            "Registered MCP tools: %s",
+            ", ".join(sorted(self.tool_registry.registered_tools)),
+        )
 
     def close(self) -> None:
         self.job_store.close()
