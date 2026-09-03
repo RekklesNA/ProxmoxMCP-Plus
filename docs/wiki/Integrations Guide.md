@@ -127,6 +127,19 @@ After connecting a client, verify:
 - TLS verification disabled in config while `dev_mode` is false
 - assuming `execute_container_command` should exist without an `ssh` section
 
+## Community Deployment Guides
+
+Community guides are hosted separately and may describe version-specific
+behavior that changes over time. Review this project's Operator Guide and
+Security Guide before exposing MCP, OpenAPI, or client endpoints.
+
+- [Jetson Orin Nano with Ollama and Open WebUI](https://github.com/RekklesNA/proxmox-mcp-plus-JetsonOrinNano-setup)
+  — a version-pinned walkthrough for running ProxmoxMCP-Plus with a local
+  7B-class model on an 8GB NVIDIA Jetson Orin Nano. Based on the original
+  community guide by `nroam`, reviewed and maintained by the ProxmoxMCP-Plus
+  maintainer. The original author attribution and MIT License are preserved in
+  the linked repository.
+
 ## Related Pages
 
 - [Client Setup](Client-Setup)
