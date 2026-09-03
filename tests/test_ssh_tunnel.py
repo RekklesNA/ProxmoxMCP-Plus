@@ -235,6 +235,41 @@ def test_proxmox_manager_close_without_tunnel_is_noop() -> None:
     manager.close()
 
 
+def test_proxmox_manager_can_use_tunnel_endpoint_without_owning_process() -> None:
+    proxmox_config = SimpleNamespace(
+        host="remote.proxmox.test",
+        port=8006,
+        timeout=30,
+        verify_ssl=True,
+        service="PVE",
+    )
+    auth_config = SimpleNamespace(
+        user="root@pam",
+        token_name="automation",
+        token_value="secret",
+    )
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        local_host="127.0.0.1",
+        local_port=18006,
+    )
+
+    with patch("proxmox_mcp.core.proxmox.SSHTunnelManager") as tunnel_manager, patch(
+        "proxmox_mcp.core.proxmox.ProxmoxAPI"
+    ) as proxmox_api:
+        manager = ProxmoxManager(
+            proxmox_config,
+            auth_config,
+            api_tunnel_config=tunnel_config,
+            manage_api_tunnel=False,
+        )
+
+    tunnel_manager.assert_not_called()
+    assert manager.tunnel_manager is None
+    assert proxmox_api.call_args.kwargs["host"] == "127.0.0.1"
+    assert proxmox_api.call_args.kwargs["port"] == 18006
+
+
 def test_assume_external_never_spawns_own_tunnel_process() -> None:
     """assume_external promises another supervisor owns the listener.
 

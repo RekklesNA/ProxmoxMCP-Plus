@@ -53,6 +53,10 @@ class AuthFailure:
     headers: dict[str, str] | None = None
 
 
+class ReadOnlyTargetError(PermissionError):
+    """Raised when a direct OpenAPI job mutation targets a read-only target."""
+
+
 def _verify_authorization_header(authorization: str | None, api_key: str) -> AuthFailure | None:
     authenticate_headers = {"WWW-Authenticate": "Bearer, Basic"}
     if not authorization:
@@ -123,6 +127,20 @@ def _security_warnings(*, api_key: Optional[str], strict_auth: bool, cors_allow_
     if "*" in cors_allow_origins:
         warnings.append("CORS allows all origins; set MCPO_CORS_ALLOW_ORIGINS for production.")
     return warnings
+
+
+def _close_job_resources(job_stores: dict[str, Any], managers: list[Any]) -> None:
+    """Close proxy-owned job resources without masking an earlier failure."""
+    for target, job_store in job_stores.items():
+        try:
+            job_store.close()
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Failed to close JobStore for target %s: %s", _log_safe(target), _log_safe(exc))
+    for manager in managers:
+        try:
+            manager.close()
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Failed to close Proxmox manager: %s", _log_safe(exc))
 
 
 class ProxyMetricsMiddleware(BaseHTTPMiddleware):
@@ -219,6 +237,7 @@ def create_app(
     strict_auth: bool,
     cors_allow_origins: list[str],
     job_store: Any | None = None,
+    job_stores: dict[str, Any] | None = None,
     name: str = "MCP OpenAPI Proxy",
     description: str = "Automatically generated API from MCP Tool Schemas",
     version: str = "1.0",
@@ -226,9 +245,40 @@ def create_app(
     root_path: str = "",
     rate_limit_rpm: int = 0,
     command_policy: Any | None = None,
+    command_policies: dict[str, Any] | None = None,
+    target_readonly: dict[str, bool] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app that mirrors mcpo behavior and adds ops routes."""
     api_dependency = _get_verify_api_key(api_key) if api_key else None
+
+    configured_job_stores = dict(job_stores or {})
+    if job_store is not None:
+        existing = configured_job_stores.get("default")
+        if existing is not None and existing is not job_store:
+            raise ValueError("Conflicting default JobStore configuration")
+        configured_job_stores["default"] = job_store
+
+    configured_policies = dict(command_policies or {})
+    if command_policy is not None and configured_job_stores:
+        if len(configured_job_stores) > 1 and not configured_policies:
+            raise ValueError("Multiple JobStores require target-specific command policies")
+        policy_target = next(iter(configured_job_stores), "default")
+        existing = configured_policies.get(policy_target)
+        if existing is not None and existing is not command_policy:
+            raise ValueError(f"Conflicting command policy for target {policy_target!r}")
+        configured_policies[policy_target] = command_policy
+
+    configured_readonly = dict(target_readonly or {})
+    unknown_context_targets = (
+        set(configured_policies) | set(configured_readonly)
+    ) - set(configured_job_stores)
+    if unknown_context_targets:
+        names = ", ".join(sorted(unknown_context_targets))
+        raise ValueError(f"OpenAPI job context references unknown target(s): {names}")
+
+    legacy_job_store = job_store
+    if legacy_job_store is None and len(configured_job_stores) == 1:
+        legacy_job_store = next(iter(configured_job_stores.values()))
 
     app = FastAPI(
         title=name,
@@ -263,8 +313,11 @@ def create_app(
     app.state.api_dependency = api_dependency
     app.state.api_key_configured = bool(api_key)
     app.state.strict_auth = strict_auth
-    app.state.job_store = job_store
+    app.state.job_stores = configured_job_stores
+    app.state.job_store = legacy_job_store
+    app.state.command_policies = configured_policies
     app.state.command_policy = command_policy
+    app.state.target_readonly = configured_readonly
     app.state.security_warnings = _security_warnings(
         api_key=api_key,
         strict_auth=strict_auth,
@@ -308,7 +361,7 @@ def create_app(
                     "requests_per_minute": app.state.rate_limit_rpm,
                 },
                 "jobs": {
-                    "enabled": app.state.job_store is not None,
+                    "enabled": bool(app.state.job_stores),
                 },
                 "security_warnings": app.state.security_warnings,
             },
@@ -333,16 +386,25 @@ def create_app(
             media_type="text/plain; version=0.0.4",
         )
 
-    def _require_job_store() -> Any:
-        job_store_local = getattr(app.state, "job_store", None)
-        if job_store_local is None:
+    def _require_job_store(target: Optional[str]) -> tuple[str, Any]:
+        stores = getattr(app.state, "job_stores", {})
+        if not stores:
             raise RuntimeError("JobStore is not available in this OpenAPI process")
-        return job_store_local
+        if target is not None:
+            try:
+                return target, stores[target]
+            except KeyError as exc:
+                raise ValueError(f"Unknown Proxmox target {target!r}") from exc
+        if len(stores) == 1:
+            return next(iter(stores.items()))
+        raise ValueError("Multiple Proxmox targets are configured; specify target")
 
     def _job_error_response(error: Exception) -> JSONResponse:
         LOGGER.warning("Job route error: %s", _log_safe(error))
         if isinstance(error, JobNotFoundError):
             return JSONResponse(status_code=404, content={"status": "not_found", "message": "Job was not found"})
+        if isinstance(error, ReadOnlyTargetError):
+            return JSONResponse(status_code=403, content={"status": "forbidden", "message": "Target is read-only"})
         if isinstance(error, PermissionError):
             return JSONResponse(status_code=403, content={"status": "forbidden", "message": "Job operation requires approval"})
         if isinstance(error, JobConflictError):
@@ -351,11 +413,20 @@ def create_app(
             return JSONResponse(status_code=503, content={"status": "unavailable", "message": "Job service is unavailable in this process"})
         return JSONResponse(status_code=400, content={"status": "error", "message": "Job request failed"})
 
-    def _enforce_job_retry_policy(job_id: str, approval_token: Optional[str]) -> None:
-        policy = getattr(app.state, "command_policy", None)
+    def _enforce_target_mutation(target: str) -> None:
+        if getattr(app.state, "target_readonly", {}).get(target, False):
+            raise ReadOnlyTargetError(f"Target {target!r} is configured read-only")
+
+    def _enforce_job_retry_policy(
+        target: str,
+        job_store_local: Any,
+        job_id: str,
+        approval_token: Optional[str],
+    ) -> None:
+        policy = getattr(app.state, "command_policies", {}).get(target)
         if policy is None:
             return
-        job = _require_job_store().get_job(job_id)
+        job = job_store_local.get_job(job_id)
         operation_name = str(job.get("tool_name") or "")
         decision = policy.evaluate_operation(
             operation_name,
@@ -377,43 +448,54 @@ def create_app(
         status: Optional[str] = None,
         tool_name: Optional[str] = None,
         limit: int = 100,
+        target: Optional[str] = None,
     ) -> JSONResponse:
         try:
-            payload = _require_job_store().list_jobs(status=status, tool_name=tool_name, limit=limit)
+            _, job_store_local = _require_job_store(target)
+            payload = job_store_local.list_jobs(status=status, tool_name=tool_name, limit=limit)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.get("/jobs/{job_id}", dependencies=job_auth_dependencies)
-    async def get_job(job_id: str, refresh: bool = False) -> JSONResponse:
+    async def get_job(job_id: str, refresh: bool = False, target: Optional[str] = None) -> JSONResponse:
         try:
-            job_store_local = _require_job_store()
+            _, job_store_local = _require_job_store(target)
             payload = job_store_local.poll_job(job_id) if refresh else job_store_local.get_job(job_id)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/poll", dependencies=job_auth_dependencies)
-    async def poll_job(job_id: str) -> JSONResponse:
+    async def poll_job(job_id: str, target: Optional[str] = None) -> JSONResponse:
         try:
-            payload = _require_job_store().poll_job(job_id)
+            _, job_store_local = _require_job_store(target)
+            payload = job_store_local.poll_job(job_id)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/cancel", dependencies=job_auth_dependencies)
-    async def cancel_job(job_id: str) -> JSONResponse:
+    async def cancel_job(job_id: str, target: Optional[str] = None) -> JSONResponse:
         try:
-            payload = _require_job_store().cancel_job(job_id)
+            target_name, job_store_local = _require_job_store(target)
+            _enforce_target_mutation(target_name)
+            payload = job_store_local.cancel_job(job_id)
             return JSONResponse(status_code=202, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/retry", dependencies=job_auth_dependencies)
-    async def retry_job(job_id: str, approval_token: Optional[str] = None) -> JSONResponse:
+    async def retry_job(
+        job_id: str,
+        approval_token: Optional[str] = None,
+        target: Optional[str] = None,
+    ) -> JSONResponse:
         try:
-            _enforce_job_retry_policy(job_id, approval_token)
-            payload = _require_job_store().retry_job(job_id)
+            target_name, job_store_local = _require_job_store(target)
+            _enforce_target_mutation(target_name)
+            _enforce_job_retry_policy(target_name, job_store_local, job_id, approval_token)
+            payload = job_store_local.retry_job(job_id)
             return JSONResponse(status_code=202, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
@@ -506,54 +588,77 @@ def main() -> None:
     for warning in security_warnings:
         LOGGER.warning("OpenAPI security warning: %s", warning)
 
-    job_store = None
-    command_policy = None
+    job_stores: dict[str, Any] = {}
+    command_policies: dict[str, Any] = {}
+    target_readonly: dict[str, bool] = {}
+    proxmox_managers: list[Any] = []
     config = None
     config_path = os.getenv("PROXMOX_MCP_CONFIG")
     if config_path:
         try:
             from proxmox_mcp.config.loader import load_config
             from proxmox_mcp.core.proxmox import ProxmoxManager
+            from proxmox_mcp.core.targets import TargetRegistry
             from proxmox_mcp.security import CommandPolicyGate
-            from proxmox_mcp.services import JobStore
+            from proxmox_mcp.services import JobStore, target_job_sqlite_path
 
             config = load_config(config_path)
-            if config.targets:
-                raise RuntimeError(
-                    "OpenAPI proxy does not support named multi-target configurations; "
-                    "use the native MCP server"
+            target_registry = TargetRegistry(config)
+            for target_name in target_registry.names:
+                target = target_registry.resolve(target_name)
+                manager = ProxmoxManager(
+                    target.config,
+                    target.auth,
+                    api_tunnel_config=target.api_tunnel,
+                    ssh_config=target.ssh,
+                    # The MCP subprocess owns managed tunnels. The proxy uses
+                    # the same local endpoints without spawning a competing
+                    # process that the subprocess would correctly reject.
+                    manage_api_tunnel=False,
                 )
-            # Config validation guarantees legacy mode supplies both sections; assert
-            # explicitly so the invariant is enforced at runtime and visible to mypy.
-            if config.proxmox is None or config.auth is None:
-                raise RuntimeError(
-                    "OpenAPI proxy requires legacy proxmox and auth configuration sections"
+                proxmox_managers.append(manager)
+                sqlite_path = (
+                    config.jobs.sqlite_path
+                    if target_registry.is_legacy
+                    else target_job_sqlite_path(config.jobs.sqlite_path, target_name)
                 )
-            command_policy = CommandPolicyGate(config.command_policy)
-            proxmox = ProxmoxManager(
-                config.proxmox,
-                config.auth,
-                api_tunnel_config=config.api_tunnel,
-                ssh_config=config.ssh,
-            ).get_api()
-            job_store = JobStore(proxmox, sqlite_path=config.jobs.sqlite_path)
+                job_stores[target_name] = JobStore(
+                    manager.get_api(),
+                    sqlite_path=sqlite_path,
+                    target_name=target_name,
+                    legacy_mode=target_registry.is_legacy,
+                )
+                command_policies[target_name] = CommandPolicyGate(
+                    target.command_policy or config.command_policy
+                )
+                target_readonly[target_name] = target.readonly
         except Exception as exc:  # noqa: BLE001
             if config is not None and config.targets:
+                _close_job_resources(job_stores, proxmox_managers)
                 raise
             LOGGER.warning("JobStore initialization skipped in OpenAPI proxy: %s", _log_safe(exc))
+            _close_job_resources(job_stores, proxmox_managers)
+            job_stores.clear()
+            command_policies.clear()
+            target_readonly.clear()
+            proxmox_managers.clear()
 
-    app = create_app(
-        server_command=server_command,
-        api_key=args.api_key,
-        strict_auth=args.strict_auth,
-        cors_allow_origins=_parse_cors_allow_origins(args.cors_allow_origins),
-        job_store=job_store,
-        path_prefix=args.path_prefix,
-        root_path=args.root_path,
-        rate_limit_rpm=args.rate_limit_rpm,
-        command_policy=command_policy,
-    )
-    uvicorn.run(app, host=args.host, port=args.port)
+    try:
+        app = create_app(
+            server_command=server_command,
+            api_key=args.api_key,
+            strict_auth=args.strict_auth,
+            cors_allow_origins=_parse_cors_allow_origins(args.cors_allow_origins),
+            job_stores=job_stores,
+            path_prefix=args.path_prefix,
+            root_path=args.root_path,
+            rate_limit_rpm=args.rate_limit_rpm,
+            command_policies=command_policies,
+            target_readonly=target_readonly,
+        )
+        uvicorn.run(app, host=args.host, port=args.port)
+    finally:
+        _close_job_resources(job_stores, proxmox_managers)
 
 
 if __name__ == "__main__":

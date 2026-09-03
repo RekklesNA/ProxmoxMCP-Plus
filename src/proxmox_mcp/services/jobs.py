@@ -17,6 +17,14 @@ _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
 _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def target_job_sqlite_path(base_path: str, target_name: str) -> str:
+    """Derive the per-target database path shared by MCP and OpenAPI."""
+    base = Path(base_path)
+    return str(base.with_name(f"{base.name}.target-{target_name}"))
+
+
 def _is_secret_key(key: str) -> bool:
     return is_secret_key(key)
 

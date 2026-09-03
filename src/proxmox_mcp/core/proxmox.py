@@ -42,16 +42,24 @@ class ProxmoxManager:
         auth_config: AuthConfig,
         api_tunnel_config: Any | None = None,
         ssh_config: Any | None = None,
+        manage_api_tunnel: bool = True,
     ):
         """Initialize the Proxmox API manager.
 
         Args:
             proxmox_config: Proxmox connection configuration
             auth_config: Authentication configuration
+            manage_api_tunnel: Whether this manager owns the tunnel process.
+                Set false only for a companion process that shares the local
+                endpoint with the owning MCP server.
         """
         self.logger = logging.getLogger("proxmox-mcp.proxmox")
         self.api_tunnel_config = api_tunnel_config
-        self.tunnel_manager = SSHTunnelManager(api_tunnel_config, ssh_config) if api_tunnel_config is not None else None
+        self.tunnel_manager = (
+            SSHTunnelManager(api_tunnel_config, ssh_config)
+            if api_tunnel_config is not None and manage_api_tunnel
+            else None
+        )
         if self.tunnel_manager is not None:
             self.tunnel_manager.ensure_tunnel()
         self.config = self._create_config(proxmox_config, auth_config)

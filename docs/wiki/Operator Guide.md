@@ -90,6 +90,12 @@ read-only behavior, and asynchronous jobs are not shared between targets. Do not
 legacy top-level `proxmox`, `auth`, `ssh`, or `api_tunnel` settings with a `targets` map;
 configuration loading rejects ambiguous combinations.
 
+Named targets work in stdio, native MCP HTTP, and OpenAPI modes, including the default
+Docker OpenAPI runtime. Generated OpenAPI tool routes accept the same optional `target`
+argument as MCP. Direct OpenAPI `/jobs` routes accept `target` as a query parameter and
+require it when more than one target is configured; job reads, cancellation, retry,
+read-only enforcement, and approval policy are resolved against that exact target.
+
 For an externally managed local API tunnel, set both `api_tunnel.enabled` and
 `api_tunnel.assume_external` to `true`. This explicitly tells the server to reuse the
 listener without starting or stopping a tunnel process. Only use it when the external
@@ -188,7 +194,8 @@ Available routes:
 - `/readyz` returns `503` until the proxy is connected to the MCP backend, then `200`
 - `/health` is a readiness alias for `/readyz`
 - `/metrics` exposes Prometheus-style request metrics
-- `/jobs` exposes direct job query and control routes when a local `JobStore` is available
+- `/jobs` exposes direct job query and control routes when a local `JobStore` is available;
+  with named targets, pass `target=<name>` and treat it as required when multiple targets exist
 
 ## Docker Compose Deployment
 

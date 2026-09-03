@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import signal
 import sys
-from pathlib import Path
 from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
@@ -22,7 +21,7 @@ from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
-from proxmox_mcp.services import JobStore, ToolRegistry
+from proxmox_mcp.services import JobStore, ToolRegistry, target_job_sqlite_path
 from proxmox_mcp.services.builtin_tool_plugins import (
     BackupToolsPlugin,
     ContainerToolsPlugin,
@@ -54,16 +53,6 @@ except ImportError:  # pragma: no cover - exercised only with older MCP SDKs
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
     return text[:max_length]
-
-
-def _job_sqlite_path(base_path: str, target_name: str) -> str:
-    """Derive a collision-free per-target database path.
-
-    For a fixed base filename, the target-specific suffix makes distinct
-    target names produce distinct paths.
-    """
-    base = Path(base_path)
-    return str(base.with_name(f"{base.name}.target-{target_name}"))
 
 
 _LEGACY_SINGLE_TARGET_ATTRS = (
@@ -144,7 +133,7 @@ class ProxmoxMCPServer:
             if is_single_default:
                 path = base_path
             else:
-                path = _job_sqlite_path(base_path, name)
+                path = target_job_sqlite_path(base_path, name)
             job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
