@@ -228,7 +228,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
 
 class CoreToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(
+        @server.tool_registry.tool(
             description="List configured Proxmox targets without exposing credentials. "
             "A target name is required for other tools when multiple targets are configured."
         )
@@ -253,13 +253,13 @@ class CoreToolsPlugin(RegistryPluginBase):
                 server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, False, target="all")
                 raise
 
-        @server.mcp.tool(description=GET_NODES_DESC)
+        @server.tool_registry.tool(description=GET_NODES_DESC)
         def get_nodes(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "get_nodes", lambda ts: ts.node_tools.get_nodes)(target=target)
 
-        @server.mcp.tool(description=GET_NODE_STATUS_DESC)
+        @server.tool_registry.tool(description=GET_NODE_STATUS_DESC)
         def get_node_status(
             node: Annotated[str, Field(description="Name/ID of node to query (e.g. 'pve1', 'proxmox-node2')")],
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
@@ -268,13 +268,13 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node, target=target
             )
 
-        @server.mcp.tool(description=GET_STORAGE_DESC)
+        @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "get_storage", lambda ts: ts.storage_tools.get_storage)(target=target)
 
-        @server.mcp.tool(description=GET_CLUSTER_STATUS_DESC)
+        @server.tool_registry.tool(description=GET_CLUSTER_STATUS_DESC)
         def get_cluster_status(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
@@ -285,7 +285,7 @@ class CoreToolsPlugin(RegistryPluginBase):
 
 class JobsToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=LIST_JOBS_DESC)
+        @server.tool_registry.tool(description=LIST_JOBS_DESC)
         def list_jobs(
             status: Annotated[Optional[str], Field(description="Optional status filter", default=None)] = None,
             tool_name: Annotated[Optional[str], Field(description="Optional originating tool filter", default=None)] = None,
@@ -299,7 +299,7 @@ class JobsToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=GET_JOB_DESC)
+        @server.tool_registry.tool(description=GET_JOB_DESC)
         def get_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             refresh: Annotated[bool, Field(description="Poll Proxmox before returning", default=False)] = False,
@@ -311,21 +311,21 @@ class JobsToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=POLL_JOB_DESC)
+        @server.tool_registry.tool(description=POLL_JOB_DESC)
         def poll_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target)
 
-        @server.mcp.tool(description=CANCEL_JOB_DESC)
+        @server.tool_registry.tool(description=CANCEL_JOB_DESC)
         def cancel_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "cancel_job", lambda ts: ts.jobs_tools.cancel_job)(job_id=job_id, target=target)
 
-        @server.mcp.tool(description=RETRY_JOB_DESC)
+        @server.tool_registry.tool(description=RETRY_JOB_DESC)
         def retry_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk job retries", default=None)] = None,
@@ -338,13 +338,13 @@ class JobsToolsPlugin(RegistryPluginBase):
 
 class VMToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=GET_VMS_DESC)
+        @server.tool_registry.tool(description=GET_VMS_DESC)
         def get_vms(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None
         ) -> Any:
             return self._wrap_sync(server, "get_vms", lambda ts: ts.vm_tools.get_vms)(target=target)
 
-        @server.mcp.tool(description=GET_VM_CONFIG_DESC)
+        @server.tool_registry.tool(description=GET_VM_CONFIG_DESC)
         def get_vm_config(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
@@ -356,7 +356,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=SET_VM_DESCRIPTION_DESC)
+        @server.tool_registry.tool(description=SET_VM_DESCRIPTION_DESC)
         def set_vm_description(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
@@ -370,7 +370,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=CREATE_VM_DESC)
+        @server.tool_registry.tool(description=CREATE_VM_DESC)
         def create_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="New VM ID number (e.g. '200', '300')")],
@@ -398,7 +398,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=CLONE_VM_DESC)
+        @server.tool_registry.tool(description=CLONE_VM_DESC)
         def clone_vm(
             node: Annotated[str, Field(description="Source host node name (e.g. 'pve')")],
             source_vmid: Annotated[str, Field(description="Source VM ID number (e.g. '9000')", pattern=r"^\d+$")],
@@ -424,7 +424,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=EXECUTE_VM_COMMAND_DESC)
+        @server.tool_registry.tool(description=EXECUTE_VM_COMMAND_DESC)
         async def execute_vm_command(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve1', 'proxmox-node2')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
@@ -440,7 +440,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=START_VM_DESC)
+        @server.tool_registry.tool(description=START_VM_DESC)
         def start_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
@@ -448,7 +448,7 @@ class VMToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "start_vm", lambda ts: ts.vm_tools.start_vm)(node, vmid, target=target)
 
-        @server.mcp.tool(description=STOP_VM_DESC)
+        @server.tool_registry.tool(description=STOP_VM_DESC)
         def stop_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
@@ -456,7 +456,7 @@ class VMToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "stop_vm", lambda ts: ts.vm_tools.stop_vm)(node, vmid, target=target)
 
-        @server.mcp.tool(description=SHUTDOWN_VM_DESC)
+        @server.tool_registry.tool(description=SHUTDOWN_VM_DESC)
         def shutdown_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
@@ -464,7 +464,7 @@ class VMToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "shutdown_vm", lambda ts: ts.vm_tools.shutdown_vm)(node, vmid, target=target)
 
-        @server.mcp.tool(description=RESET_VM_DESC)
+        @server.tool_registry.tool(description=RESET_VM_DESC)
         def reset_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
@@ -472,7 +472,7 @@ class VMToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "reset_vm", lambda ts: ts.vm_tools.reset_vm)(node, vmid, target=target)
 
-        @server.mcp.tool(description=DELETE_VM_DESC)
+        @server.tool_registry.tool(description=DELETE_VM_DESC)
         def delete_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '998')")],
@@ -491,7 +491,7 @@ class VMToolsPlugin(RegistryPluginBase):
 
 class ContainerToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=GET_CONTAINERS_DESC)
+        @server.tool_registry.tool(description=GET_CONTAINERS_DESC)
         def get_containers(
             node: Annotated[Optional[str], Field(description="Optional node name (e.g. 'pve1')")] = None,
             include_stats: Annotated[bool, Field(description="Fetch per-container live stats and fallbacks")] = False,
@@ -519,7 +519,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=START_CONTAINER_DESC)
+        @server.tool_registry.tool(description=START_CONTAINER_DESC)
         def start_container(
             selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
             format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
@@ -531,7 +531,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=STOP_CONTAINER_DESC)
+        @server.tool_registry.tool(description=STOP_CONTAINER_DESC)
         def stop_container(
             selector: Annotated[str, Field(description="CT selector (see start_container)")],
             graceful: Annotated[bool, Field(description="Graceful shutdown (True) or forced stop (False)", default=True)] = True,
@@ -547,7 +547,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=RESTART_CONTAINER_DESC)
+        @server.tool_registry.tool(description=RESTART_CONTAINER_DESC)
         def restart_container(
             selector: Annotated[str, Field(description="CT selector (see start_container)")],
             timeout_seconds: Annotated[int, Field(description="Timeout for reboot", ge=1, le=600)] = 10,
@@ -561,7 +561,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=UPDATE_CONTAINER_RESOURCES_DESC)
+        @server.tool_registry.tool(description=UPDATE_CONTAINER_RESOURCES_DESC)
         def update_container_resources(
             selector: Annotated[str, Field(description="CT selector (see start_container)")],
             cores: Annotated[Optional[int], Field(description="New CPU core count", ge=1)] = None,
@@ -583,7 +583,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=CREATE_CONTAINER_DESC)
+        @server.tool_registry.tool(description=CREATE_CONTAINER_DESC)
         def create_container(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID number (e.g. '200')")],
@@ -625,7 +625,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=DELETE_CONTAINER_DESC)
+        @server.tool_registry.tool(description=DELETE_CONTAINER_DESC)
         def delete_container(
             selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
             force: Annotated[bool, Field(description="Force deletion even if running", default=False)] = False,
@@ -660,7 +660,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 ", ".join(configured_names),
             )
 
-            @server.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
+            @server.tool_registry.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
             def execute_container_command(
                 selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
@@ -674,7 +674,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                     target=target,
                 )
 
-            @server.mcp.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
+            @server.tool_registry.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
             def update_container_ssh_keys(
                 node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
                 vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
@@ -699,7 +699,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
         else:
             server.logger.info("Container command execution disabled (no [ssh] section in config)")
 
-        @server.mcp.tool(description=GET_CONTAINER_CONFIG_DESC)
+        @server.tool_registry.tool(description=GET_CONTAINER_CONFIG_DESC)
         def get_container_config(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
@@ -711,7 +711,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
+        @server.tool_registry.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
         def set_container_description(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
@@ -727,7 +727,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=GET_CONTAINER_IP_DESC)
+        @server.tool_registry.tool(description=GET_CONTAINER_IP_DESC)
         def get_container_ip(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
@@ -742,7 +742,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
 
 class SnapshotToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=LIST_SNAPSHOTS_DESC)
+        @server.tool_registry.tool(description=LIST_SNAPSHOTS_DESC)
         def list_snapshots(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM or container ID (e.g. '100')")],
@@ -756,7 +756,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=CREATE_SNAPSHOT_DESC)
+        @server.tool_registry.tool(description=CREATE_SNAPSHOT_DESC)
         def create_snapshot(
             node: Annotated[str, Field(description="Host node name")],
             vmid: Annotated[str, Field(description="VM or container ID")],
@@ -776,7 +776,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=DELETE_SNAPSHOT_DESC)
+        @server.tool_registry.tool(description=DELETE_SNAPSHOT_DESC)
         def delete_snapshot(
             node: Annotated[str, Field(description="Host node name")],
             vmid: Annotated[str, Field(description="VM or container ID")],
@@ -794,7 +794,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=ROLLBACK_SNAPSHOT_DESC)
+        @server.tool_registry.tool(description=ROLLBACK_SNAPSHOT_DESC)
         def rollback_snapshot(
             node: Annotated[str, Field(description="Host node name")],
             vmid: Annotated[str, Field(description="VM or container ID")],
@@ -815,7 +815,7 @@ class SnapshotToolsPlugin(RegistryPluginBase):
 
 class ImageToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=LIST_ISOS_DESC)
+        @server.tool_registry.tool(description=LIST_ISOS_DESC)
         def list_isos(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
@@ -823,7 +823,7 @@ class ImageToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "list_isos", lambda ts: ts.iso_tools.list_isos)(node=node, storage=storage, target=target)
 
-        @server.mcp.tool(description=LIST_TEMPLATES_DESC)
+        @server.tool_registry.tool(description=LIST_TEMPLATES_DESC)
         def list_templates(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
@@ -833,7 +833,7 @@ class ImageToolsPlugin(RegistryPluginBase):
                 node=node, storage=storage, target=target
             )
 
-        @server.mcp.tool(description=DOWNLOAD_ISO_DESC)
+        @server.tool_registry.tool(description=DOWNLOAD_ISO_DESC)
         def download_iso(
             node: Annotated[str, Field(description="Target node name")],
             storage: Annotated[str, Field(description="Target storage pool")],
@@ -853,7 +853,7 @@ class ImageToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=DELETE_ISO_DESC)
+        @server.tool_registry.tool(description=DELETE_ISO_DESC)
         def delete_iso(
             node: Annotated[str, Field(description="Node name")],
             storage: Annotated[str, Field(description="Storage pool name")],
@@ -872,7 +872,7 @@ class ImageToolsPlugin(RegistryPluginBase):
 
 class BackupToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=LIST_BACKUPS_DESC)
+        @server.tool_registry.tool(description=LIST_BACKUPS_DESC)
         def list_backups(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
@@ -886,7 +886,7 @@ class BackupToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=CREATE_BACKUP_DESC)
+        @server.tool_registry.tool(description=CREATE_BACKUP_DESC)
         def create_backup(
             node: Annotated[str, Field(description="Node where VM/container runs")],
             vmid: Annotated[str, Field(description="VM or container ID to backup")],
@@ -906,7 +906,7 @@ class BackupToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=RESTORE_BACKUP_DESC)
+        @server.tool_registry.tool(description=RESTORE_BACKUP_DESC)
         def restore_backup(
             node: Annotated[str, Field(description="Target node for restore")],
             archive: Annotated[str, Field(description="Backup volume ID from list_backups")],
@@ -926,7 +926,7 @@ class BackupToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
-        @server.mcp.tool(description=DELETE_BACKUP_DESC)
+        @server.tool_registry.tool(description=DELETE_BACKUP_DESC)
         def delete_backup(
             node: Annotated[str, Field(description="Node name")],
             storage: Annotated[str, Field(description="Storage pool name")],
@@ -948,7 +948,7 @@ class LogToolsPlugin(RegistryPluginBase):
     and node/guest firewall logs."""
 
     def register(self, server: Any) -> None:
-        @server.mcp.tool(description=GET_NODE_SYSLOG_DESC)
+        @server.tool_registry.tool(description=GET_NODE_SYSLOG_DESC)
         def get_node_syslog(
             node: Annotated[str, Field(description="Node name (e.g. 'pve', 'pve1')")],
             limit: Annotated[
@@ -984,7 +984,7 @@ class LogToolsPlugin(RegistryPluginBase):
                 node=node, limit=limit, start=start, since=since, until=until, service=service, target=target
             )
 
-        @server.mcp.tool(description=GET_TASK_LOG_DESC)
+        @server.tool_registry.tool(description=GET_TASK_LOG_DESC)
         def get_task_log(
             node: Annotated[str, Field(description="Node name that ran the task (e.g. 'pve')")],
             upid: Annotated[str, Field(description="Unique Process ID (UPID) of the task")],
@@ -1002,7 +1002,7 @@ class LogToolsPlugin(RegistryPluginBase):
                 node=node, upid=upid, start=start, limit=limit, target=target
             )
 
-        @server.mcp.tool(description=GET_CLUSTER_LOG_DESC)
+        @server.tool_registry.tool(description=GET_CLUSTER_LOG_DESC)
         def get_cluster_log(
             max_entries: Annotated[
                 int,
@@ -1014,7 +1014,7 @@ class LogToolsPlugin(RegistryPluginBase):
                 max_entries=max_entries, target=target
             )
 
-        @server.mcp.tool(description=GET_NODE_FIREWALL_LOG_DESC)
+        @server.tool_registry.tool(description=GET_NODE_FIREWALL_LOG_DESC)
         def get_node_firewall_log(
             node: Annotated[str, Field(description="Node name (e.g. 'pve', 'pve1')")],
             limit: Annotated[
@@ -1039,7 +1039,7 @@ class LogToolsPlugin(RegistryPluginBase):
                 server, "get_node_firewall_log", lambda ts: ts.log_tools.get_node_firewall_log
             )(node=node, limit=limit, start=start, since=since, until=until, target=target)
 
-        @server.mcp.tool(description=GET_GUEST_FIREWALL_LOG_DESC)
+        @server.tool_registry.tool(description=GET_GUEST_FIREWALL_LOG_DESC)
         def get_guest_firewall_log(
             node: Annotated[str, Field(description="Node hosting the guest (e.g. 'pve')")],
             vmid: Annotated[int, Field(description="VM/container ID (e.g. 100)", ge=100)],

@@ -94,6 +94,20 @@
           "isSecret": false
         },
         {
+          "name": "MCP_TOOL_ALLOWLIST",
+          "description": "Optional comma-separated exact tool names to expose. Do not set together with MCP_TOOL_DENYLIST.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TOOL_DENYLIST",
+          "description": "Optional comma-separated exact tool names to hide. Do not set together with MCP_TOOL_ALLOWLIST.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
           "name": "LOG_LEVEL",
           "description": "Server log verbosity. Defaults to INFO.",
           "isRequired": false,

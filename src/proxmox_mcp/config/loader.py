@@ -22,6 +22,19 @@ def _parse_csv_env(name: str) -> list[str] | None:
     return [item.strip() for item in os.environ[name].split(",") if item.strip()]
 
 
+def _parse_tool_filter_env(name: str) -> list[str] | None:
+    """Accept an explicitly empty filter, but reject malformed CSV entries."""
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    if not value.strip():
+        return []
+    entries = [item.strip() for item in value.split(",")]
+    if any(not item for item in entries):
+        raise ValueError(f"{name} must not contain empty CSV entries")
+    return entries
+
+
 def _parse_bool_env(name: str) -> bool | None:
     if name not in os.environ:
         return None
@@ -59,6 +72,20 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
     allowed_origins = _parse_csv_env("MCP_ALLOWED_ORIGINS")
     if allowed_origins is not None:
         overrides["allowed_origins"] = allowed_origins
+
+    tool_allowlist_present = "MCP_TOOL_ALLOWLIST" in os.environ
+    tool_denylist_present = "MCP_TOOL_DENYLIST" in os.environ
+    if tool_allowlist_present and tool_denylist_present:
+        raise ValueError(
+            "MCP_TOOL_ALLOWLIST and MCP_TOOL_DENYLIST are mutually exclusive"
+        )
+    if tool_allowlist_present:
+        overrides["tool_allowlist"] = _parse_tool_filter_env("MCP_TOOL_ALLOWLIST")
+        # Environment selection replaces the complete file-level filter mode.
+        overrides["tool_denylist"] = None
+    elif tool_denylist_present:
+        overrides["tool_denylist"] = _parse_tool_filter_env("MCP_TOOL_DENYLIST")
+        overrides["tool_allowlist"] = None
 
     if not overrides:
         return

@@ -165,6 +165,8 @@ class MCPConfig(BaseModel):
     dns_rebinding_protection: Optional[bool] = None
     allowed_hosts: List[str] = Field(default_factory=list)
     allowed_origins: List[str] = Field(default_factory=list)
+    tool_allowlist: Optional[List[str]] = None
+    tool_denylist: Optional[List[str]] = None
 
     @field_validator("transport", mode="before")
     @classmethod
@@ -177,6 +179,33 @@ class MCPConfig(BaseModel):
                 return "STREAMABLE"
             return normalized
         return value
+
+    @field_validator("tool_allowlist", "tool_denylist")
+    @classmethod
+    def normalize_tool_filter(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for raw_name in value:
+            name = raw_name.strip()
+            if not name:
+                raise ValueError("tool filter entries must not be empty")
+            if re.fullmatch(r"[a-z][a-z0-9_]*", name) is None:
+                raise ValueError(
+                    f"invalid MCP tool name {name!r}; use exact lowercase tool names"
+                )
+            if name not in seen:
+                normalized.append(name)
+                seen.add(name)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_tool_filter_mode(self) -> "MCPConfig":
+        if self.tool_allowlist is not None and self.tool_denylist is not None:
+            raise ValueError("mcp.tool_allowlist and mcp.tool_denylist are mutually exclusive")
+        return self
 
 class Config(BaseModel):
     """Root configuration model.
