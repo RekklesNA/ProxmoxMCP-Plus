@@ -11,11 +11,13 @@ import os
 import signal
 import sys
 from typing import Any, Literal, NoReturn, Optional, cast
+from types import SimpleNamespace
 
 from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
+from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
@@ -24,6 +26,7 @@ from proxmox_mcp.services import (
     JobStore,
     ToolExposurePolicy,
     ToolRegistry,
+    target_job_sqlite_path,
 )
 from proxmox_mcp.services.builtin_tool_plugins import (
     BackupToolsPlugin,
@@ -56,6 +59,13 @@ except ImportError:  # pragma: no cover - exercised only with older MCP SDKs
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
     return text[:max_length]
+
+
+_LEGACY_SINGLE_TARGET_ATTRS = (
+    "proxmox_manager", "proxmox", "job_store", "node_tools", "vm_tools",
+    "storage_tools", "cluster_tools", "container_tools", "snapshot_tools",
+    "iso_tools", "backup_tools", "jobs_tools", "log_tools",
+)
 
 
 def _exit_without_finalization(status: int = 0) -> NoReturn:
@@ -102,39 +112,83 @@ class ProxmoxMCPServer:
             denylist=self.config.mcp.tool_denylist,
         )
         self.logger = setup_logging(self.config.logging)
-
-        self.proxmox_manager = ProxmoxManager(
-            self.config.proxmox,
-            self.config.auth,
-            api_tunnel_config=self.config.api_tunnel,
-            ssh_config=self.config.ssh,
-        )
-        self.proxmox = self.proxmox_manager.get_api()
+        self.target_registry = TargetRegistry(self.config)
+        self.proxmox_managers = {
+            name: ProxmoxManager(
+                target.config,
+                target.auth,
+                api_tunnel_config=target.api_tunnel,
+                ssh_config=target.ssh,
+            )
+            for name in self.target_registry.names
+            for target in [self.target_registry.resolve(name)]
+        }
+        self.target_command_policies = {
+            name: CommandPolicyGate(
+                self.target_registry.resolve(name).command_policy or self.config.command_policy
+            )
+            for name in self.target_registry.names
+        }
+        # Retain the legacy policy attribute for compatibility; wrappers always
+        # select from target_command_policies using the resolved target.
         self.command_policy = CommandPolicyGate(self.config.command_policy)
         self.metrics = ToolMetrics()
-        self.job_store = JobStore(self.proxmox, sqlite_path=self.config.jobs.sqlite_path)
 
-        self.node_tools = NodeTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.vm_tools = VMTools(
-            self.proxmox,
-            command_policy=self.command_policy,
-            metrics=self.metrics,
-            job_store=self.job_store,
-        )
-        self.storage_tools = StorageTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.cluster_tools = ClusterTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.container_tools = ContainerTools(
-            self.proxmox,
-            self.config.ssh,
-            command_policy=self.command_policy,
-            metrics=self.metrics,
-            job_store=self.job_store,
-        )
-        self.snapshot_tools = SnapshotTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.iso_tools = ISOTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.backup_tools = BackupTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
-        self.jobs_tools = JobsTools(self.job_store)
-        self.log_tools = LogTools(self.proxmox, metrics=self.metrics, job_store=self.job_store)
+        self.target_job_stores: dict[str, JobStore] = {}
+        self.target_toolsets: dict[str, SimpleNamespace] = {}
+        for name, manager in self.proxmox_managers.items():
+            target = self.target_registry.resolve(name)
+            api = manager.get_api()
+            base_path = self.config.jobs.sqlite_path
+            is_single_default = self.target_registry.is_legacy
+            if is_single_default:
+                path = base_path
+            else:
+                path = target_job_sqlite_path(base_path, name)
+            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default)
+            self.target_job_stores[name] = job_store
+            self.target_toolsets[name] = SimpleNamespace(
+                node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),
+                storage_tools=StorageTools(api, metrics=self.metrics, job_store=job_store),
+                cluster_tools=ClusterTools(api, metrics=self.metrics, job_store=job_store),
+                vm_tools=VMTools(
+                    api,
+                    command_policy=self.target_command_policies[name],
+                    metrics=self.metrics,
+                    job_store=job_store,
+                ),
+                container_tools=ContainerTools(
+                    api,
+                    target.ssh if not self.target_registry.is_legacy else self.config.ssh,
+                    command_policy=self.target_command_policies[name],
+                    metrics=self.metrics,
+                    job_store=job_store,
+                    target_name=name,
+                ),
+                snapshot_tools=SnapshotTools(api, metrics=self.metrics, job_store=job_store),
+                iso_tools=ISOTools(api, metrics=self.metrics, job_store=job_store),
+                backup_tools=BackupTools(api, metrics=self.metrics, job_store=job_store),
+                jobs_tools=JobsTools(job_store),
+                log_tools=LogTools(api, metrics=self.metrics, job_store=job_store),
+            )
+
+        if self.target_registry.is_legacy:
+            self.proxmox_manager = next(iter(self.proxmox_managers.values()))
+            self.proxmox = self.proxmox_manager.get_api()
+            self.command_policy = self.target_command_policies["default"]
+            default_store = self.target_job_stores["default"]
+            self.job_store = default_store
+            ts = self.target_toolsets["default"]
+            self.node_tools = ts.node_tools
+            self.vm_tools = ts.vm_tools
+            self.storage_tools = ts.storage_tools
+            self.cluster_tools = ts.cluster_tools
+            self.container_tools = ts.container_tools
+            self.snapshot_tools = ts.snapshot_tools
+            self.iso_tools = ts.iso_tools
+            self.backup_tools = ts.backup_tools
+            self.jobs_tools = ts.jobs_tools
+            self.log_tools = ts.log_tools
 
         log_level = cast(
             Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -214,9 +268,35 @@ class ProxmoxMCPServer:
             ", ".join(sorted(self.tool_registry.registered_tools)),
         )
 
+    def target_tools(self, requested: str | None) -> SimpleNamespace:
+        name = self.target_registry.resolve(requested).name
+        return self.target_toolsets[name]
+
     def close(self) -> None:
-        self.job_store.close()
-        self.proxmox_manager.close()
+        if hasattr(self, "job_store"):
+            try:
+                self.job_store.close()
+            except Exception as exc:
+                self.logger.warning("Failed to close default job store: %s", _log_safe(exc))
+        for job_store in self.target_job_stores.values():
+            if hasattr(self, "job_store") and job_store is getattr(self, "job_store", None):
+                continue
+            try:
+                job_store.close()
+            except Exception as exc:
+                self.logger.warning("Failed to close job store: %s", _log_safe(exc))
+        for manager in self.proxmox_managers.values():
+            try:
+                manager.close()
+            except Exception:
+                self.logger.warning("Failed to close Proxmox manager cleanly")
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _LEGACY_SINGLE_TARGET_ATTRS:
+            raise AttributeError(
+                f"'{name}' is only available in single-target (legacy) mode; use target_registry/target_tools in multi-target mode"
+            )
+        raise AttributeError(name)
 
     async def _run_streamable_http_async(self) -> None:
         """Run Streamable HTTP with optional inbound Bearer authentication."""

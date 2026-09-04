@@ -30,13 +30,39 @@ class SSHTunnelManager:
         if not getattr(self.tunnel_config, "enabled", False):
             return
 
+        assume_external = getattr(self.tunnel_config, "assume_external", False)
+
         if self._is_local_endpoint_reachable():
-            self.logger.info(
-                "API tunnel already reachable on %s:%s",
-                self.tunnel_config.local_host,
-                self.tunnel_config.local_port,
+            if assume_external:
+                self.logger.info(
+                    "Using externally managed API tunnel on %s:%s",
+                    self.tunnel_config.local_host,
+                    self.tunnel_config.local_port,
+                )
+                return
+            if self._process is not None and self._process.poll() is None:
+                self.logger.info(
+                    "API tunnel already reachable on %s:%s (owned tunnel verified)",
+                    self.tunnel_config.local_host,
+                    self.tunnel_config.local_port,
+                )
+                return
+            raise RuntimeError(
+                f"Local endpoint {self.tunnel_config.local_host}:{self.tunnel_config.local_port} "
+                f"is already in use; tunnel identity for {_log_safe(self.tunnel_config.ssh_host)} "
+                f"-> {_log_safe(self.tunnel_config.remote_host)}:{_log_safe(self.tunnel_config.remote_port)} "
+                f"cannot be verified. Free the port, or ensure the tunnel is owned by this process."
             )
-            return
+
+        if assume_external:
+            # The operator asserted an external supervisor owns this listener.
+            # Never spawn (and later terminate) a tunnel we do not own.
+            raise RuntimeError(
+                f"Externally managed API tunnel on {self.tunnel_config.local_host}:"
+                f"{self.tunnel_config.local_port} is not reachable. This process will not start "
+                f"a tunnel it does not own; start the external tunnel supervisor, or unset "
+                f"api_tunnel.assume_external to let this process manage the tunnel."
+            )
 
         self._start_process()
         self._wait_for_local_listener()

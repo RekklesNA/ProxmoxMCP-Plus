@@ -2,7 +2,7 @@ from typing import List, Dict, Optional, Tuple, Any, Union, Callable
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
-from .base import ProxmoxTool
+from .base import ProxmoxTool, _log_safe
 from .console.container_manager import ContainerConsoleManager
 
 
@@ -68,12 +68,14 @@ class ContainerTools(ProxmoxTool):
         command_policy: Any = None,
         metrics: Any = None,
         job_store: Any = None,
+        target_name: str = "default",
     ) -> None:
         super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager: Optional[ContainerConsoleManager] = (
             ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
         )
         self.command_policy = command_policy
+        self.target_name = target_name
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -88,7 +90,7 @@ class ContainerTools(ProxmoxTool):
         try:
             resources = self.proxmox.cluster.resources.get(type="vm")
         except Exception as error:
-            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", error)
+            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", _log_safe(error))
             return None
         if not isinstance(resources, list):
             return None
@@ -124,7 +126,7 @@ class ContainerTools(ProxmoxTool):
                 raw = self.proxmox.nodes(node).lxc.get()
             except Exception as e:
                 self.logger.warning(
-                    "Skipping node %s while listing containers: %s", node, e
+                    "Skipping node %s while listing containers: %s", node, _log_safe(e)
                 )
                 return out
 
@@ -151,7 +153,7 @@ class ContainerTools(ProxmoxTool):
                     raw = self.proxmox.nodes(nname).lxc.get()
                 except Exception as node_error:
                     self.logger.warning(
-                        "Skipping node %s while listing containers: %s", nname, node_error
+                        "Skipping node %s while listing containers: %s", nname, _log_safe(node_error)
                     )
                     continue
 
@@ -883,7 +885,7 @@ class ContainerTools(ProxmoxTool):
             return self._err(
                 "execute_command",
                 RuntimeError(
-                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
                     "with user/key_file credentials for the Proxmox nodes."
                 ),
             )
@@ -1016,7 +1018,7 @@ class ContainerTools(ProxmoxTool):
             return self._err(
                 "update_container_ssh_keys",
                 RuntimeError(
-                    "SSH is not configured. Add an [ssh] section to your MCP config "
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
                     "with user/key_file credentials for the Proxmox nodes."
                 ),
             )

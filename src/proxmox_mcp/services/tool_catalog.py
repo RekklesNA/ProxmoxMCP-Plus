@@ -4,6 +4,7 @@ from __future__ import annotations
 
 BUILTIN_TOOL_NAMES = frozenset(
     {
+        "list_targets",
         "get_nodes",
         "get_node_status",
         "get_vms",

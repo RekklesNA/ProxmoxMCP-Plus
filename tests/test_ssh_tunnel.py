@@ -89,6 +89,23 @@ def test_api_tunnel_reuses_reachable_local_endpoint() -> None:
     with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), patch.object(
         manager, "_start_process"
     ) as start_process:
+        with pytest.raises(RuntimeError, match="identity.*cannot be verified"):
+            manager.ensure_tunnel()
+
+    start_process.assert_not_called()
+
+
+def test_api_tunnel_can_explicitly_reuse_external_endpoint() -> None:
+    tunnel_config = SimpleNamespace(
+        enabled=True, assume_external=True, ssh_host="jump-host",
+        local_host="127.0.0.1", local_port=18006,
+        remote_host="10.0.0.10", remote_port=8006, connect_timeout=15,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), patch.object(
+        manager, "_start_process"
+    ) as start_process:
         manager.ensure_tunnel()
 
     start_process.assert_not_called()
@@ -216,3 +233,108 @@ def test_proxmox_manager_close_without_tunnel_is_noop() -> None:
     manager.tunnel_manager = None
 
     manager.close()
+
+
+def test_proxmox_manager_can_use_tunnel_endpoint_without_owning_process() -> None:
+    proxmox_config = SimpleNamespace(
+        host="remote.proxmox.test",
+        port=8006,
+        timeout=30,
+        verify_ssl=True,
+        service="PVE",
+    )
+    auth_config = SimpleNamespace(
+        user="root@pam",
+        token_name="automation",
+        token_value="secret",
+    )
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        local_host="127.0.0.1",
+        local_port=18006,
+    )
+
+    with patch("proxmox_mcp.core.proxmox.SSHTunnelManager") as tunnel_manager, patch(
+        "proxmox_mcp.core.proxmox.ProxmoxAPI"
+    ) as proxmox_api:
+        manager = ProxmoxManager(
+            proxmox_config,
+            auth_config,
+            api_tunnel_config=tunnel_config,
+            manage_api_tunnel=False,
+        )
+
+    tunnel_manager.assert_not_called()
+    assert manager.tunnel_manager is None
+    assert proxmox_api.call_args.kwargs["host"] == "127.0.0.1"
+    assert proxmox_api.call_args.kwargs["port"] == 18006
+
+
+def test_assume_external_never_spawns_own_tunnel_process() -> None:
+    """assume_external promises another supervisor owns the listener.
+
+    If the external listener is temporarily unavailable, the server must fail
+    loudly rather than silently spawning (and later killing) its own ssh.
+    """
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=False), \
+         patch.object(manager, "_start_process") as start, \
+         patch.object(manager, "_wait_for_local_listener") as wait:
+        with pytest.raises(RuntimeError, match="(?i)externally managed"):
+            manager.ensure_tunnel()
+
+    start.assert_not_called()
+    wait.assert_not_called()
+
+
+def test_assume_external_reuses_reachable_external_listener() -> None:
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True), \
+         patch.object(manager, "_start_process") as start:
+        manager.ensure_tunnel()
+
+    start.assert_not_called()
+
+
+def test_external_tunnel_is_never_owned_or_terminated() -> None:
+    """An externally supervised tunnel must not be adopted as our process."""
+    tunnel_config = SimpleNamespace(
+        enabled=True,
+        assume_external=True,
+        ssh_host="jump-host",
+        local_host="127.0.0.1",
+        local_port=18007,
+        remote_host="127.0.0.1",
+        remote_port=8006,
+        connect_timeout=1,
+    )
+    manager = SSHTunnelManager(tunnel_config)
+
+    with patch.object(manager, "_is_local_endpoint_reachable", return_value=True):
+        manager.ensure_tunnel()
+
+    assert manager._process is None
+    manager.close()
+    assert manager._process is None

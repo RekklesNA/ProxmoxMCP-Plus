@@ -30,7 +30,8 @@ def clean_tool_filter_env(monkeypatch):
 
 
 def _write_config(
-    tmp_path: Path, *, mcp: dict | None = None, ssh: dict | None = None
+    tmp_path: Path, *, mcp: dict | None = None, ssh: dict | None = None,
+    targets: dict | None = None,
 ) -> Path:
     config: dict[str, object] = {
         "proxmox": {
@@ -51,6 +52,10 @@ def _write_config(
         config["mcp"] = mcp
     if ssh is not None:
         config["ssh"] = ssh
+    if targets is not None:
+        config.pop("proxmox")
+        config.pop("auth")
+        config["targets"] = targets
 
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -166,6 +171,74 @@ def test_environment_allowlist_and_denylist_are_mutually_exclusive(
         load_config(str(config_path))
 
 
+@pytest.mark.parametrize("env_name", ["MCP_TOOL_ALLOWLIST", "MCP_TOOL_DENYLIST"])
+@pytest.mark.parametrize("value", [",", "get_nodes,", ",get_nodes", "get_nodes, ,get_vms"])
+def test_environment_filter_rejects_empty_csv_entries(tmp_path, monkeypatch, env_name, value):
+    config_path = _write_config(tmp_path)
+    monkeypatch.setenv(env_name, value)
+    with pytest.raises(ValueError, match=f"{env_name} must not contain empty CSV entries"):
+        load_config(str(config_path))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["allowlist", "denylist"])
+async def test_explicitly_empty_environment_filter(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv(f"MCP_TOOL_{mode.upper()}", "")
+    server = _create_server(_write_config(tmp_path))
+    try:
+        expected = set() if mode == "allowlist" else BUILTIN_TOOL_NAMES - SSH_ONLY_TOOLS
+        assert await _tool_names(server) == expected
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["allowlist", "denylist"])
+async def test_discovery_tool_obeys_exposure_filter(tmp_path, mode):
+    server = _create_server(_write_config(tmp_path, mcp={f"tool_{mode}": ["list_targets"]}))
+    try:
+        names = await _tool_names(server)
+        if mode == "allowlist":
+            assert names == {"list_targets"}
+        else:
+            assert names == BUILTIN_TOOL_NAMES - SSH_ONLY_TOOLS - {"list_targets"}
+            with pytest.raises(ToolError, match="Unknown tool"):
+                await server.mcp.call_tool("list_targets", {})
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_filtered_named_tools_preserve_routing_and_readonly_policy(tmp_path):
+    targets = {
+        name: {
+            "host": f"{name}.example",
+            "readonly": name == "lab",
+            "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+        }
+        for name in ("primary", "lab")
+    }
+    server = _create_server(_write_config(
+        tmp_path, targets=targets, mcp={"tool_allowlist": ["get_nodes", "start_vm"]},
+    ))
+    try:
+        assert await _tool_names(server) == {"get_nodes", "start_vm"}
+        with patch.object(server.target_toolsets["lab"].node_tools, "get_nodes", return_value="lab") as lab, patch.object(
+            server.target_toolsets["primary"].node_tools, "get_nodes", return_value="primary"
+        ) as primary:
+            with pytest.raises(ToolError, match="specify target"):
+                await server.mcp.call_tool("get_nodes", {})
+            await server.mcp.call_tool("get_nodes", {"target": "lab"})
+            lab.assert_called_once_with()
+            primary.assert_not_called()
+        with patch.object(server.target_toolsets["lab"].vm_tools, "start_vm") as start:
+            with pytest.raises(ToolError, match="read-only"):
+                await server.mcp.call_tool("start_vm", {"target": "lab", "node": "pve1", "vmid": "100"})
+            start.assert_not_called()
+    finally:
+        server.close()
+
+
 @pytest.mark.asyncio
 async def test_empty_allowlist_exposes_no_tools(tmp_path):
     server = _create_server(_write_config(tmp_path, mcp={"tool_allowlist": []}))
@@ -232,6 +305,9 @@ async def test_stdio_protocol_lists_only_allowlisted_tools(tmp_path):
             "MCP_TRANSPORT": "STDIO",
             "MCP_TOOL_ALLOWLIST": "get_nodes,get_vms",
             "LOG_LEVEL": "WARNING",
+            # Exercise the same source tree as the parent, including under
+            # pytest-cov; an installed copy would be counted a second time.
+            "PYTHONPATH": str(ROOT / "src"),
         }
     )
     params = StdioServerParameters(

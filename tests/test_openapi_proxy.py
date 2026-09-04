@@ -3,14 +3,19 @@
 import asyncio
 import base64
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from proxmox_mcp import openapi_proxy
+from proxmox_mcp.config.models import Config
 from proxmox_mcp.openapi_proxy import create_app
-from proxmox_mcp.services.jobs import JobConflictError, JobNotFoundError
+from proxmox_mcp.services.jobs import (
+    JobConflictError,
+    JobNotFoundError,
+    target_job_sqlite_path,
+)
 
 
 def _get_route_endpoint(app, path: str):
@@ -262,6 +267,37 @@ class _FakeJobStore:
         return {"job_id": job_id, "status": "running", "attempts": 2}
 
 
+class _NamedFakeJobStore(_FakeJobStore):
+    def __init__(self, target: str):
+        self.target = target
+        self.calls = []
+
+    def list_jobs(self, **kwargs):
+        self.calls.append(("list", kwargs))
+        return [{"job_id": f"{self.target}-job", "target": self.target}]
+
+    def get_job(self, job_id: str):
+        self.calls.append(("get", job_id))
+        return {
+            "job_id": job_id,
+            "target": self.target,
+            "status": "running",
+            "tool_name": "delete_vm",
+        }
+
+    def poll_job(self, job_id: str):
+        self.calls.append(("poll", job_id))
+        return {"job_id": job_id, "target": self.target, "status": "completed"}
+
+    def cancel_job(self, job_id: str):
+        self.calls.append(("cancel", job_id))
+        return {"job_id": job_id, "target": self.target, "status": "cancel_requested"}
+
+    def retry_job(self, job_id: str):
+        self.calls.append(("retry", job_id))
+        return {"job_id": job_id, "target": self.target, "status": "running", "attempts": 2}
+
+
 class _FakeCommandPolicy:
     def __init__(self):
         self.calls = []
@@ -314,6 +350,84 @@ def test_jobs_routes_return_expected_status_codes():
     retry_response = client.post("/jobs/job-1/retry")
     assert retry_response.status_code == 202
     assert retry_response.json()["attempts"] == 2
+
+
+def test_named_target_job_routes_require_and_honor_exact_target():
+    primary = _NamedFakeJobStore("primary")
+    lab = _NamedFakeJobStore("lab")
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_stores={"primary": primary, "lab": lab},
+    )
+    client = TestClient(app)
+
+    ambiguous = client.get("/jobs")
+    assert ambiguous.status_code == 400
+    assert primary.calls == []
+    assert lab.calls == []
+
+    selected = client.get("/jobs", params={"target": "lab"})
+    assert selected.status_code == 200
+    assert selected.json() == [{"job_id": "lab-job", "target": "lab"}]
+    assert primary.calls == []
+    assert lab.calls == [("list", {"status": None, "tool_name": None, "limit": 100})]
+
+    unknown = client.get("/jobs", params={"target": "missing"})
+    assert unknown.status_code == 400
+    assert primary.calls == []
+
+
+def test_named_target_job_mutations_enforce_readonly_before_dispatch():
+    safe = _NamedFakeJobStore("safe")
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_stores={"safe": safe},
+        target_readonly={"safe": True},
+    )
+    client = TestClient(app)
+
+    readable = client.get("/jobs/job-1", params={"target": "safe"})
+    assert readable.status_code == 200
+
+    cancel = client.post("/jobs/job-1/cancel", params={"target": "safe"})
+    retry = client.post("/jobs/job-1/retry", params={"target": "safe"})
+    assert cancel.status_code == 403
+    assert cancel.json()["message"] == "Target is read-only"
+    assert retry.status_code == 403
+    assert retry.json()["message"] == "Target is read-only"
+    assert ("cancel", "job-1") not in safe.calls
+    assert ("retry", "job-1") not in safe.calls
+
+
+def test_named_target_retry_uses_selected_target_policy_and_store():
+    primary = _NamedFakeJobStore("primary")
+    lab = _NamedFakeJobStore("lab")
+    restricted = _FakeCommandPolicy()
+    app = create_app(
+        server_command=["python", "-c", "print('ok')"],
+        api_key=None,
+        strict_auth=False,
+        cors_allow_origins=["*"],
+        job_stores={"primary": primary, "lab": lab},
+        command_policies={"primary": restricted},
+    )
+    client = TestClient(app)
+
+    denied = client.post("/jobs/job-1/retry", params={"target": "primary"})
+    assert denied.status_code == 403
+    assert ("retry", "job-1") not in primary.calls
+
+    allowed = client.post("/jobs/job-1/retry", params={"target": "lab"})
+    assert allowed.status_code == 202
+    assert allowed.json()["target"] == "lab"
+    assert ("retry", "job-1") in lab.calls
+    assert restricted.calls == [("delete_vm", None)]
 
 
 def test_jobs_routes_reuse_api_key_dependency_when_not_strict_auth():
@@ -395,6 +509,76 @@ def test_main_auto_enables_strict_auth_when_api_key_set(_isolated_proxy_env, mon
 
     assert captured == {"api_key": "secret", "strict_auth": True}
     mock_run.assert_called_once()
+
+
+def test_main_builds_isolated_named_target_job_contexts(
+    _isolated_proxy_env,
+    monkeypatch,
+    tmp_path,
+):
+    config = Config.model_validate(
+        {
+            "targets": {
+                "primary": {
+                    "host": "primary.example",
+                    "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                },
+                "lab": {
+                    "host": "lab.example",
+                    "readonly": True,
+                    "auth": {"user": "u", "token_name": "t2", "token_value": "v2"},
+                },
+            },
+            "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+        }
+    )
+    monkeypatch.setenv("PROXMOX_MCP_CONFIG", "named-targets.json")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["openapi_proxy", "--api-key", "secret", "--", "echo", "ok"],
+    )
+
+    managers = {name: SimpleNamespace(get_api=lambda name=name: f"api-{name}") for name in ("lab", "primary")}
+    for manager in managers.values():
+        manager.close = Mock()
+    stores = {name: Mock() for name in ("lab", "primary")}
+    captured: dict = {}
+
+    def _manager_factory(proxmox_config, auth_config, **kwargs):
+        _ = auth_config
+        assert kwargs["manage_api_tunnel"] is False
+        return managers[proxmox_config.host.split(".", 1)[0]]
+
+    def _store_factory(api, **kwargs):
+        target = kwargs["target_name"]
+        assert api == f"api-{target}"
+        assert kwargs["legacy_mode"] is False
+        assert kwargs["sqlite_path"] == target_job_sqlite_path(
+            config.jobs.sqlite_path,
+            target,
+        )
+        return stores[target]
+
+    def _fake_create_app(*args, **kwargs):
+        _ = args
+        captured.update(kwargs)
+        return object()
+
+    with patch("proxmox_mcp.config.loader.load_config", return_value=config), patch(
+        "proxmox_mcp.core.proxmox.ProxmoxManager", side_effect=_manager_factory
+    ), patch("proxmox_mcp.services.JobStore", side_effect=_store_factory), patch(
+        "proxmox_mcp.openapi_proxy.create_app", side_effect=_fake_create_app
+    ), patch("proxmox_mcp.openapi_proxy.uvicorn.run") as mock_run:
+        openapi_proxy.main()
+
+    assert captured["job_stores"] == stores
+    assert set(captured["command_policies"]) == {"lab", "primary"}
+    assert captured["target_readonly"] == {"lab": True, "primary": False}
+    mock_run.assert_called_once()
+    for store in stores.values():
+        store.close.assert_called_once()
+    for manager in managers.values():
+        manager.close.assert_called_once()
 
 
 def test_health_endpoint_warns_when_allow_no_auth_set(monkeypatch):

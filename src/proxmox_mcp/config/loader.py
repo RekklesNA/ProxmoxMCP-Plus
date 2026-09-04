@@ -22,6 +22,19 @@ def _parse_csv_env(name: str) -> list[str] | None:
     return [item.strip() for item in os.environ[name].split(",") if item.strip()]
 
 
+def _parse_tool_filter_env(name: str) -> list[str] | None:
+    """Accept an explicitly empty filter, but reject malformed CSV entries."""
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    if not value.strip():
+        return []
+    entries = [item.strip() for item in value.split(",")]
+    if any(not item for item in entries):
+        raise ValueError(f"{name} must not contain empty CSV entries")
+    return entries
+
+
 def _parse_bool_env(name: str) -> bool | None:
     if name not in os.environ:
         return None
@@ -67,11 +80,11 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
             "MCP_TOOL_ALLOWLIST and MCP_TOOL_DENYLIST are mutually exclusive"
         )
     if tool_allowlist_present:
-        overrides["tool_allowlist"] = _parse_csv_env("MCP_TOOL_ALLOWLIST")
+        overrides["tool_allowlist"] = _parse_tool_filter_env("MCP_TOOL_ALLOWLIST")
         # Environment selection replaces the complete file-level filter mode.
         overrides["tool_denylist"] = None
     elif tool_denylist_present:
-        overrides["tool_denylist"] = _parse_csv_env("MCP_TOOL_DENYLIST")
+        overrides["tool_denylist"] = _parse_tool_filter_env("MCP_TOOL_DENYLIST")
         overrides["tool_allowlist"] = None
 
     if not overrides:
@@ -206,14 +219,33 @@ def load_config(config_path: Optional[str] = None) -> Config:
     _apply_mcp_env_overrides(config_data)
 
     # Final validation check
-    if not config_data.get('proxmox', {}).get('host'):
-        raise ValueError("Proxmox host must be provided (via config file or PROXMOX_HOST env var)")
-    if not config_data.get('auth', {}).get('user'):
-        raise ValueError("Authentication credentials must be provided")
+    if config_data.get("targets") is not None:
+        targets = config_data.get("targets")
+        if not isinstance(targets, dict) or not targets:
+            raise ValueError("At least one Proxmox target must be configured")
+        for name, target in targets.items():
+            if not isinstance(target, dict) or not target.get("host"):
+                raise ValueError(f"Proxmox target {name!r} must provide a host")
+            auth = target.get("auth")
+            if not isinstance(auth, dict) or not auth.get("user"):
+                raise ValueError(f"Proxmox target {name!r} must provide authentication credentials")
+    else:
+        if not config_data.get('proxmox', {}).get('host'):
+            raise ValueError("Proxmox host must be provided (via config file or PROXMOX_HOST env var)")
+        if not config_data.get('auth', {}).get('user'):
+            raise ValueError("Authentication credentials must be provided")
 
     try:
         config = Config.model_validate(config_data)
-        if not config.proxmox.verify_ssl and not config.security.dev_mode:
+        if config.targets is not None:
+            insecure = [name for name, target in config.targets.items() if not target.verify_ssl and not target.allow_insecure_tls]
+            if insecure:
+                raise ValueError(
+                    "Insecure TLS configuration blocked for target(s): "
+                    + ", ".join(insecure)
+                    + ". Set verify_ssl=true or enable allow_insecure_tls for that target."
+                )
+        elif config.proxmox is not None and not config.proxmox.verify_ssl and not config.security.dev_mode:
             raise ValueError(
                 "Insecure TLS configuration blocked: set proxmox.verify_ssl=true. "
                 "Only dev_mode=true can allow verify_ssl=false."

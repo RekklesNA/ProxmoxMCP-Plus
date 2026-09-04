@@ -99,6 +99,71 @@ def test_server_initialization(server, mock_proxmox):
     mock_proxmox.assert_called_once()
 
 
+def test_list_targets_reports_reachability_and_nodes(tmp_path):
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(json.dumps({
+        "targets": {
+            "reachable": {"host": "reachable", "auth": {"user": "u", "token_name": "t", "token_value": "v"}},
+            "unreachable": {"host": "unreachable", "auth": {"user": "u", "token_name": "t", "token_value": "v"}},
+        },
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+    }))
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI") as api_factory:
+        reachable_api = Mock()
+        reachable_api.nodes.get.return_value = [{"node": "pve1"}, {"node": "pve2"}]
+        unreachable_api = Mock()
+        unreachable_api.nodes.get.side_effect = RuntimeError("https://u:secret@unreachable")
+        api_factory.side_effect = [reachable_api, unreachable_api]
+        instance = ProxmoxMCPServer(str(config_path))
+
+    result = asyncio.run(instance.mcp.call_tool("list_targets", {}))
+    data = [json.loads(item.text) for item in result]
+    assert data[0]["name"] == "reachable"
+    assert data[0]["reachable"] is True
+    assert data[0]["nodes"] == ["pve1", "pve2"]
+    assert data[1]["name"] == "unreachable"
+    assert data[1]["reachable"] is False
+    assert data[1]["error"] == "Unable to reach target 'unreachable'"
+    assert "secret" not in repr(data)
+    instance.close()
+
+
+def test_named_target_toolsets_use_target_policy_and_job_store(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "targets": {
+            "deny": {
+                "host": "deny.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                "command_policy": {"mode": "deny_all"},
+            },
+            "allow": {
+                "host": "allow.example",
+                "auth": {"user": "u", "token_name": "t", "token_value": "v"},
+                "command_policy": {"mode": "allowlist", "allow_patterns": ["^echo\\\\s"]},
+            },
+        },
+        "jobs": {"sqlite_path": str(tmp_path / "jobs.sqlite3")},
+    }))
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI") as proxmox_api:
+        proxmox_api.return_value.nodes.get.return_value = [{"node": "node1"}]
+        target_server = ProxmoxMCPServer(str(config_path))
+
+    try:
+        deny = target_server.target_tools("deny")
+        allow = target_server.target_tools("allow")
+        assert deny.vm_tools.command_policy is target_server.target_command_policies["deny"]
+        assert allow.vm_tools.command_policy is target_server.target_command_policies["allow"]
+        assert deny.container_tools.command_policy is target_server.target_command_policies["deny"]
+        assert allow.container_tools.command_policy is target_server.target_command_policies["allow"]
+        assert deny.vm_tools.command_policy is not target_server.command_policy
+        assert deny.jobs_tools.job_store is target_server.target_job_stores["deny"]
+        assert allow.jobs_tools.job_store is target_server.target_job_stores["allow"]
+        assert deny.jobs_tools.job_store is not allow.jobs_tools.job_store
+    finally:
+        target_server.close()
+
+
 def test_server_close_releases_job_store_and_proxmox_manager(server):
     server.job_store.close = Mock()
     server.proxmox_manager.close = Mock()
@@ -1597,8 +1662,29 @@ async def test_tool_metrics_record_calls(server, mock_proxmox):
     await server.mcp.call_tool("get_nodes", {})
     snapshot = server.metrics.snapshot()
 
-    assert snapshot["get_nodes"]["success"]["calls"] == 1
-    assert snapshot["get_nodes"]["success"]["latency_ms_sum"] >= 0
+    assert snapshot["get_nodes"]["success"]["default"]["calls"] == 1
+    assert snapshot["get_nodes"]["success"]["default"]["latency_ms_sum"] >= 0
+
+
+def test_target_resolution_failures_are_recorded_in_metrics():
+    from proxmox_mcp.observability import ToolMetrics
+    from proxmox_mcp.services.builtin_tool_plugins import RegistryPluginBase
+
+    class Registry:
+        def resolve(self, requested):
+            raise ValueError("target required")
+
+    class FakeServer:
+        target_registry = Registry()
+        metrics = ToolMetrics()
+
+    wrapper = RegistryPluginBase()._wrap_sync(
+        FakeServer(), "get_nodes", lambda tools: tools,
+    )
+    with pytest.raises(ValueError, match="target required"):
+        wrapper()
+
+    assert FakeServer.metrics.snapshot()["get_nodes"]["error"]["unresolved"]["calls"] == 1
 
 
 @pytest.mark.asyncio

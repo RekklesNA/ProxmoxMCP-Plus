@@ -1,5 +1,4 @@
-"""
-Configuration models for the Proxmox MCP server.
+"""Configuration models for the Proxmox MCP server.
 
 This module defines Pydantic models for configuration validation:
 - Proxmox connection settings
@@ -9,13 +8,16 @@ This module defines Pydantic models for configuration validation:
 
 The models provide:
 - Type validation
-- Default values
-- Field descriptions
+- Defaults and field descriptions
 - Required vs optional field handling
 """
+from __future__ import annotations
+
 import re
 from typing import Optional, Annotated, Literal, Dict, List
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+
+_TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 class NodeStatus(BaseModel):
     """Model for node status query parameters.
@@ -45,7 +47,7 @@ class ProxmoxConfig(BaseModel):
     host: str  # Required: Proxmox host address
     port: int = 8006  # Optional: API port (default: 8006)
     timeout: int = 30  # Optional: API timeout in seconds (default: 30)
-    verify_ssl: bool = True  # Optional: SSL verification (default: True)
+    verify_ssl: StrictBool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
 
 
@@ -53,6 +55,7 @@ class APITunnelConfig(BaseModel):
     """Optional SSH local-forward config for the Proxmox API."""
 
     enabled: bool = False
+    assume_external: StrictBool = False
     ssh_host: str
     local_host: str = "127.0.0.1"
     local_port: int = 8006
@@ -62,7 +65,7 @@ class APITunnelConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     """Model for Proxmox authentication configuration.
-    
+
     Defines the required parameters for API authentication
     using token-based authentication. All fields are required
     to ensure secure API access.
@@ -70,6 +73,23 @@ class AuthConfig(BaseModel):
     user: str  # Required: Username (e.g., 'root@pam')
     token_name: str  # Required: API token name
     token_value: str  # Required: API token secret
+
+
+class TargetConfig(BaseModel):
+    """Connection and authentication settings for one named target."""
+    host: str
+    port: int = 8006
+    timeout: int = 30
+    verify_ssl: StrictBool = True
+    allow_insecure_tls: StrictBool = False
+    service: str = "PVE"
+    auth: AuthConfig
+    kind: Literal["cluster", "standalone"] = "standalone"
+    readonly: StrictBool = False
+    api_tunnel: Optional[APITunnelConfig] = None
+    ssh: Optional[SSHConfig] = None
+    command_policy: Optional[CommandPolicyConfig] = None
+
 
 class LoggingConfig(BaseModel):
     """Model for logging configuration.
@@ -194,12 +214,71 @@ class Config(BaseModel):
     configuration object. All sections are required to ensure
     proper server operation.
     """
-    proxmox: ProxmoxConfig  # Required: Proxmox connection settings
+    proxmox: Optional[ProxmoxConfig] = None
+    targets: Optional[Dict[str, TargetConfig]] = None
     api_tunnel: Optional[APITunnelConfig] = None
-    auth: AuthConfig  # Required: Authentication credentials
-    logging: LoggingConfig  # Required: Logging configuration
+    auth: Optional[AuthConfig] = None
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     ssh: Optional[SSHConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     command_policy: CommandPolicyConfig = Field(default_factory=CommandPolicyConfig)
+
+    @model_validator(mode="after")
+    def validate_target_shape(self) -> "Config":
+        has_legacy = self.proxmox is not None or self.auth is not None
+        has_targets = self.targets is not None
+        if has_legacy and has_targets:
+            raise ValueError("Use either legacy proxmox/auth configuration or targets, not both")
+        if has_targets and not self.targets:
+            raise ValueError("At least one Proxmox target must be configured")
+        if has_targets and self.ssh is not None:
+            raise ValueError("Top-level ssh is only valid for legacy configuration; configure ssh inside each target")
+        if has_targets and self.api_tunnel is not None:
+            raise ValueError("Top-level api_tunnel is only valid for legacy configuration; configure api_tunnel inside each target")
+        if not has_targets and (self.proxmox is None or self.auth is None):
+            raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
+        if self.targets:
+            for name in self.targets:
+                if _TARGET_NAME_RE.fullmatch(name) is None:
+                    raise ValueError(
+                        f"Proxmox target name {name!r} is invalid: must match ^[A-Za-z0-9_-]{{1,64}}$"
+                    )
+            seen: dict[tuple[str, int], str] = {}
+            seen_remote: dict[tuple[str, str | None, int | None, str, int], str] = {}
+            for name, target in self.targets.items():
+                if not target.verify_ssl and not target.allow_insecure_tls:
+                    raise ValueError(
+                        f"Target {name!r} disables TLS verification without allow_insecure_tls=true"
+                    )
+                tunnel = target.api_tunnel
+                if tunnel and tunnel.enabled:
+                    endpoint = (tunnel.local_host, tunnel.local_port)
+                    if endpoint in seen:
+                        raise ValueError(
+                            f"API tunnel local endpoint {endpoint[0]}:{endpoint[1]} "
+                            f"is shared by targets {seen[endpoint]!r} and {name!r}"
+                        )
+                    seen[endpoint] = name
+                    # The gateway identity must include the effective SSH user and
+                    # port: SSHTunnelManager uses per-target ssh settings when
+                    # building the command, so the same ssh_host reached as a
+                    # different user or port is a genuinely different endpoint.
+                    ssh_user = target.ssh.user if target.ssh is not None else None
+                    ssh_port = target.ssh.port if target.ssh is not None else None
+                    remote_key = (
+                        tunnel.ssh_host,
+                        ssh_user,
+                        ssh_port,
+                        tunnel.remote_host,
+                        tunnel.remote_port,
+                    )
+                    if remote_key in seen_remote:
+                        raise ValueError(
+                            f"API tunnel remote endpoint {tunnel.remote_host}:{tunnel.remote_port} "
+                            f"via {tunnel.ssh_host!r} is shared by targets "
+                            f"{seen_remote[remote_key]!r} and {name!r}"
+                        )
+                    seen_remote[remote_key] = name
+        return self
     jobs: JobsConfig = Field(default_factory=JobsConfig)

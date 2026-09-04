@@ -17,11 +17,10 @@ from mcp.types import TextContent as Content
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
 from proxmox_mcp.observability import ToolMetrics
-
+from proxmox_mcp.security.sanitization import sanitize_string
 
 def _log_safe(value: object, max_length: int = 200) -> str:
-    text = str(value).replace("\r", "").replace("\n", "")
-    return text[:max_length]
+    return sanitize_string(value, max_length=max_length)
 
 
 class ProxmoxTool:
@@ -139,14 +138,15 @@ class ProxmoxTool:
             ValueError: For invalid input, missing resources, or permission issues
             RuntimeError: For unexpected errors or API failures
         """
-        error_msg = str(error)
+        raw_error_msg = str(error)
+        error_msg = _log_safe(raw_error_msg)
         self.logger.error("Failed to %s: %s", _log_safe(operation), _log_safe(error_msg))
 
-        if "not found" in error_msg.lower():
+        if "not found" in raw_error_msg.lower():
             raise ValueError(f"Resource not found: {error_msg}")
-        if "permission denied" in error_msg.lower():
+        if "permission denied" in raw_error_msg.lower():
             raise ValueError(f"Permission denied: {error_msg}")
-        if "invalid" in error_msg.lower():
+        if "invalid" in raw_error_msg.lower():
             raise ValueError(f"Invalid input: {error_msg}")
         
         raise RuntimeError(f"Failed to {operation}: {error_msg}")
