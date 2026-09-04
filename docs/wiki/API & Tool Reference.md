@@ -41,9 +41,22 @@ When the OpenAPI wrapper is enabled, the primary endpoints are:
 
 ## Global Behavior And Constraints
 
+### Target Selection and Tool Exposure
+
+`list_targets` discovers configured targets without returning credentials. All other
+tools accept an optional `target` argument; it is required when multiple targets exist.
+Target configuration owns the API/SSH connections, job store, read-only setting, and
+command policy. Direct OpenAPI `/jobs` routes use the `target` query parameter.
+
+The complete catalog has 50 tools. Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
+settings filter tools before MCP registration and OpenAPI route generation, including
+`list_targets`. The default exposes every available tool; SSH-only tools still require
+SSH configuration. Filtering does not disable direct operational OpenAPI routes or
+replace Proxmox RBAC. See the [Operator Guide](Operator-Guide) for exact configuration.
+
 ### Authentication and Authorization
 
-- Proxmox API access requires a valid `proxmox` and `auth` configuration.
+- Proxmox API access requires valid legacy `proxmox` and `auth` sections or a named `targets` configuration.
 - Native MCP Streamable HTTP access optionally requires `Authorization: Bearer <MCP_API_KEY>` when `MCP_API_KEY` is configured.
 - OpenAPI access requires `Authorization: Bearer <PROXMOX_API_KEY>` by default. Startup without an API key requires the explicit local-development override `PROXMOX_ALLOW_NO_AUTH=true`.
 - SSH-backed container command workflows require a valid `ssh` configuration.

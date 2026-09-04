@@ -49,6 +49,8 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 - SSH-backed container command execution
 - persistent job tracking with retry, cancel, polling, and audit history
 - OpenAPI bridging for the MCP tool surface
+- named Proxmox targets with isolated connections, jobs, and safety policies
+- opt-in MCP tool allowlists and denylists to reduce client schema exposure
 
 ## Safety Model Summary
 

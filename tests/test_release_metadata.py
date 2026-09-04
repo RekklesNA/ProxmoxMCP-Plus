@@ -1,4 +1,5 @@
 import ast
+import fnmatch
 import json
 import re
 import tomllib
@@ -96,6 +97,18 @@ def test_docker_context_excludes_local_secrets_and_tool_state():
         "!proxmox-config/config.example.json",
         "!proxmox-config/config.live.example.json",
     } <= patterns
+
+    git_patterns = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    for database in (
+        "proxmox-jobs.sqlite3",
+        "proxmox-jobs.sqlite3-wal",
+        "proxmox-jobs.sqlite3-shm",
+        "proxmox-jobs.sqlite3.target-lab",
+        "proxmox-jobs.sqlite3.target-lab-wal",
+        "proxmox-jobs.sqlite3.target-lab-shm",
+    ):
+        assert any(fnmatch.fnmatchcase(database, pattern) for pattern in patterns)
+        assert any(fnmatch.fnmatchcase(database, pattern) for pattern in git_patterns)
 
 
 def test_runtime_image_removes_python_packaging_toolchain():

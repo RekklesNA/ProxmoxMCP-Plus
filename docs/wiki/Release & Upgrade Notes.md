@@ -18,6 +18,19 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.15`
+
+- Release date: 2026-09-04
+- Summary: named Proxmox targets, opt-in tool filtering, and target/job safety hardening.
+- New tools: `list_targets`; the complete catalog contains 50 tools, subject to capability and exposure filters.
+- Configuration: optional `targets`, `mcp.tool_allowlist`, `mcp.tool_denylist`, `MCP_TOOL_ALLOWLIST`, and `MCP_TOOL_DENYLIST`.
+- Compatibility: legacy single-target configuration and unfiltered tool schemas remain available unchanged.
+- Safety: target-isolated jobs and policies, explicit multi-target selection, credential redaction, external tunnel ownership, and rejection of malformed filters.
+- Packaging: named-target SQLite databases and their WAL/SHM files are excluded from Git and Docker contexts.
+- Documentation: the Integrations Guide links the attributed, maintainer-reviewed Jetson community guide.
+- Upgrade: install `proxmox-mcp-plus==0.5.15` or pull GHCR `0.5.15`, then restart/reconnect clients. See the detailed release notes in `docs/releases/v0.5.15.md`.
+- Rollback: keep configuration/database backups. Version `0.5.14` does not support named targets or tool filtering; restore a legacy single-target configuration and external access restrictions before rolling back.
+
 ### Version `0.5.14`
 
 - Release date: 2026-08-11
