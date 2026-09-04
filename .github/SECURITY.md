@@ -6,8 +6,8 @@ This project currently provides security fixes for the latest release line only.
 
 | Version | Supported |
 | --- | --- |
-| `0.3.x` | Yes |
-| `< 0.4.1` | No |
+| Latest published release | Yes |
+| Older releases | No |
 
 The `main` branch may contain changes that have not been released yet. For production use, prefer the latest tagged release and upgrade within the current supported release line.
 
