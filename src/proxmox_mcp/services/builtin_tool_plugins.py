@@ -66,6 +66,15 @@ def _log_safe(value: object, max_length: int = 200) -> str:
     return text[:max_length]
 
 
+_READ_ONLY_TOOLS = {
+    "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
+    "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_containers",
+    "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
+    "list_backups", "get_node_syslog", "get_task_log", "get_cluster_log", "get_node_firewall_log",
+    "get_guest_firewall_log",
+}
+
+
 class GetContainersPayload(BaseModel):
     node: Optional[str] = Field(None, description="Optional node name (e.g. 'pve1')")
     include_stats: bool = Field(False, description="Fetch per-container live stats and fallbacks")
@@ -83,10 +92,12 @@ class RegistryPluginBase(ToolRegistryPlugin):
         approval_token: str | None,
         *,
         high_risk: bool,
+        resolved_target: Any,
     ) -> None:
         if not high_risk:
             return
-        decision = server.command_policy.evaluate_operation(
+        policy = server.target_command_policies[resolved_target.name]
+        decision = policy.evaluate_operation(
             tool_name,
             approval_token=approval_token,
         )
@@ -100,10 +111,15 @@ class RegistryPluginBase(ToolRegistryPlugin):
         server: Any,
         job_id: str,
         approval_token: str | None,
+        *,
+        resolved_target: Any,
     ) -> None:
-        job = server.job_store.get_job(job_id)
+        # Use target-isolated job store; provably same target as readonly/policy check.
+        job_store = server.target_job_stores[resolved_target.name]
+        job = job_store.get_job(job_id)
         operation_name = str(job.get("tool_name") or "")
-        decision = server.command_policy.evaluate_operation(
+        policy = server.target_command_policies[resolved_target.name]
+        decision = policy.evaluate_operation(
             operation_name,
             approval_token=approval_token,
         )
@@ -122,27 +138,51 @@ class RegistryPluginBase(ToolRegistryPlugin):
         self,
         server: Any,
         tool_name: str,
-        handler: Callable[..., Any],
+        handler_factory: Callable[[Any], Callable[..., Any]],
         *,
         high_risk: bool = False,
     ) -> Callable[..., Any]:
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             success = False
+            target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
+            resolved_target = None
             try:
+                resolved_target = server.target_registry.resolve(target)
+                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
+                    raise ValueError(
+                        f"Target '{resolved_target.name}' is configured read-only; "
+                        f"tool '{tool_name}' is not permitted"
+                    )
                 self._enforce_operation_policy(
                     server,
                     tool_name,
                     approval_token if isinstance(approval_token, str) else None,
                     high_risk=high_risk,
+                    resolved_target=resolved_target,
                 )
+                if tool_name == "retry_job":
+                    # Enforce retry policy using SAME resolved target before dispatch.
+                    job_id = kwargs.get("job_id")
+                    if job_id is None and args:
+                        job_id = args[0]
+                    self._enforce_job_retry_policy(
+                        server,
+                        str(job_id) if job_id is not None else "",
+                        approval_token if isinstance(approval_token, str) else None,
+                        resolved_target=resolved_target,
+                    )
+                toolset = server.target_tools(resolved_target.name)
+                handler = handler_factory(toolset)
+                if tool_name == "retry_job":
+                    kwargs.pop("approval_token", None)
                 result = handler(*args, **kwargs)
                 success = True
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success)
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
 
         return wrapped
 
@@ -150,50 +190,97 @@ class RegistryPluginBase(ToolRegistryPlugin):
         self,
         server: Any,
         tool_name: str,
-        handler: Callable[..., Awaitable[Any]],
+        handler_factory: Callable[[Any], Callable[..., Awaitable[Any]]],
         *,
         high_risk: bool = False,
     ) -> Callable[..., Awaitable[Any]]:
         async def wrapped(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             success = False
+            target = kwargs.pop("target", None)
             approval_token = kwargs.get("approval_token")
+            resolved_target = None
             try:
+                resolved_target = server.target_registry.resolve(target)
+                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
+                    raise ValueError(
+                        f"Target '{resolved_target.name}' is configured read-only; "
+                        f"tool '{tool_name}' is not permitted"
+                    )
                 self._enforce_operation_policy(
                     server,
                     tool_name,
                     approval_token if isinstance(approval_token, str) else None,
                     high_risk=high_risk,
+                    resolved_target=resolved_target,
                 )
+                toolset = server.target_tools(resolved_target.name)
+                handler = handler_factory(toolset)
                 result = await handler(*args, **kwargs)
                 success = True
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success)
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
 
         return wrapped
 
 
 class CoreToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        @server.mcp.tool(
+            description="List configured Proxmox targets without exposing credentials. "
+            "A target name is required for other tools when multiple targets are configured."
+        )
+        def list_targets() -> Any:
+            start = time.perf_counter()
+            try:
+                def discover(target: Any) -> dict[str, Any]:
+                    nodes = server.proxmox_managers[target.name].get_api().nodes.get()
+                    return {
+                        "reachable": True,
+                        "nodes": [
+                            str(node["node"])
+                            for node in nodes
+                            if isinstance(node, dict) and "node" in node
+                        ],
+                    }
+
+                result = server.target_registry.describe(discover=discover)
+                server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, True, target="all")
+                return result
+            except Exception:
+                server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, False, target="all")
+                raise
+
         @server.mcp.tool(description=GET_NODES_DESC)
-        def get_nodes() -> Any:
-            return self._wrap_sync(server, "get_nodes", server.node_tools.get_nodes)()
+        def get_nodes(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_nodes", lambda ts: ts.node_tools.get_nodes)(target=target)
 
         @server.mcp.tool(description=GET_NODE_STATUS_DESC)
         def get_node_status(
-            node: Annotated[str, Field(description="Name/ID of node to query (e.g. 'pve1', 'proxmox-node2')")]
+            node: Annotated[str, Field(description="Name/ID of node to query (e.g. 'pve1', 'proxmox-node2')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_node_status", server.node_tools.get_node_status)(node)
+            return self._wrap_sync(server, "get_node_status", lambda ts: ts.node_tools.get_node_status)(
+                node, target=target
+            )
 
         @server.mcp.tool(description=GET_STORAGE_DESC)
-        def get_storage() -> Any:
-            return self._wrap_sync(server, "get_storage", server.storage_tools.get_storage)()
+        def get_storage(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_storage", lambda ts: ts.storage_tools.get_storage)(target=target)
 
         @server.mcp.tool(description=GET_CLUSTER_STATUS_DESC)
-        def get_cluster_status() -> Any:
-            return self._wrap_sync(server, "get_cluster_status", server.cluster_tools.get_cluster_status)()
+        def get_cluster_status(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_cluster_status", lambda ts: ts.cluster_tools.get_cluster_status)(
+                target=target
+            )
 
 
 class JobsToolsPlugin(RegistryPluginBase):
@@ -203,65 +290,70 @@ class JobsToolsPlugin(RegistryPluginBase):
             status: Annotated[Optional[str], Field(description="Optional status filter", default=None)] = None,
             tool_name: Annotated[Optional[str], Field(description="Optional originating tool filter", default=None)] = None,
             limit: Annotated[int, Field(description="Maximum jobs to return", ge=1, le=500, default=100)] = 100,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "list_jobs", server.jobs_tools.list_jobs)(
+            return self._wrap_sync(server, "list_jobs", lambda ts: ts.jobs_tools.list_jobs)(
                 status=status,
                 tool_name=tool_name,
                 limit=limit,
+                target=target,
             )
 
         @server.mcp.tool(description=GET_JOB_DESC)
         def get_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             refresh: Annotated[bool, Field(description="Poll Proxmox before returning", default=False)] = False,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_job", server.jobs_tools.get_job)(
+            return self._wrap_sync(server, "get_job", lambda ts: ts.jobs_tools.get_job)(
                 job_id=job_id,
                 refresh=refresh,
+                target=target,
             )
 
         @server.mcp.tool(description=POLL_JOB_DESC)
         def poll_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "poll_job", server.jobs_tools.poll_job)(job_id=job_id)
+            return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target)
 
         @server.mcp.tool(description=CANCEL_JOB_DESC)
         def cancel_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "cancel_job", server.jobs_tools.cancel_job)(job_id=job_id)
+            return self._wrap_sync(server, "cancel_job", lambda ts: ts.jobs_tools.cancel_job)(job_id=job_id, target=target)
 
         @server.mcp.tool(description=RETRY_JOB_DESC)
         def retry_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk job retries", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            def guarded_retry(job_id: str) -> Any:
-                self._enforce_job_retry_policy(
-                    server,
-                    job_id,
-                    approval_token if isinstance(approval_token, str) else None,
-                )
-                return server.jobs_tools.retry_job(job_id=job_id)
-
-            return self._wrap_sync(server, "retry_job", guarded_retry)(job_id=job_id)
+            return self._wrap_sync(server, "retry_job", lambda ts: ts.jobs_tools.retry_job)(
+                job_id=job_id, approval_token=approval_token, target=target
+            )
 
 
 class VMToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
         @server.mcp.tool(description=GET_VMS_DESC)
-        def get_vms() -> Any:
-            return self._wrap_sync(server, "get_vms", server.vm_tools.get_vms)()
+        def get_vms(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None
+        ) -> Any:
+            return self._wrap_sync(server, "get_vms", lambda ts: ts.vm_tools.get_vms)(target=target)
 
         @server.mcp.tool(description=GET_VM_CONFIG_DESC)
         def get_vm_config(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_vm_config", server.vm_tools.get_vm_config)(
+            return self._wrap_sync(server, "get_vm_config", lambda ts: ts.vm_tools.get_vm_config)(
                 node=node,
                 vmid=vmid,
+                target=target,
             )
 
         @server.mcp.tool(description=SET_VM_DESCRIPTION_DESC)
@@ -269,11 +361,13 @@ class VMToolsPlugin(RegistryPluginBase):
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100')")],
             description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "set_vm_description", server.vm_tools.set_vm_description)(
+            return self._wrap_sync(server, "set_vm_description", lambda ts: ts.vm_tools.set_vm_description)(
                 node=node,
                 vmid=vmid,
                 description=description,
+                target=target,
             )
 
         @server.mcp.tool(description=CREATE_VM_DESC)
@@ -288,8 +382,9 @@ class VMToolsPlugin(RegistryPluginBase):
             ostype: Annotated[Optional[str], Field(description="OS type (optional, default: 'l26' for Linux)", default=None)] = None,
             network_bridge: Annotated[Optional[str], Field(description="Network bridge name (optional, default: 'vmbr0')", default=None)] = None,
             pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "create_vm", server.vm_tools.create_vm)(
+            return self._wrap_sync(server, "create_vm", lambda ts: ts.vm_tools.create_vm)(
                 node,
                 vmid,
                 name,
@@ -300,6 +395,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 ostype,
                 network_bridge,
                 pool,
+                target=target,
             )
 
         @server.mcp.tool(description=CLONE_VM_DESC)
@@ -313,8 +409,9 @@ class VMToolsPlugin(RegistryPluginBase):
             storage: Annotated[Optional[str], Field(description="Target storage (optional)", default=None)] = None,
             pool: Annotated[Optional[str], Field(description="Target resource pool (optional)", default=None)] = None,
             snapname: Annotated[Optional[str], Field(description="Snapshot name to clone from (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "clone_vm", server.vm_tools.clone_vm)(
+            return self._wrap_sync(server, "clone_vm", lambda ts: ts.vm_tools.clone_vm)(
                 node=node,
                 source_vmid=source_vmid,
                 target_vmid=target_vmid,
@@ -324,6 +421,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 storage=storage,
                 pool=pool,
                 snapname=snapname,
+                target=target,
             )
 
         @server.mcp.tool(description=EXECUTE_VM_COMMAND_DESC)
@@ -332,41 +430,47 @@ class VMToolsPlugin(RegistryPluginBase):
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
             command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return await self._wrap_async(server, "execute_vm_command", server.vm_tools.execute_command)(
+            return await self._wrap_async(server, "execute_vm_command", lambda ts: ts.vm_tools.execute_command)(
                 node,
                 vmid,
                 command,
                 approval_token,
+                target=target,
             )
 
         @server.mcp.tool(description=START_VM_DESC)
         def start_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "start_vm", server.vm_tools.start_vm)(node, vmid)
+            return self._wrap_sync(server, "start_vm", lambda ts: ts.vm_tools.start_vm)(node, vmid, target=target)
 
         @server.mcp.tool(description=STOP_VM_DESC)
         def stop_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "stop_vm", server.vm_tools.stop_vm)(node, vmid)
+            return self._wrap_sync(server, "stop_vm", lambda ts: ts.vm_tools.stop_vm)(node, vmid, target=target)
 
         @server.mcp.tool(description=SHUTDOWN_VM_DESC)
         def shutdown_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "shutdown_vm", server.vm_tools.shutdown_vm)(node, vmid)
+            return self._wrap_sync(server, "shutdown_vm", lambda ts: ts.vm_tools.shutdown_vm)(node, vmid, target=target)
 
         @server.mcp.tool(description=RESET_VM_DESC)
         def reset_vm(
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "reset_vm", server.vm_tools.reset_vm)(node, vmid)
+            return self._wrap_sync(server, "reset_vm", lambda ts: ts.vm_tools.reset_vm)(node, vmid, target=target)
 
         @server.mcp.tool(description=DELETE_VM_DESC)
         def delete_vm(
@@ -374,12 +478,14 @@ class VMToolsPlugin(RegistryPluginBase):
             vmid: Annotated[str, Field(description="VM ID number (e.g. '998')")],
             force: Annotated[bool, Field(description="Force deletion even if VM is running", default=False)] = False,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "delete_vm", server.vm_tools.delete_vm, high_risk=True)(
+            return self._wrap_sync(server, "delete_vm", lambda ts: ts.vm_tools.delete_vm, high_risk=True)(
                 node,
                 vmid,
                 force,
                 approval_token=approval_token,
+                target=target,
             )
 
 
@@ -392,6 +498,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
             include_raw: Annotated[bool, Field(description="Include raw status/config")] = False,
             format_style: Annotated[Literal["pretty", "json"], Field(description="'pretty' or 'json'")] = "pretty",
             payload: Annotated[Optional[dict[str, Any]], Field(description="Legacy container query options")] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             if payload is not None:
                 legacy_payload = GetContainersPayload.model_validate(payload)
@@ -404,21 +511,24 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 if "format_style" in legacy_payload.model_fields_set:
                     format_style = legacy_payload.format_style
 
-            return self._wrap_sync(server, "get_containers", server.container_tools.get_containers)(
+            return self._wrap_sync(server, "get_containers", lambda ts: ts.container_tools.get_containers)(
                 node=node,
                 include_stats=include_stats,
                 include_raw=include_raw,
                 format_style=format_style,
+                target=target,
             )
 
         @server.mcp.tool(description=START_CONTAINER_DESC)
         def start_container(
             selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
             format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "start_container", server.container_tools.start_container)(
+            return self._wrap_sync(server, "start_container", lambda ts: ts.container_tools.start_container)(
                 selector=selector,
                 format_style=format_style,
+                target=target,
             )
 
         @server.mcp.tool(description=STOP_CONTAINER_DESC)
@@ -427,12 +537,14 @@ class ContainerToolsPlugin(RegistryPluginBase):
             graceful: Annotated[bool, Field(description="Graceful shutdown (True) or forced stop (False)", default=True)] = True,
             timeout_seconds: Annotated[int, Field(description="Timeout for stop/shutdown", ge=1, le=600)] = 10,
             format_style: Annotated[Literal["pretty", "json"], Field(description="Output format")] = "pretty",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "stop_container", server.container_tools.stop_container)(
+            return self._wrap_sync(server, "stop_container", lambda ts: ts.container_tools.stop_container)(
                 selector=selector,
                 graceful=graceful,
                 timeout_seconds=timeout_seconds,
                 format_style=format_style,
+                target=target,
             )
 
         @server.mcp.tool(description=RESTART_CONTAINER_DESC)
@@ -440,11 +552,13 @@ class ContainerToolsPlugin(RegistryPluginBase):
             selector: Annotated[str, Field(description="CT selector (see start_container)")],
             timeout_seconds: Annotated[int, Field(description="Timeout for reboot", ge=1, le=600)] = 10,
             format_style: Annotated[str, Field(description="'pretty' or 'json'", pattern="^(pretty|json)$")] = "pretty",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "restart_container", server.container_tools.restart_container)(
+            return self._wrap_sync(server, "restart_container", lambda ts: ts.container_tools.restart_container)(
                 selector=selector,
                 timeout_seconds=timeout_seconds,
                 format_style=format_style,
+                target=target,
             )
 
         @server.mcp.tool(description=UPDATE_CONTAINER_RESOURCES_DESC)
@@ -456,8 +570,9 @@ class ContainerToolsPlugin(RegistryPluginBase):
             disk_gb: Annotated[Optional[int], Field(description="Additional disk size in GiB", ge=1)] = None,
             disk: Annotated[str, Field(description="Disk to resize", default="rootfs")] = "rootfs",
             format_style: Annotated[Literal["pretty", "json"], Field(description="Output format")] = "pretty",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "update_container_resources", server.container_tools.update_container_resources)(
+            return self._wrap_sync(server, "update_container_resources", lambda ts: ts.container_tools.update_container_resources)(
                 selector=selector,
                 cores=cores,
                 memory=memory,
@@ -465,6 +580,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 disk_gb=disk_gb,
                 disk=disk,
                 format_style=format_style,
+                target=target,
             )
 
         @server.mcp.tool(description=CREATE_CONTAINER_DESC)
@@ -486,8 +602,9 @@ class ContainerToolsPlugin(RegistryPluginBase):
             nesting: Annotated[bool, Field(description="Enable LXC nesting (features: nesting=1)", default=False)] = False,
             unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
             pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "create_container", server.container_tools.create_container)(
+            return self._wrap_sync(server, "create_container", lambda ts: ts.container_tools.create_container)(
                 node=node,
                 vmid=vmid,
                 ostemplate=ostemplate,
@@ -505,6 +622,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 nesting=nesting,
                 unprivileged=unprivileged,
                 pool=pool,
+                target=target,
             )
 
         @server.mcp.tool(description=DELETE_CONTAINER_DESC)
@@ -513,18 +631,33 @@ class ContainerToolsPlugin(RegistryPluginBase):
             force: Annotated[bool, Field(description="Force deletion even if running", default=False)] = False,
             format_style: Annotated[Literal["pretty", "json"], Field(description="Output format")] = "pretty",
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "delete_container", server.container_tools.delete_container, high_risk=True)(
+            return self._wrap_sync(server, "delete_container", lambda ts: ts.container_tools.delete_container, high_risk=True)(
                 selector=selector,
                 force=force,
                 format_style=format_style,
                 approval_token=approval_token,
+                target=target,
             )
 
-        if server.config.ssh is not None:
+        target_registry = getattr(server, "target_registry", None)
+        target_names = target_registry.names if target_registry is not None else ("default",)
+        has_target_ssh_names = tuple(
+            name for name in target_names
+            if target_registry is not None and server.target_registry.resolve(name).ssh is not None
+        )
+        has_target_ssh = bool(has_target_ssh_names) or (
+            target_names == ("default",) and bool(server.config.ssh)
+        )
+        if has_target_ssh:
+            configured_names = (
+                ("default",) if server.config.ssh and target_names == ("default",)
+                else has_target_ssh_names
+            )
             server.logger.info(
-                "Container command execution enabled (SSH configured for user '%s')",
-                server.config.ssh.user,
+                "Container command execution enabled (SSH configured for targets: %s)",
+                ", ".join(configured_names),
             )
 
             @server.mcp.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
@@ -532,11 +665,13 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
+                target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(server, "execute_container_command", server.container_tools.execute_command)(
+                return self._wrap_sync(server, "execute_container_command", lambda ts: ts.container_tools.execute_command)(
                     selector=selector,
                     command=command,
                     approval_token=approval_token,
+                    target=target,
                 )
 
             @server.mcp.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
@@ -546,11 +681,12 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
                 mode: Annotated[str, Field(description="'append' (default) or 'replace'", pattern="^(append|replace)$", default="append")] = "append",
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+                target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
                 return self._wrap_sync(
                     server,
                     "update_container_ssh_keys",
-                    server.container_tools.update_container_ssh_keys,
+                    lambda ts: ts.container_tools.update_container_ssh_keys,
                     high_risk=True,
                 )(
                     node=node,
@@ -558,6 +694,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                     public_keys=public_keys,
                     mode=mode,
                     approval_token=approval_token,
+                    target=target,
                 )
         else:
             server.logger.info("Container command execution disabled (no [ssh] section in config)")
@@ -566,10 +703,12 @@ class ContainerToolsPlugin(RegistryPluginBase):
         def get_container_config(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_container_config", server.container_tools.get_container_config)(
+            return self._wrap_sync(server, "get_container_config", lambda ts: ts.container_tools.get_container_config)(
                 node=node,
                 vmid=vmid,
+                target=target,
             )
 
         @server.mcp.tool(description=SET_CONTAINER_DESCRIPTION_DESC)
@@ -577,23 +716,27 @@ class ContainerToolsPlugin(RegistryPluginBase):
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
             description: Annotated[str, Field(description="New notes text (replaces any existing notes)")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(
-                server, "set_container_description", server.container_tools.set_container_description
+                server, "set_container_description", lambda ts: ts.container_tools.set_container_description
             )(
                 node=node,
                 vmid=vmid,
                 description=description,
+                target=target,
             )
 
         @server.mcp.tool(description=GET_CONTAINER_IP_DESC)
         def get_container_ip(
             node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_container_ip", server.container_tools.get_container_ip)(
+            return self._wrap_sync(server, "get_container_ip", lambda ts: ts.container_tools.get_container_ip)(
                 node=node,
                 vmid=vmid,
+                target=target,
             )
 
 
@@ -604,11 +747,13 @@ class SnapshotToolsPlugin(RegistryPluginBase):
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM or container ID (e.g. '100')")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' for VMs, 'lxc' for containers", default="qemu")] = "qemu",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "list_snapshots", server.snapshot_tools.list_snapshots)(
+            return self._wrap_sync(server, "list_snapshots", lambda ts: ts.snapshot_tools.list_snapshots)(
                 node=node,
                 vmid=vmid,
                 vm_type=vm_type,
+                target=target,
             )
 
         @server.mcp.tool(description=CREATE_SNAPSHOT_DESC)
@@ -619,14 +764,16 @@ class SnapshotToolsPlugin(RegistryPluginBase):
             description: Annotated[Optional[str], Field(description="Optional description", default=None)] = None,
             vmstate: Annotated[bool, Field(description="Include memory state (VMs only)", default=False)] = False,
             vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "create_snapshot", server.snapshot_tools.create_snapshot)(
+            return self._wrap_sync(server, "create_snapshot", lambda ts: ts.snapshot_tools.create_snapshot)(
                 node=node,
                 vmid=vmid,
                 snapname=snapname,
                 description=description,
                 vmstate=vmstate,
                 vm_type=vm_type,
+                target=target,
             )
 
         @server.mcp.tool(description=DELETE_SNAPSHOT_DESC)
@@ -636,13 +783,15 @@ class SnapshotToolsPlugin(RegistryPluginBase):
             snapname: Annotated[str, Field(description="Snapshot name to delete")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "delete_snapshot", server.snapshot_tools.delete_snapshot, high_risk=True)(
+            return self._wrap_sync(server, "delete_snapshot", lambda ts: ts.snapshot_tools.delete_snapshot, high_risk=True)(
                 node=node,
                 vmid=vmid,
                 snapname=snapname,
                 vm_type=vm_type,
                 approval_token=approval_token,
+                target=target,
             )
 
         @server.mcp.tool(description=ROLLBACK_SNAPSHOT_DESC)
@@ -652,13 +801,15 @@ class SnapshotToolsPlugin(RegistryPluginBase):
             snapname: Annotated[str, Field(description="Snapshot name to restore")],
             vm_type: Annotated[str, Field(description="Type: 'qemu' or 'lxc'", default="qemu")] = "qemu",
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "rollback_snapshot", server.snapshot_tools.rollback_snapshot, high_risk=True)(
+            return self._wrap_sync(server, "rollback_snapshot", lambda ts: ts.snapshot_tools.rollback_snapshot, high_risk=True)(
                 node=node,
                 vmid=vmid,
                 snapname=snapname,
                 vm_type=vm_type,
                 approval_token=approval_token,
+                target=target,
             )
 
 
@@ -668,15 +819,19 @@ class ImageToolsPlugin(RegistryPluginBase):
         def list_isos(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "list_isos", server.iso_tools.list_isos)(node=node, storage=storage)
+            return self._wrap_sync(server, "list_isos", lambda ts: ts.iso_tools.list_isos)(node=node, storage=storage, target=target)
 
         @server.mcp.tool(description=LIST_TEMPLATES_DESC)
         def list_templates(
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "list_templates", server.iso_tools.list_templates)(node=node, storage=storage)
+            return self._wrap_sync(server, "list_templates", lambda ts: ts.iso_tools.list_templates)(
+                node=node, storage=storage, target=target
+            )
 
         @server.mcp.tool(description=DOWNLOAD_ISO_DESC)
         def download_iso(
@@ -686,14 +841,16 @@ class ImageToolsPlugin(RegistryPluginBase):
             filename: Annotated[str, Field(description="Target filename (e.g. 'ubuntu-22.04.iso')")],
             checksum: Annotated[Optional[str], Field(description="Optional checksum", default=None)] = None,
             checksum_algorithm: Annotated[str, Field(description="Algorithm: sha256, sha512, md5", default="sha256")] = "sha256",
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "download_iso", server.iso_tools.download_iso)(
+            return self._wrap_sync(server, "download_iso", lambda ts: ts.iso_tools.download_iso)(
                 node=node,
                 storage=storage,
                 url=url,
                 filename=filename,
                 checksum=checksum,
                 checksum_algorithm=checksum_algorithm,
+                target=target,
             )
 
         @server.mcp.tool(description=DELETE_ISO_DESC)
@@ -702,12 +859,14 @@ class ImageToolsPlugin(RegistryPluginBase):
             storage: Annotated[str, Field(description="Storage pool name")],
             filename: Annotated[str, Field(description="ISO/template filename to delete")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "delete_iso", server.iso_tools.delete_iso, high_risk=True)(
+            return self._wrap_sync(server, "delete_iso", lambda ts: ts.iso_tools.delete_iso, high_risk=True)(
                 node=node,
                 storage=storage,
                 filename=filename,
                 approval_token=approval_token,
+                target=target,
             )
 
 
@@ -718,11 +877,13 @@ class BackupToolsPlugin(RegistryPluginBase):
             node: Annotated[Optional[str], Field(description="Filter by node (optional)", default=None)] = None,
             storage: Annotated[Optional[str], Field(description="Filter by storage pool (optional)", default=None)] = None,
             vmid: Annotated[Optional[str], Field(description="Filter by VM/container ID (optional)", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "list_backups", server.backup_tools.list_backups)(
+            return self._wrap_sync(server, "list_backups", lambda ts: ts.backup_tools.list_backups)(
                 node=node,
                 storage=storage,
                 vmid=vmid,
+                target=target,
             )
 
         @server.mcp.tool(description=CREATE_BACKUP_DESC)
@@ -733,14 +894,16 @@ class BackupToolsPlugin(RegistryPluginBase):
             compress: Annotated[str, Field(description="Compression: 0, gzip, lz4, zstd", default="zstd")] = "zstd",
             mode: Annotated[str, Field(description="Mode: snapshot, suspend, stop", default="snapshot")] = "snapshot",
             notes: Annotated[Optional[str], Field(description="Optional notes", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "create_backup", server.backup_tools.create_backup)(
+            return self._wrap_sync(server, "create_backup", lambda ts: ts.backup_tools.create_backup)(
                 node=node,
                 vmid=vmid,
                 storage=storage,
                 compress=compress,
                 mode=mode,
                 notes=notes,
+                target=target,
             )
 
         @server.mcp.tool(description=RESTORE_BACKUP_DESC)
@@ -751,14 +914,16 @@ class BackupToolsPlugin(RegistryPluginBase):
             storage: Annotated[Optional[str], Field(description="Target storage (optional)", default=None)] = None,
             unique: Annotated[bool, Field(description="Generate unique MAC addresses", default=True)] = True,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "restore_backup", server.backup_tools.restore_backup, high_risk=True)(
+            return self._wrap_sync(server, "restore_backup", lambda ts: ts.backup_tools.restore_backup, high_risk=True)(
                 node=node,
                 archive=archive,
                 vmid=vmid,
                 storage=storage,
                 unique=unique,
                 approval_token=approval_token,
+                target=target,
             )
 
         @server.mcp.tool(description=DELETE_BACKUP_DESC)
@@ -767,12 +932,14 @@ class BackupToolsPlugin(RegistryPluginBase):
             storage: Annotated[str, Field(description="Storage pool name")],
             volid: Annotated[str, Field(description="Backup volume ID to delete")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "delete_backup", server.backup_tools.delete_backup, high_risk=True)(
+            return self._wrap_sync(server, "delete_backup", lambda ts: ts.backup_tools.delete_backup, high_risk=True)(
                 node=node,
                 storage=storage,
                 volid=volid,
                 approval_token=approval_token,
+                target=target,
             )
 
 
@@ -811,9 +978,10 @@ class LogToolsPlugin(RegistryPluginBase):
                 Optional[str],
                 Field(description="Filter by service name (e.g. 'pvedaemon', 'pveproxy')", default=None),
             ] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_node_syslog", server.log_tools.get_node_syslog)(
-                node=node, limit=limit, start=start, since=since, until=until, service=service
+            return self._wrap_sync(server, "get_node_syslog", lambda ts: ts.log_tools.get_node_syslog)(
+                node=node, limit=limit, start=start, since=since, until=until, service=service, target=target
             )
 
         @server.mcp.tool(description=GET_TASK_LOG_DESC)
@@ -828,9 +996,10 @@ class LogToolsPlugin(RegistryPluginBase):
                 int,
                 Field(description="Maximum number of log lines to return", ge=1, le=500, default=50),
             ] = 50,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_task_log", server.log_tools.get_task_log)(
-                node=node, upid=upid, start=start, limit=limit
+            return self._wrap_sync(server, "get_task_log", lambda ts: ts.log_tools.get_task_log)(
+                node=node, upid=upid, start=start, limit=limit, target=target
             )
 
         @server.mcp.tool(description=GET_CLUSTER_LOG_DESC)
@@ -839,9 +1008,10 @@ class LogToolsPlugin(RegistryPluginBase):
                 int,
                 Field(description="Maximum number of cluster log entries to return", ge=1, le=1000, default=50),
             ] = 50,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_cluster_log", server.log_tools.get_cluster_log)(
-                max_entries=max_entries
+            return self._wrap_sync(server, "get_cluster_log", lambda ts: ts.log_tools.get_cluster_log)(
+                max_entries=max_entries, target=target
             )
 
         @server.mcp.tool(description=GET_NODE_FIREWALL_LOG_DESC)
@@ -863,10 +1033,11 @@ class LogToolsPlugin(RegistryPluginBase):
                 Optional[int],
                 Field(description="Show entries until this UNIX epoch timestamp", default=None),
             ] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(
-                server, "get_node_firewall_log", server.log_tools.get_node_firewall_log
-            )(node=node, limit=limit, start=start, since=since, until=until)
+                server, "get_node_firewall_log", lambda ts: ts.log_tools.get_node_firewall_log
+            )(node=node, limit=limit, start=start, since=since, until=until, target=target)
 
         @server.mcp.tool(description=GET_GUEST_FIREWALL_LOG_DESC)
         def get_guest_firewall_log(
@@ -892,9 +1063,10 @@ class LogToolsPlugin(RegistryPluginBase):
                 Optional[int],
                 Field(description="Show entries until this UNIX epoch timestamp", default=None),
             ] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(
-                server, "get_guest_firewall_log", server.log_tools.get_guest_firewall_log
+                server, "get_guest_firewall_log", lambda ts: ts.log_tools.get_guest_firewall_log
             )(
                 node=node,
                 vmid=vmid,
@@ -903,4 +1075,5 @@ class LogToolsPlugin(RegistryPluginBase):
                 start=start,
                 since=since,
                 until=until,
+                target=target,
             )

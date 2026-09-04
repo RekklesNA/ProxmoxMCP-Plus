@@ -11,12 +11,33 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
-
+from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
 _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def target_job_sqlite_path(base_path: str, target_name: str) -> str:
+    """Derive the per-target database path shared by MCP and OpenAPI."""
+    base = Path(base_path)
+    return str(base.with_name(f"{base.name}.target-{target_name}"))
+
+
+def _is_secret_key(key: str) -> bool:
+    return is_secret_key(key)
+
+
+def _sanitize_string(text: str) -> str:
+    return sanitize_string(text)
+
+
+def _sanitize(value: Any) -> Any:
+    """Outbound-only sanitization — redacts secrets for API responses/logs.
+    Uses regex sweeps so innocent URLs are not re-encoded or corrupted.
+    Persisted retry_spec is handled separately (see register_task)."""
+    return sanitize_value(value)
 
 
 def _utcnow() -> str:
@@ -41,7 +62,7 @@ class JobAuditEvent:
         return {
             "timestamp": self.timestamp,
             "event": self.event,
-            "details": self.details,
+            "details": _sanitize(self.details),
         }
 
 
@@ -65,6 +86,7 @@ class JobRecord:
     previous_upids: list[str] = field(default_factory=list)
     audit_log: list[JobAuditEvent] = field(default_factory=list)
     retry_spec: Optional[dict[str, Any]] = None
+    retry_spec_redacted: bool = False
     retry_factory: Optional[Callable[[], Any]] = field(default=None, repr=False)
     cancel_factory: Optional[Callable[[str], Any]] = field(default=None, repr=False)
 
@@ -79,27 +101,32 @@ class JobRecord:
             "summary": self.summary,
             "node": self.node,
             "upid": self.upid,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "completed_at": self.completed_at,
             "status": self.status,
             "progress": self.progress,
             "attempts": self.attempts,
             "retry_count": self.retry_count,
-            "last_error": self.last_error,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "completed_at": self.completed_at,
-            "result": self.result,
-            "metadata": self.metadata,
+            "last_error": _sanitize(self.last_error),
+            "result": _sanitize(self.result),
+            "metadata": _sanitize(self.metadata),
             "previous_upids": self.previous_upids,
             "audit_log": [item.as_dict() for item in self.audit_log],
-            "retry_spec": self.retry_spec,
+            "retry_spec": _sanitize(self.retry_spec),
+            "retry_spec_redacted": self.retry_spec_redacted,
         }
 
 
 class JobStore:
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
-    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3") -> None:
+    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False) -> None:
         self.proxmox = proxmox_api
+        self.target_name = target_name
+        # Legacy mode: a single unambiguous target owns the whole database, so
+        # jobs written before target metadata existed must stay reachable.
+        self.legacy_mode = legacy_mode
         self.sqlite_path = str(Path(sqlite_path).expanduser())
         Path(self.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, JobRecord] = {}
@@ -145,6 +172,9 @@ class JobStore:
     ) -> dict[str, Any]:
         job_id = str(uuid.uuid4())
         now = _utcnow()
+        job_metadata = dict(metadata or {})
+        if self.target_name is not None:
+            job_metadata["target"] = self.target_name
         record = JobRecord(
             job_id=job_id,
             tool_name=tool_name,
@@ -153,8 +183,9 @@ class JobStore:
             upid=str(upid) if upid is not None else None,
             created_at=now,
             updated_at=now,
-            metadata=dict(metadata or {}),
-            retry_spec=dict(retry_spec) if retry_spec else None,
+            metadata=job_metadata,
+            retry_spec=_sanitize(retry_spec) if retry_spec else None,
+            retry_spec_redacted=bool(retry_spec and _sanitize(retry_spec) != retry_spec),
             retry_factory=retry_factory,
             cancel_factory=cancel_factory,
         )
@@ -248,6 +279,8 @@ class JobStore:
     def retry_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             record = self._load_record_from_db(job_id)
+            if record.retry_spec_redacted and record.retry_factory is None:
+                raise JobConflictError(f"Job {job_id} retry recipe was redacted and cannot be retried")
             if record.status not in _RETRYABLE_STATUSES:
                 raise JobConflictError(
                     f"Job {job_id} cannot be retried while status is '{record.status}'. "
@@ -401,10 +434,15 @@ class JobStore:
                 metadata_json TEXT NOT NULL,
                 previous_upids_json TEXT NOT NULL,
                 audit_log_json TEXT NOT NULL,
-                retry_spec_json TEXT
+                retry_spec_json TEXT,
+                retry_spec_redacted INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        try:
+            self._conn.execute("ALTER TABLE jobs ADD COLUMN retry_spec_redacted INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs (status, created_at DESC)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tool_created_at ON jobs (tool_name, created_at DESC)")
@@ -413,6 +451,21 @@ class JobStore:
             (1, _utcnow()),
         )
         self._conn.commit()
+        # Migration warning: legacy jobs without target metadata cannot be safely
+        # isolated between named targets. In legacy mode this store owns the whole
+        # database and still serves those jobs, so no warning is warranted.
+        if self.target_name is not None and not self.legacy_mode:
+            try:
+                count = self._conn.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
+                ).fetchone()[0]
+                if count:
+                    import logging
+                    logging.getLogger("proxmox-mcp.jobs").warning(
+                        "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
+                    )
+            except Exception:
+                pass
 
     def _load_records(self) -> None:
         with self._lock:
@@ -448,14 +501,31 @@ class JobStore:
                 for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
             ],
             retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
+            retry_spec_redacted=bool(row["retry_spec_redacted"]) if "retry_spec_redacted" in row.keys() else False,
             retry_factory=existing.retry_factory if existing is not None else None,
             cancel_factory=existing.cancel_factory if existing is not None else None,
         )
+
+    def _target_matches(self, stored_target: Any) -> bool:
+        """Whether a stored job belongs to this store's target.
+
+        In legacy mode the store owns the entire database, so jobs written
+        before target metadata existed (stored_target is None) remain visible.
+        Named targets never inherit untargeted jobs.
+        """
+        if self.target_name is None:
+            return True
+        if stored_target == self.target_name:
+            return True
+        return self.legacy_mode and stored_target is None
 
     def _load_record_from_db(self, job_id: str) -> JobRecord:
         row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
             self._jobs.pop(job_id, None)
+            raise JobNotFoundError(f"Unknown job_id: {job_id}")
+        stored_target = json.loads(row["metadata_json"] or "{}").get("target")
+        if not self._target_matches(stored_target):
             raise JobNotFoundError(f"Unknown job_id: {job_id}")
         record = self._row_to_record(row)
         self._jobs[record.job_id] = record
@@ -477,6 +547,17 @@ class JobStore:
         if tool_name:
             where.append("tool_name = ?")
             params.append(tool_name)
+        if self.target_name is not None:
+            if self.legacy_mode:
+                # Legacy upgrade: this store owns the database, so also surface
+                # jobs recorded before target metadata was introduced.
+                where.append(
+                    "(json_extract(metadata_json, '$.target') = ? "
+                    "OR json_extract(metadata_json, '$.target') IS NULL)"
+                )
+            else:
+                where.append("json_extract(metadata_json, '$.target') = ?")
+            params.append(self.target_name)
         where_clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self._conn.execute(
             f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
@@ -493,8 +574,8 @@ class JobStore:
             INSERT OR REPLACE INTO jobs (
                 job_id, tool_name, summary, node, upid, created_at, updated_at, status,
                 progress, attempts, retry_count, last_error, completed_at, result_json,
-                metadata_json, previous_upids_json, audit_log_json, retry_spec_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                metadata_json, previous_upids_json, audit_log_json, retry_spec_json, retry_spec_redacted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.job_id,
@@ -508,13 +589,14 @@ class JobStore:
                 record.progress,
                 record.attempts,
                 record.retry_count,
-                record.last_error,
+                _sanitize(record.last_error),
                 record.completed_at,
-                json.dumps(record.result, sort_keys=True) if record.result is not None else None,
-                json.dumps(record.metadata, sort_keys=True),
+                json.dumps(_sanitize(record.result), sort_keys=True) if record.result is not None else None,
+                json.dumps(_sanitize(record.metadata), sort_keys=True),
                 json.dumps(record.previous_upids),
-                json.dumps([item.as_dict() for item in record.audit_log]),
+                json.dumps(_sanitize([item.as_dict() for item in record.audit_log])),
                 json.dumps(record.retry_spec, sort_keys=True) if record.retry_spec is not None else None,
+                int(record.retry_spec_redacted),
             ),
         )
         self._conn.commit()

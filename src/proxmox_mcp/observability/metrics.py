@@ -29,24 +29,30 @@ class LabeledMetricSeries:
 class ToolMetrics:
     """Thread-safe tool metrics keyed by tool name and execution status."""
 
-    _series: dict[tuple[str, str], LabeledMetricSeries] = field(default_factory=dict)
+    _series: dict[tuple[str, str, str], LabeledMetricSeries] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def observe(self, tool_name: str, latency_ms: float, success: bool) -> None:
+    def observe(self, tool_name: str, latency_ms: float, success: bool, target: str = "default") -> None:
         status = "success" if success else "error"
         with self._lock:
-            self._entry(tool_name, status).observe(latency_ms)
+            self._entry(tool_name, status, target).observe(latency_ms)
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            grouped: dict[str, dict[str, dict[str, float | int]]] = {}
-            for (tool_name, status), series in sorted(self._series.items()):
-                grouped.setdefault(tool_name, {})[status] = {
-                    "calls": series.count,
-                    "latency_ms_sum": round(series.latency_ms_sum, 3),
-                    "latency_ms_avg": round(series.latency_ms_avg, 3),
-                    "latency_ms_max": round(series.latency_ms_max, 3),
-                }
+            grouped: dict[str, dict[str, dict[str, dict[str, float | int]]]] = {}
+            for (tool_name, status, target), series in sorted(self._series.items()):
+                grouped.setdefault(tool_name, {}).setdefault(status, {}).setdefault(target, {
+                    "calls": 0, "latency_ms_sum": 0.0, "latency_ms_avg": 0.0, "latency_ms_max": 0.0,
+                })
+                item = grouped[tool_name][status][target]
+                item["calls"] += series.count
+                item["latency_ms_sum"] += series.latency_ms_sum
+                item["latency_ms_max"] = max(item["latency_ms_max"], series.latency_ms_max)
+            for statuses in grouped.values():
+                for targets in statuses.values():
+                    for item in targets.values():
+                        item["latency_ms_sum"] = round(item["latency_ms_sum"], 3)
+                        item["latency_ms_avg"] = round(item["latency_ms_sum"] / item["calls"], 3) if item["calls"] else 0.0
             return grouped
 
     def render_prometheus(self, prefix: str = "proxmox_mcp_tool") -> str:
@@ -61,10 +67,11 @@ class ToolMetrics:
             f"# TYPE {prefix}_latency_ms_avg gauge",
         ]
         with self._lock:
-            for (tool_name, status), series in sorted(self._series.items()):
+            for (tool_name, status, target), series in sorted(self._series.items()):
                 tool_label = self._escape_label(tool_name)
                 status_label = self._escape_label(status)
-                labels = f'tool="{tool_label}",status="{status_label}"'
+                target_label = self._escape_label(target)
+                labels = f'tool="{tool_label}",status="{status_label}",target="{target_label}"'
                 lines.extend(
                     [
                         f"{prefix}_calls_total{{{labels}}} {series.count}",
@@ -75,8 +82,8 @@ class ToolMetrics:
                 )
         return "\n".join(lines) + "\n"
 
-    def _entry(self, tool_name: str, status: str) -> LabeledMetricSeries:
-        return self._series.setdefault((tool_name, status), LabeledMetricSeries())
+    def _entry(self, tool_name: str, status: str, target: str) -> LabeledMetricSeries:
+        return self._series.setdefault((tool_name, status, target), LabeledMetricSeries())
 
     @staticmethod
     def _escape_label(value: str) -> str:

@@ -95,6 +95,10 @@
     },
     "tools": [
         {
+            "name": "list_targets",
+            "description": "List configured Proxmox targets without exposing credentials"
+        },
+        {
             "name": "get_nodes",
             "description": "List all nodes in the Proxmox cluster"
         },

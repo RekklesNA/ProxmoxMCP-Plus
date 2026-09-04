@@ -36,7 +36,7 @@ cp proxmox-config/config.example.json proxmox-config/config.json
 The main sections are:
 
 - `proxmox`: host, port, TLS verification, service type
-- `api_tunnel`: optional SSH local forward for the Proxmox API
+- `api_tunnel`: optional SSH local forward for the Proxmox API; set `assume_external: true` only when an external tunnel supervisor owns the local listener
 - `auth`: Proxmox API user and token
 - `logging`: log level, format, optional log file
 - `mcp`: MCP host, port, transport, and optional transport Host/Origin allowlists
@@ -44,6 +44,63 @@ The main sections are:
 - `jobs`: SQLite path for persistent job tracking
 - `command_policy`: rules for `execute_*` tools and high-risk mutating operations
 - `ssh`: optional SSH settings for LXC command execution
+
+## Named Targets
+
+For multiple independent Proxmox environments, use the `targets` map instead of the
+legacy top-level `proxmox` and `auth` sections. Each target has its own endpoint,
+credentials, TLS settings, and optional SSH/command-policy configuration:
+
+```json
+{
+  "targets": {
+    "primary": {
+      "host": "pve.example.test",
+      "port": 8006,
+      "verify_ssl": true,
+      "auth": {
+        "user": "root@pam",
+        "token_name": "automation",
+        "token_value": "<secret>"
+      }
+    },
+    "lab": {
+      "host": "lab-pve.example.test",
+      "port": 8006,
+      "verify_ssl": true,
+      "auth": {
+        "user": "root@pam",
+        "token_name": "automation",
+        "token_value": "<secret>"
+      },
+      "readonly": true
+    }
+  }
+}
+```
+
+Target names are selected explicitly through the optional `target` argument on
+operational MCP tools. Omitting `target` is allowed only when exactly one target is
+configured; with multiple targets, the server rejects the request before contacting
+Proxmox. Use the read-only `list_targets` tool to inspect configured target names,
+endpoint identity, reachability, and discovered node names without exposing credentials.
+
+Named targets are isolated: credentials, managers, SSH settings, command policies,
+read-only behavior, and asynchronous jobs are not shared between targets. Do not mix
+legacy top-level `proxmox`, `auth`, `ssh`, or `api_tunnel` settings with a `targets` map;
+configuration loading rejects ambiguous combinations.
+
+Named targets work in stdio, native MCP HTTP, and OpenAPI modes, including the default
+Docker OpenAPI runtime. Generated OpenAPI tool routes accept the same optional `target`
+argument as MCP. Direct OpenAPI `/jobs` routes accept `target` as a query parameter and
+require it when more than one target is configured; job reads, cancellation, retry,
+read-only enforcement, and approval policy are resolved against that exact target.
+
+For an externally managed local API tunnel, set both `api_tunnel.enabled` and
+`api_tunnel.assume_external` to `true`. This explicitly tells the server to reuse the
+listener without starting or stopping a tunnel process. Only use it when the external
+supervisor owns and has verified the tunnel destination; the server cannot verify that
+remote identity itself.
 
 ## Environment Variable Fallback
 
@@ -137,7 +194,8 @@ Available routes:
 - `/readyz` returns `503` until the proxy is connected to the MCP backend, then `200`
 - `/health` is a readiness alias for `/readyz`
 - `/metrics` exposes Prometheus-style request metrics
-- `/jobs` exposes direct job query and control routes when a local `JobStore` is available
+- `/jobs` exposes direct job query and control routes when a local `JobStore` is available;
+  with named targets, pass `target=<name>` and treat it as required when multiple targets exist
 
 ## Docker Compose Deployment
 
