@@ -119,6 +119,18 @@
             "description": "Set/replace the description (Notes field) of a QEMU virtual machine"
         },
         {
+            "name": "update_vm_config",
+            "description": "Update sizing (memory, cores, sockets, name, tags) and cloud-init settings (sshkeys, ciuser, ipconfig0, nameserver, searchdomain) of an existing QEMU virtual machine"
+        },
+        {
+            "name": "get_vm_ip_addresses",
+            "description": "Get a running VM's network interfaces and IP addresses via the QEMU guest agent"
+        },
+        {
+            "name": "get_next_vmid",
+            "description": "Get the next free VM/container ID in the cluster"
+        },
+        {
             "name": "create_vm",
             "description": "Create a new virtual machine with specified resources"
         },

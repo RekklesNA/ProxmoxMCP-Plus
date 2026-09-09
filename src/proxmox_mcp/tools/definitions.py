@@ -74,6 +74,53 @@ Example:
 set_vm_description node='pve' vmid='100' description='Decommissioned - see #123'
 """
 
+GET_NEXT_VMID_DESC = """Get the next free VM/container ID in the cluster.
+
+Uses GET /cluster/nextid. Call it right before clone_vm or create_vm so the
+target ID is one Proxmox itself considers unused.
+
+Example:
+{"vmid": "105"}"""
+
+UPDATE_VM_CONFIG_DESC = """Update sizing and cloud-init settings of an existing QEMU VM.
+
+Uses PUT /nodes/{node}/qemu/{vmid}/config with only the supplied fields. This is
+the step between clone_vm and start_vm that makes a fresh clone reachable:
+inject SSH keys, set the cloud-init user, pick a static IP, resize memory.
+
+Parameters:
+node*        - Host node name (e.g. 'pve')
+vmid*        - VM ID number (e.g. '105')
+memory       - RAM in MiB (e.g. 4096)
+cores        - CPU cores per socket
+sockets      - CPU sockets
+name         - New VM name (DNS label)
+sshkeys      - OpenSSH public keys, one per line (cloud-init; percent-encoded for you)
+ciuser       - cloud-init user name (e.g. 'ubuntu')
+ipconfig0    - cloud-init IP for net0, e.g. 'ip=dhcp' or 'ip=10.0.0.5/24,gw=10.0.0.1'
+nameserver   - cloud-init DNS server(s)
+searchdomain - cloud-init DNS search domain
+tags         - Proxmox tags, semicolon-separated
+
+Cloud-init fields take effect at the guest's next boot; sizing changes on a
+running VM stay pending until it restarts.
+
+Example:
+update_vm_config node='pve' vmid='105' memory=4096 ciuser='hola' sshkeys='ssh-ed25519 AAAA... ci@host'"""
+
+GET_VM_IP_ADDRESSES_DESC = """Get a running VM's network interfaces and IP addresses via the QEMU guest agent.
+
+Uses GET /nodes/{node}/qemu/{vmid}/agent/network-get-interfaces. The VM must be
+running with qemu-guest-agent active. Loopback is skipped; primary_ip is the
+first non-loopback IPv4 address.
+
+Parameters:
+node* - Host node name (e.g. 'pve')
+vmid* - VM ID number (e.g. '105')
+
+Example:
+{"vmid": "105", "primary_ip": "10.0.0.57", "interfaces": [{"name": "eth0", "mac": "bc:24:11:..", "ipv4": ["10.0.0.57"], "ipv6": ["fe80::..."]}]}"""
+
 CREATE_VM_DESC = """Create a new virtual machine with specified configuration.
 
 Parameters:
