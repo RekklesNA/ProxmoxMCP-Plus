@@ -16,6 +16,8 @@ The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
 import json
+import re
+import urllib.parse
 from typing import Any, Dict, List, Optional
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
@@ -137,6 +139,147 @@ class VMTools(ProxmoxTool):
             return self._json_fmt({"vmid": vmid, "node": node, "description": description})
         except Exception as e:
             return self._err("set_vm_description", e)
+
+    def get_next_vmid(self) -> List[Content]:
+        """Return the next free VM/CT ID from the cluster (GET /cluster/nextid)."""
+        try:
+            next_id = self.proxmox.cluster.nextid.get()
+            return self._json_fmt({"vmid": str(next_id)})
+        except Exception as e:
+            return self._err("get_next_vmid", e)
+
+    def update_vm_config(
+        self,
+        node: str,
+        vmid: str,
+        memory: Optional[int] = None,
+        cores: Optional[int] = None,
+        sockets: Optional[int] = None,
+        name: Optional[str] = None,
+        sshkeys: Optional[str] = None,
+        ciuser: Optional[str] = None,
+        ipconfig0: Optional[str] = None,
+        nameserver: Optional[str] = None,
+        searchdomain: Optional[str] = None,
+        tags: Optional[str] = None,
+    ) -> List[Content]:
+        """Update sizing and cloud-init settings of an existing QEMU VM.
+
+        Uses PUT /nodes/{node}/qemu/{vmid}/config with only the fields that
+        were supplied. Cloud-init fields (sshkeys, ciuser, ipconfig0,
+        nameserver, searchdomain) take effect at the guest's next boot;
+        sizing changes on a running VM are applied as pending changes.
+
+        The ``sshkeys`` value is URL-encoded before it is sent: the Proxmox
+        API expects the *value* of that field to be percent-encoded on top of
+        the form encoding of the request (the same quirk `qm set --sshkeys`
+        hides), and a raw key is rejected with "invalid format".
+        """
+        payload: Dict[str, Any] = {}
+        if memory is not None:
+            if memory < 16:
+                raise ValueError("memory must be at least 16 MiB")
+            payload["memory"] = int(memory)
+        if cores is not None:
+            if cores < 1:
+                raise ValueError("cores must be at least 1")
+            payload["cores"] = int(cores)
+        if sockets is not None:
+            if sockets < 1:
+                raise ValueError("sockets must be at least 1")
+            payload["sockets"] = int(sockets)
+        if name is not None:
+            if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?", name):
+                raise ValueError("name must be a valid DNS label (letters, digits and hyphens)")
+            payload["name"] = name
+        if sshkeys is not None:
+            keys = [line.strip() for line in sshkeys.splitlines() if line.strip()]
+            if not keys:
+                raise ValueError("sshkeys must contain at least one public key")
+            for key in keys:
+                if not re.match(r"^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp\d+|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+", key):
+                    raise ValueError("sshkeys must be OpenSSH public keys, one per line")
+            payload["sshkeys"] = urllib.parse.quote("\n".join(keys), safe="")
+        if ciuser is not None:
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", ciuser):
+                raise ValueError("ciuser must be a valid Unix user name")
+            payload["ciuser"] = ciuser
+        if ipconfig0 is not None:
+            if not re.fullmatch(r"(ip=[^,\s]+|ip6=[^,\s]+|gw=[^,\s]+|gw6=[^,\s]+)(,(ip=[^,\s]+|ip6=[^,\s]+|gw=[^,\s]+|gw6=[^,\s]+))*", ipconfig0):
+                raise ValueError("ipconfig0 must look like 'ip=dhcp' or 'ip=10.0.0.5/24,gw=10.0.0.1'")
+            payload["ipconfig0"] = ipconfig0
+        if nameserver is not None:
+            payload["nameserver"] = nameserver
+        if searchdomain is not None:
+            payload["searchdomain"] = searchdomain
+        if tags is not None:
+            payload["tags"] = tags
+        if not payload:
+            raise ValueError("update_vm_config needs at least one setting to change")
+
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.get()
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"lookup VM {vmid}", e)
+
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.put(**payload)
+        except Exception as e:
+            return self._err("update_vm_config", e)
+
+        applied = dict(payload)
+        if "sshkeys" in applied:
+            applied["sshkeys"] = f"{len(keys)} key(s)"
+        cloud_init_fields = {"sshkeys", "ciuser", "ipconfig0", "nameserver", "searchdomain"}
+        notes = []
+        if cloud_init_fields & payload.keys():
+            notes.append("cloud-init settings are applied by the guest at its next boot")
+        if {"memory", "cores", "sockets"} & payload.keys():
+            notes.append("sizing changes on a running VM stay pending until it is restarted")
+        return self._json_fmt({"vmid": vmid, "node": node, "applied": applied, "notes": notes})
+
+    def get_vm_ip_addresses(self, node: str, vmid: str) -> List[Content]:
+        """Return the guest's interfaces and addresses via the QEMU guest agent.
+
+        Uses GET /nodes/{node}/qemu/{vmid}/agent/network-get-interfaces, so the
+        VM must be running with the guest agent active. Loopback is skipped;
+        ``primary_ip`` is the first non-loopback IPv4 address.
+        """
+        try:
+            raw = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+        except Exception as e:
+            message = str(e).lower()
+            if "not running" in message or "agent" in message:
+                raise ValueError(
+                    f"Guest agent on VM {vmid} did not answer; the VM must be running with qemu-guest-agent active"
+                )
+            return self._err("get_vm_ip_addresses", e)
+
+        result_list = raw.get("result") if isinstance(raw, dict) else raw
+        interfaces: List[Dict[str, Any]] = []
+        primary_ip: Optional[str] = None
+        for iface in result_list or []:
+            if not isinstance(iface, dict):
+                continue
+            iface_name = iface.get("name")
+            if iface_name == "lo":
+                continue
+            entry: Dict[str, Any] = {"name": iface_name, "ipv4": [], "ipv6": []}
+            mac = iface.get("hardware-address")
+            if mac:
+                entry["mac"] = mac
+            for addr in iface.get("ip-addresses") or []:
+                ip = addr.get("ip-address")
+                if not ip:
+                    continue
+                kind = "ipv6" if addr.get("ip-address-type") == "ipv6" else "ipv4"
+                entry[kind].append(ip)
+                if kind == "ipv4" and primary_ip is None and not ip.startswith("127."):
+                    primary_ip = ip
+            interfaces.append(entry)
+        return self._json_fmt({"vmid": vmid, "node": node, "interfaces": interfaces, "primary_ip": primary_ip})
 
     def get_vms(self) -> List[Content]:
         """List all virtual machines across the cluster with detailed status.
