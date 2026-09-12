@@ -1069,6 +1069,25 @@ async def test_get_cluster_status(server, mock_proxmox):
     assert "Quorum: OK" in text
     assert "Nodes: 2" in text
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "records, expected",
+    [
+        ([{"type": "node", "name": "pve", "local": 1, "online": 1}], "n/a (not clustered)"),
+        ([{"type": "node", "name": "pve"},
+          {"type": "cluster", "name": "lab", "quorate": 0}], "NOT OK"),
+        ([{"type": "cluster", "name": "lab", "quorate": None}], "unknown"),
+    ],
+    ids=["standalone", "lost-quorum", "unknown-quorum"],
+)
+async def test_get_cluster_status_mcp_verdict(server, mock_proxmox, records, expected):
+    mock_proxmox.return_value.cluster.status.get.return_value = records
+
+    response = await server.mcp.call_tool("get_cluster_status", {})
+
+    assert f"Quorum: {expected}" in response[0].text
+
 @pytest.mark.asyncio
 async def test_execute_vm_command_success(server, mock_proxmox):
     """Test successful VM command execution."""

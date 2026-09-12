@@ -46,7 +46,8 @@ class ClusterTools(ProxmoxTool):
             List of Content objects containing formatted cluster status:
             {
                 "name": "cluster-name",
-                "quorum": true/false,
+                "clustered": true/false/null,
+                "quorum": true/false/null,
                 "nodes": count,
                 "resources": [
                     {
@@ -71,12 +72,21 @@ class ClusterTools(ProxmoxTool):
                 "get cluster status", lambda: self.proxmox.cluster.status.get()
             )
         
-            first_item = result[0] if result and len(result) > 0 else {}
+            records = result or []
+            cluster_record = next(
+                (item for item in records if item.get("type") == "cluster"), None
+            )
+            nodes = [item for item in records if item.get("type") == "node"]
+            # A node-only response denotes standalone PVE. No records provide
+            # no evidence of cluster membership, so leave that state unknown.
+            clustered = True if cluster_record is not None else (False if nodes else None)
+            quorate = cluster_record.get("quorate") if cluster_record is not None else None
             status = {
-                "name": first_item.get("name") if first_item else None,
-                "quorum": first_item.get("quorate") if first_item else None,
-                "nodes": len([node for node in result if node.get("type") == "node"]) if result else 0,
-                "resources": [res for res in result if res.get("type") == "resource"] if result else []
+                "name": cluster_record.get("name") if cluster_record is not None else None,
+                "clustered": clustered,
+                "quorum": bool(quorate) if quorate is not None else None,
+                "nodes": len(nodes),
+                "resources": [res for res in records if res.get("type") == "resource"]
             }
             self._cache_set("cluster:status", status, ttl_seconds=5)
             return self._format_response(status, "cluster")
