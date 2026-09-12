@@ -198,12 +198,20 @@ class ProxmoxTemplates:
             Formatted cluster status string
         """
         result = [f"{ProxmoxTheme.SECTIONS['configuration']} Proxmox Cluster"]
+
+        if status.get("clustered") is False:
+            name = "n/a (not clustered)"
+            quorum = "n/a (not clustered)"
+        else:
+            name = status.get("name") or "unknown"
+            quorate = status.get("quorum")
+            quorum = "unknown" if quorate is None else ("OK" if quorate else "NOT OK")
         
         # Basic cluster info
         result.extend([
             "",
-            f"  - Name: {status.get('name', 'N/A')}",
-            f"  - Quorum: {'OK' if status.get('quorum') else 'NOT OK'}",
+            f"  - Name: {name}",
+            f"  - Quorum: {quorum}",
             f"  - Nodes: {status.get('nodes', 0)}",
         ])
         

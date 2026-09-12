@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.16`
+
+- Release date: 2026-09-12
+- Summary: fixes false `Quorum: NOT OK` reports for standalone nodes (#125).
+- Changed behavior: cluster metadata is selected by type; standalone name/quorum show `n/a (not clustered)`, while missing data shows `unknown`. Real quorum failures still show `NOT OK`.
+- Configuration: no changes or migrations required.
+- Upgrade: install `proxmox-mcp-plus==0.5.16` or pull GHCR `0.5.16`, then restart. See `docs/releases/v0.5.16.md`.
+- Rollback: `0.5.15` uses the same configuration but restores the reporting bug.
+
 ### Version `0.5.15`
 
 - Release date: 2026-09-04
