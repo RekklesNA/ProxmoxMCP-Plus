@@ -143,6 +143,7 @@ class CommandPolicyConfig(BaseModel):
             "delete_backup",
             "delete_iso",
             "update_container_ssh_keys",
+            "update_vm_config",
         ]
     )
     high_risk_require_approval_token: bool = False

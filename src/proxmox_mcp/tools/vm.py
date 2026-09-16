@@ -162,6 +162,7 @@ class VMTools(ProxmoxTool):
         nameserver: Optional[str] = None,
         searchdomain: Optional[str] = None,
         tags: Optional[str] = None,
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Update sizing and cloud-init settings of an existing QEMU VM.
 
@@ -175,6 +176,8 @@ class VMTools(ProxmoxTool):
         the form encoding of the request (the same quirk `qm set --sshkeys`
         hides), and a raw key is rejected with "invalid format".
         """
+        # Approval is enforced by the target-aware tool wrapper, not the PVE API.
+        _ = approval_token
         payload: Dict[str, Any] = {}
         if memory is not None:
             if memory < 16:
@@ -218,15 +221,10 @@ class VMTools(ProxmoxTool):
             raise ValueError("update_vm_config needs at least one setting to change")
 
         try:
-            self.proxmox.nodes(node).qemu(vmid).config.get()
-        except Exception as e:
-            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
-                raise ValueError(f"VM {vmid} not found on node {node}")
-            self._handle_error(f"lookup VM {vmid}", e)
-
-        try:
             self.proxmox.nodes(node).qemu(vmid).config.put(**payload)
         except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}") from e
             return self._err("update_vm_config", e)
 
         applied = dict(payload)
@@ -251,10 +249,19 @@ class VMTools(ProxmoxTool):
             raw = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
         except Exception as e:
             message = str(e).lower()
-            if "not running" in message or "agent" in message:
+            # ACL names and request URLs also contain "agent"; preserve those errors.
+            if getattr(e, "status_code", None) in {401, 403}:
+                return self._err("get_vm_ip_addresses", e)
+            unavailable = re.search(
+                r"\b(?:qemu )?guest agent (?:is )?(?:not running|not enabled|not responding)\b"
+                r"|\bvm \d+ (?:is )?not running\b"
+                r"|\bguest-(?:ping|network-get-interfaces)\b.*\b(?:timed out|timeout)\b",
+                message,
+            )
+            if unavailable:
                 raise ValueError(
                     f"Guest agent on VM {vmid} did not answer; the VM must be running with qemu-guest-agent active"
-                )
+                ) from e
             return self._err("get_vm_ip_addresses", e)
 
         result_list = raw.get("result") if isinstance(raw, dict) else raw

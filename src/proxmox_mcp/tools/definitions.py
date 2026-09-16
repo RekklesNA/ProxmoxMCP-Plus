@@ -101,6 +101,10 @@ ipconfig0    - cloud-init IP for net0, e.g. 'ip=dhcp' or 'ip=10.0.0.5/24,gw=10.0
 nameserver   - cloud-init DNS server(s)
 searchdomain - cloud-init DNS search domain
 tags         - Proxmox tags, semicolon-separated
+approval_token - Approval token when required by the target's high-risk policy
+
+This tool is classified as high risk, including SSH key changes, and follows
+the selected target's command_policy.high_risk_* settings.
 
 Cloud-init fields take effect at the guest's next boot; sizing changes on a
 running VM stay pending until it restarts.

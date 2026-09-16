@@ -396,9 +396,10 @@ class VMToolsPlugin(RegistryPluginBase):
             nameserver: Annotated[Optional[str], Field(description="cloud-init DNS server(s) (optional)", default=None)] = None,
             searchdomain: Annotated[Optional[str], Field(description="cloud-init DNS search domain (optional)", default=None)] = None,
             tags: Annotated[Optional[str], Field(description="Proxmox tags, semicolon-separated (optional)", default=None)] = None,
+            approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "update_vm_config", lambda ts: ts.vm_tools.update_vm_config)(
+            return self._wrap_sync(server, "update_vm_config", lambda ts: ts.vm_tools.update_vm_config, high_risk=True)(
                 node=node,
                 vmid=vmid,
                 memory=memory,
@@ -411,6 +412,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 nameserver=nameserver,
                 searchdomain=searchdomain,
                 tags=tags,
+                approval_token=approval_token,
                 target=target,
             )
 
