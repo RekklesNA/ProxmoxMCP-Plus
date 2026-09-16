@@ -18,6 +18,16 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.17`
+
+- Release date: 2026-09-16
+- Summary: adds VM provisioning tools with target-aware approval and permission handling (#127).
+- New tools: `get_next_vmid`, `update_vm_config`, and `get_vm_ip_addresses`.
+- Safety: VM configuration updates follow the selected target's high-risk policy; read-only targets reject updates. Configuration writes do not require `VM.Audit`, and Guest Agent permission errors remain visible.
+- Configuration: the audit-only default is unchanged. Add `update_vm_config` to custom high-risk operation lists and add desired new tools to explicit allowlists.
+- Upgrade: install `proxmox-mcp-plus==0.5.17` or pull GHCR `0.5.17`, then restart/reconnect. See `docs/releases/v0.5.17.md`.
+- Rollback: `0.5.16` removes the three new tools; remove their names from explicit exposure lists first. Existing VM changes are not reverted.
+
 ### Version `0.5.16`
 
 - Release date: 2026-09-12
