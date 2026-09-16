@@ -30,6 +30,7 @@ from proxmox_mcp.tools.definitions import (
     GET_CONTAINERS_DESC,
     GET_GUEST_FIREWALL_LOG_DESC,
     GET_NODE_FIREWALL_LOG_DESC,
+    GET_NEXT_VMID_DESC,
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
     GET_NODE_SYSLOG_DESC,
@@ -37,6 +38,7 @@ from proxmox_mcp.tools.definitions import (
     GET_TASK_LOG_DESC,
     GET_VMS_DESC,
     GET_VM_CONFIG_DESC,
+    GET_VM_IP_ADDRESSES_DESC,
     LIST_JOBS_DESC,
     LIST_BACKUPS_DESC,
     LIST_ISOS_DESC,
@@ -57,6 +59,7 @@ from proxmox_mcp.tools.definitions import (
     STOP_VM_DESC,
     UPDATE_CONTAINER_RESOURCES_DESC,
     UPDATE_CONTAINER_SSH_KEYS_DESC,
+    UPDATE_VM_CONFIG_DESC,
 )
 from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
 
@@ -68,7 +71,8 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 _READ_ONLY_TOOLS = {
     "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
-    "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_containers",
+    "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
+    "get_next_vmid", "get_containers",
     "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
     "list_backups", "get_node_syslog", "get_task_log", "get_cluster_log", "get_node_firewall_log",
     "get_guest_firewall_log",
@@ -367,6 +371,60 @@ class VMToolsPlugin(RegistryPluginBase):
                 node=node,
                 vmid=vmid,
                 description=description,
+                target=target,
+            )
+
+        @server.tool_registry.tool(description=GET_NEXT_VMID_DESC)
+        def get_next_vmid(
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_next_vmid", lambda ts: ts.vm_tools.get_next_vmid)(
+                target=target,
+            )
+
+        @server.tool_registry.tool(description=UPDATE_VM_CONFIG_DESC)
+        def update_vm_config(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '105')", pattern=r"^\d+$")],
+            memory: Annotated[Optional[int], Field(description="RAM in MiB (optional)", default=None, ge=16)] = None,
+            cores: Annotated[Optional[int], Field(description="CPU cores per socket (optional)", default=None, ge=1)] = None,
+            sockets: Annotated[Optional[int], Field(description="CPU sockets (optional)", default=None, ge=1)] = None,
+            name: Annotated[Optional[str], Field(description="New VM name, a DNS label (optional)", default=None)] = None,
+            sshkeys: Annotated[Optional[str], Field(description="OpenSSH public keys for cloud-init, one per line (optional)", default=None)] = None,
+            ciuser: Annotated[Optional[str], Field(description="cloud-init user name (optional)", default=None)] = None,
+            ipconfig0: Annotated[Optional[str], Field(description="cloud-init IP config for net0, e.g. 'ip=dhcp' (optional)", default=None)] = None,
+            nameserver: Annotated[Optional[str], Field(description="cloud-init DNS server(s) (optional)", default=None)] = None,
+            searchdomain: Annotated[Optional[str], Field(description="cloud-init DNS search domain (optional)", default=None)] = None,
+            tags: Annotated[Optional[str], Field(description="Proxmox tags, semicolon-separated (optional)", default=None)] = None,
+            approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "update_vm_config", lambda ts: ts.vm_tools.update_vm_config, high_risk=True)(
+                node=node,
+                vmid=vmid,
+                memory=memory,
+                cores=cores,
+                sockets=sockets,
+                name=name,
+                sshkeys=sshkeys,
+                ciuser=ciuser,
+                ipconfig0=ipconfig0,
+                nameserver=nameserver,
+                searchdomain=searchdomain,
+                tags=tags,
+                approval_token=approval_token,
+                target=target,
+            )
+
+        @server.tool_registry.tool(description=GET_VM_IP_ADDRESSES_DESC)
+        def get_vm_ip_addresses(
+            node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
+            vmid: Annotated[str, Field(description="VM ID number (e.g. '105')", pattern=r"^\d+$")],
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_vm_ip_addresses", lambda ts: ts.vm_tools.get_vm_ip_addresses)(
+                node=node,
+                vmid=vmid,
                 target=target,
             )
 

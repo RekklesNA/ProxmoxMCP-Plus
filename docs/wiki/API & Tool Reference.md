@@ -127,12 +127,17 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `execute_vm_command` | Mutating | `node`, `vmid`, `command` | `approval_token` | VM running, QEMU Guest Agent installed, policy allows command | guest agent unavailable, VM not running, policy denial |
 | `get_vm_config` | Read-only | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
 | `set_vm_description` | Mutating | `node`, `vmid`, `description` | none | VM exists and API token can update its config | VM not found, node mismatch, insufficient permissions |
+| `update_vm_config` | Mutating/high-risk | `node`, `vmid` | `memory`, `cores`, `sockets`, `name`, `sshkeys`, `ciuser`, `ipconfig0`, `nameserver`, `searchdomain`, `tags` (at least one); `approval_token` | VM exists, API token can update its config (`VM.Config.*`, `VM.Config.Cloudinit` for cloud-init), and target high-risk policy permits the operation; no `VM.Audit` read permission needed | VM not found, invalid value, approval required, insufficient permissions, sizing change pending on a running VM |
+| `get_vm_ip_addresses` | Read-only | `node`, `vmid` | none | VM running with qemu-guest-agent active; API token has guest-agent read permission (`VM.GuestAgent.Audit` on PVE 9) | guest agent not answering, VM stopped, authentication or permission failure |
+| `get_next_vmid` | Read-only | none | none | Proxmox API reachable | auth failure, API unavailable |
 
 ### VM Notes
 
 - `stop_vm` is the force-stop path. Use `shutdown_vm` for graceful guest shutdown when supported.
 - `execute_vm_command` is not a generic SSH shell. It is mediated through QEMU Guest Agent and command-policy checks.
 - `create_vm.pool` is an optional Proxmox resource pool, not a storage pool. Pool-scoped API tokens also need `Pool.Allocate` on the target pool.
+- The provisioning trio `get_next_vmid` → `clone_vm` → `update_vm_config` → `start_vm` → `get_vm_ip_addresses` takes a cloud-init template to a reachable guest without leaving MCP. `update_vm_config` percent-encodes `sshkeys` for you (the Proxmox API expects that field's value to be URL-encoded on top of the request encoding); cloud-init fields apply at the guest's next boot.
+- `update_vm_config` is included in the default `command_policy.high_risk_operations` list. It follows the selected target's high-risk policy for every configuration update, including SSH keys. When approval is required, pass `approval_token`; the token is never sent to Proxmox. The default audit-only mode remains usable without a token. If you configure a custom high-risk operations list, include `update_vm_config` to protect it.
 - `create_vm`, `clone_vm`, `start_vm`, `stop_vm`, `shutdown_vm`, `reset_vm`, and `delete_vm` register persistent jobs when they return asynchronous Proxmox tasks.
 
 ## Container Tools

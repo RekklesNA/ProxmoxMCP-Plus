@@ -1948,3 +1948,43 @@ def test_stdio_shutdown_does_not_abort_at_interpreter_finalization(tmp_path):
     )
     assert b"Fatal Python error" not in stderr
     assert b"_enter_buffered_busy" not in stderr
+
+
+@pytest.mark.asyncio
+async def test_update_vm_config_tool(server, mock_proxmox):
+    """update_vm_config sends only the supplied fields through the MCP tool surface."""
+    proxmox = mock_proxmox.return_value
+    vm_api = Mock()
+    vm_api.config.get.return_value = {"name": "clone-105"}
+    node_api = Mock()
+    node_api.qemu.return_value = vm_api
+    proxmox.nodes.return_value = node_api
+
+    response = await server.mcp.call_tool(
+        "update_vm_config",
+        {"node": "node1", "vmid": "105", "memory": 4096, "ciuser": "hola", "ipconfig0": "ip=dhcp"},
+    )
+
+    payload = json.loads(response[0].text)
+    assert payload["applied"] == {"memory": 4096, "ciuser": "hola", "ipconfig0": "ip=dhcp"}
+    vm_api.config.put.assert_called_once_with(memory=4096, ciuser="hola", ipconfig0="ip=dhcp")
+
+
+@pytest.mark.asyncio
+async def test_get_next_vmid_and_vm_ip_addresses_tools(server, mock_proxmox):
+    """The two read-only provisioning helpers are reachable as MCP tools."""
+    proxmox = mock_proxmox.return_value
+    proxmox.cluster.nextid.get.return_value = 105
+    vm_api = Mock()
+    vm_api.agent.return_value.get.return_value = {
+        "result": [{"name": "eth0", "ip-addresses": [{"ip-address": "10.0.0.57", "ip-address-type": "ipv4"}]}]
+    }
+    node_api = Mock()
+    node_api.qemu.return_value = vm_api
+    proxmox.nodes.return_value = node_api
+
+    next_id = await server.mcp.call_tool("get_next_vmid", {})
+    assert json.loads(next_id[0].text) == {"vmid": "105"}
+
+    addresses = await server.mcp.call_tool("get_vm_ip_addresses", {"node": "node1", "vmid": "105"})
+    assert json.loads(addresses[0].text)["primary_ip"] == "10.0.0.57"

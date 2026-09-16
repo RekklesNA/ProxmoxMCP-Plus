@@ -61,6 +61,15 @@ Implications:
 - the guest agent must be installed and reachable
 - command results come back through the agent channel, not SSH
 
+## VM Configuration Updates
+
+`update_vm_config` is a high-risk VM operation because it can change cloud-init
+users, SSH keys, networking and resource settings. It follows the selected
+target's `command_policy.high_risk_*` settings, including `approval_token` when
+required. It is included in the default high-risk operations list; add it to any
+custom list that should protect VM configuration changes. Read-only targets
+reject the operation even with a valid approval token.
+
 ## Container Command Execution
 
 `execute_container_command` and `update_container_ssh_keys` are optional.
