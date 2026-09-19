@@ -134,6 +134,14 @@ proxmox-mcp-plus
 
 Use this path when the MCP client launches a local stdio server.
 
+#### Code Mode (opt-in)
+
+Code Mode is disabled by default to preserve the legacy full tool catalog. Enable it
+with `mcp.code_mode: true` in the config file or `MCP_CODE_MODE=true`. When enabled,
+MCP exposes three tools instead: `proxmox_code_search`, `proxmox_code_get_schema`, and
+`proxmox_code_execute`. Code execution runs in an isolated sandbox and reaches domain
+tools through the existing validation, policy, and approval path.
+
 #### Native MCP HTTP with Docker
 
 Use this path when a remote MCP client supports Streamable HTTP:

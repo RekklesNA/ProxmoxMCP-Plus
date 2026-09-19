@@ -57,6 +57,7 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
         "MCP_HOST": ("host", str),
         "MCP_PORT": ("port", int),
         "MCP_TRANSPORT": ("transport", str),
+        "MCP_CODE_MODE": ("code_mode", lambda value: value.strip().lower() in {"1", "true", "yes", "on"}),
     }
     overrides = {
         key: (coerce(os.environ[env_name]) if coerce is not str else os.environ[env_name])
