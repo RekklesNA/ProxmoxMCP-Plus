@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+from pathlib import Path
 from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
+from proxmox_mcp.code_mode import install_code_mode
 from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
@@ -212,6 +214,8 @@ class ProxmoxMCPServer:
             )
         self.tool_registry = ToolRegistry(self.mcp, self.tool_exposure_policy)
         self._setup_tools()
+        if self.config.mcp.code_mode:
+            install_code_mode(self, Path(__file__).resolve().parents[2] / "manifest.json")
 
     def _build_transport_security(self) -> Any | None:
         mcp_config = self.config.mcp
