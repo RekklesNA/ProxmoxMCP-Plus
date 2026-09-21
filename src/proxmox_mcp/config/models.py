@@ -170,6 +170,8 @@ class MCPConfig(BaseModel):
     tool_allowlist: Optional[List[str]] = None
     tool_denylist: Optional[List[str]] = None
     allow_unauthenticated_http: bool = False
+    # Opt-in: legacy full catalog remains the default for existing clients.
+    code_mode: bool = False
 
     @field_validator("transport", mode="before")
     @classmethod

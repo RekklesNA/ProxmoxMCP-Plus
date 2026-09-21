@@ -134,6 +134,27 @@ proxmox-mcp-plus
 
 Use this path when the MCP client launches a local stdio server.
 
+#### Code Mode (opt-in)
+
+Code Mode is disabled by default to preserve the legacy full tool catalog. Enable it
+with `mcp.code_mode: true` in the config file or `MCP_CODE_MODE=true`. When enabled,
+MCP exposes three tools instead: `proxmox_code_search`, `proxmox_code_get_schema`, and
+`proxmox_code_execute`. Code execution runs in an isolated sandbox and reaches domain
+tools through the existing validation, policy, and approval path. Discovery uses the
+filtered runtime catalog, so it also works in installed wheels. For example:
+
+```python
+await call_tool("get_nodes", {"target": "default"})
+```
+
+The final expression is returned as `data.result`; tool results use MCP JSON content
+blocks (and structured content where supplied). Use `proxmox_code_get_schema` for
+arguments, including `target` and approval tokens. Scripts have no filesystem or
+network access except registered tool calls. Limits: 64,000 source characters,
+100 MB sandbox memory, 25 tool calls, 16 KB final JSON, and two concurrent executions.
+Execution has a 30-second budget; cancelling or failing a script does not roll back
+tool side effects. Do not automatically retry a failed mutation script.
+
 #### Native MCP HTTP with Docker
 
 Use this path when a remote MCP client supports Streamable HTTP:

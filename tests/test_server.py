@@ -97,6 +97,42 @@ def test_server_initialization(server, mock_proxmox):
     assert server.config.logging.level == "DEBUG"
 
     mock_proxmox.assert_called_once()
+    assert server.config.mcp.code_mode is False
+
+
+@pytest.mark.asyncio
+async def test_code_mode_is_opt_in_and_hides_domain_tools(mock_proxmox, tmp_path):
+    config_path = tmp_path / "code-mode.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "verify_ssl": True},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "mcp": {"code_mode": True},
+    }))
+    instance = ProxmoxMCPServer(str(config_path))
+    try:
+        names = [tool.name for tool in await instance.mcp.list_tools()]
+        assert names == ["proxmox_code_search", "proxmox_code_get_schema", "proxmox_code_execute"]
+        with pytest.raises(ToolError, match="Direct domain tool calls"):
+            await instance.mcp.call_tool("get_nodes", {})
+    finally:
+        instance.close()
+
+
+@pytest.mark.asyncio
+async def test_code_mode_can_be_disabled_explicitly(mock_proxmox, tmp_path):
+    config_path = tmp_path / "legacy.json"
+    config_path.write_text(json.dumps({
+        "proxmox": {"host": "test.proxmox.com", "verify_ssl": True},
+        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
+        "mcp": {"code_mode": False},
+    }))
+    instance = ProxmoxMCPServer(str(config_path))
+    try:
+        names = [tool.name for tool in await instance.mcp.list_tools()]
+        assert "get_nodes" in names
+        assert "proxmox_code_execute" not in names
+    finally:
+        instance.close()
 
 
 def test_list_targets_reports_reachability_and_nodes(tmp_path):
