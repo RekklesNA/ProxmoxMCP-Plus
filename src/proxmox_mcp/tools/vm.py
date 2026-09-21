@@ -246,7 +246,7 @@ class VMTools(ProxmoxTool):
                 raise ValueError(f"VM {vmid} not found on node {node}") from e
             return self._err("update_vm_config", e)
 
-        applied = dict(payload)
+        applied = {key: value for key, value in payload.items() if key != "digest"}
         if "sshkeys" in applied:
             applied["sshkeys"] = f"{len(keys)} key(s)"
         cloud_init_fields = {"sshkeys", "ciuser", "ipconfig0", "nameserver", "searchdomain"}

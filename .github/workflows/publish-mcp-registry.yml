@@ -19,6 +19,11 @@ jobs:
       with:
         ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+    - name: Verify release metadata
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+      run: python3 scripts/check_release.py
+
     - name: Set up Python 3.11
       uses: actions/setup-python@v6
       with:

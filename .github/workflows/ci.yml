@@ -50,6 +50,7 @@ jobs:
         python -m build
         python -m pip install --upgrade twine
         twine check dist/*
+        python scripts/check_release.py --dist dist
 
     - name: pip-audit
       run: |

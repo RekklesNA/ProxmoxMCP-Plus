@@ -117,3 +117,20 @@ def test_runtime_image_removes_python_packaging_toolchain():
     assert re.search(r"^FROM python:3\.11-slim@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
     assert "python -m pip install --no-cache-dir ." in dockerfile
     assert "python -m pip uninstall --yes pip setuptools wheel" in dockerfile
+
+
+
+def test_release_guard_rejects_tag_mismatch():
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/check_release.py"), "--tag", "v0.0.0"], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "Release version mismatch" in result.stderr
+
+
+def test_release_guard_accepts_matching_tag():
+    import subprocess
+    import sys
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/check_release.py"), "--tag", f"v{version}"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

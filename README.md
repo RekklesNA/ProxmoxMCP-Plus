@@ -177,10 +177,14 @@ Point MCP clients at:
 http://<docker-host>:8000/mcp
 ```
 
-Send `Authorization: Bearer <MCP_API_KEY>` with every MCP HTTP request. `MCP_API_KEY`
-is deliberately separate from the OpenAPI-only `PROXMOX_API_KEY`, so the two surfaces
-can be rotated independently. If `MCP_API_KEY` is unset, Streamable HTTP remains
-unauthenticated for backward compatibility and logs a security warning at startup.
+Send `Authorization: Bearer <MCP_API_KEY>` with every native MCP HTTP request.
+The key is independent of Proxmox credentials. Native Streamable HTTP and SSE
+require a key by default. For an endpoint protected by an external access-control
+layer such as Tailscale ACLs, explicitly set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true`
+or `mcp.allow_unauthenticated_http: true` in JSON configuration. This allows
+keyless startup and logs a warning; it does not configure or verify the external
+access controls. A configured `MCP_API_KEY` is always enforced, even with opt-out.
+This setting does not change OpenAPI authentication or DNS rebinding protection.
 
 When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection enabled and allow only the hostnames you expect:
 
@@ -311,7 +315,7 @@ The project gives operators several control points:
 
 - Proxmox API tokens decide what the backend can do.
 - `PROXMOX_API_KEY` protects the OpenAPI bridge by default.
-- `MCP_API_KEY` optionally protects the native Streamable HTTP `/mcp` endpoint with Bearer authentication.
+- `MCP_API_KEY` protects native Streamable HTTP and SSE with Bearer authentication; it is required unless `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` explicitly delegates access control.
 - TLS verification is enforced unless development mode is explicitly enabled.
 - `command_policy` controls command execution and high-risk operations.
 - `approval_token` can gate command execution and high-risk mutating actions.
@@ -476,3 +480,26 @@ Paramiko 5.0.0 or newer is required so `pip-audit` can run without a `CVE-2026-4
 ## License
 
 [MIT](LICENSE)
+
+
+### ISO installation and LXC network configuration
+
+Use `list_isos` to find an existing ISO volume (or `download_iso` to obtain one).
+`create_vm` accepts `iso_volume="local:iso/debian.iso"`, mounts it on `ide3` by
+default and boots CD-ROM before disk. `update_vm_config` can mount or change that
+ISO, eject with `iso_volume="none"`, set `boot_order="scsi0;ide3"`, or change
+`network_bridge` on `net0` while retaining MAC/VLAN/firewall settings. Choose a
+free `cdrom_device`; existing data disks and cloud-init drives are never replaced.
+Media and bridge edits read current configuration and therefore need `VM.Audit`
+as well as the relevant configuration privileges. Existing sizing/cloud-init-only
+updates still do not require a preliminary read.
+
+LXC uses OS templates, not installer ISOs. `create_container` retains DHCP by default
+and now accepts `network_bridge`, `ip="192.168.1.50/24"`, `gw="192.168.1.1"`, `ip6`
+and `gw6`. `update_container_network` edits those fields on an existing interface
+(default `net0`, selectable through `net31`) and preserves all unspecified options.
+Use an empty gateway string to remove it; changing to DHCP/manual removes the old
+gateway for that address family. Network changes can interrupt guest connectivity.
+Both edit tools follow named-target, read-only and high-risk approval policies.
+Add `update_container_network` to custom high-risk lists and desired tool allowlists.
+See [v0.5.19 release notes](docs/releases/v0.5.19.md) for upgrade details.
