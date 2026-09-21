@@ -144,6 +144,7 @@ class CommandPolicyConfig(BaseModel):
             "delete_iso",
             "update_container_ssh_keys",
             "update_vm_config",
+            "update_container_network",
         ]
     )
     high_risk_require_approval_token: bool = False
@@ -168,6 +169,7 @@ class MCPConfig(BaseModel):
     allowed_origins: List[str] = Field(default_factory=list)
     tool_allowlist: Optional[List[str]] = None
     tool_denylist: Optional[List[str]] = None
+    allow_unauthenticated_http: bool = False
 
     @field_validator("transport", mode="before")
     @classmethod

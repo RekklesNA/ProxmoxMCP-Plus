@@ -15,6 +15,7 @@ This module provides tools for managing and interacting with Proxmox VMs:
 The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
+from proxmox_mcp.tools.guest_config import bridge_name, parse_device, vm_media
 import json
 import re
 import urllib.parse
@@ -163,6 +164,10 @@ class VMTools(ProxmoxTool):
         searchdomain: Optional[str] = None,
         tags: Optional[str] = None,
         approval_token: Optional[str] = None,
+        iso_volume: Optional[str] = None,
+        cdrom_device: str = "ide3",
+        boot_order: Optional[str] = None,
+        network_bridge: Optional[str] = None,
     ) -> List[Content]:
         """Update sizing and cloud-init settings of an existing QEMU VM.
 
@@ -217,6 +222,20 @@ class VMTools(ProxmoxTool):
             payload["searchdomain"] = searchdomain
         if tags is not None:
             payload["tags"] = tags
+        media = vm_media(iso_volume, cdrom_device, boot_order)
+        if network_bridge is not None:
+            bridge_name(network_bridge)
+        if media or network_bridge is not None:
+            current = self.proxmox.nodes(node).qemu(vmid).config.get()
+            payload.update(vm_media(iso_volume, cdrom_device, boot_order, current))
+            if network_bridge is not None:
+                if not current.get("net0"):
+                    raise ValueError("VM has no net0 interface to update")
+                network = parse_device(current["net0"])
+                network["bridge"] = network_bridge
+                payload["net0"] = ",".join(f"{key}={value}" for key, value in network.items())
+            if current.get("digest"):
+                payload["digest"] = current["digest"]
         if not payload:
             raise ValueError("update_vm_config needs at least one setting to change")
 
@@ -392,6 +411,9 @@ class VMTools(ProxmoxTool):
         ostype: Optional[str] = None,
         network_bridge: Optional[str] = None,
         pool: Optional[str] = None,
+        iso_volume: Optional[str] = None,
+        cdrom_device: str = "ide3",
+        boot_order: Optional[str] = None,
     ) -> List[Content]:
         """Create a new virtual machine with specified configuration.
         
@@ -414,6 +436,11 @@ class VMTools(ProxmoxTool):
             ValueError: If VM ID already exists or invalid parameters
             RuntimeError: If VM creation fails
         """
+        media = vm_media(iso_volume, cdrom_device, boot_order)
+        if iso_volume == "none":
+            raise ValueError("Use an ISO volume ID when creating a VM")
+        if network_bridge is not None:
+            bridge_name(network_bridge)
         try:
             # Check if VM ID already exists
             try:
@@ -504,6 +531,11 @@ class VMTools(ProxmoxTool):
             
             # Add storage configuration
             vm_config.update(vm_config_storage)
+            if iso_volume is not None and boot_order is None:
+                media["boot"] = f"order={cdrom_device};scsi0"
+            # Never replace the disk or cloud-init drive created above.
+            vm_media(iso_volume, cdrom_device, boot_order, vm_config)
+            vm_config.update(media)
 
             if pool:
                 vm_config["pool"] = pool

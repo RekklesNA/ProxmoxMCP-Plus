@@ -262,3 +262,20 @@ async def test_provisioning_reads_remain_available_on_readonly_target(provisioni
     assert _payload(await server.mcp.call_tool(
         "get_vm_ip_addresses", {"target": "readonly", "node": "pve", "vmid": "105"}
     ))["interfaces"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target, token, allowed", [("strict", None, False), ("readonly", "strict-approval", False), ("strict", "strict-approval", True)])
+async def test_container_network_respects_selected_target_policy(provisioning_server, target, token, allowed):
+    server, apis = provisioning_server
+    api = apis[f"{target}.invalid"]
+    api.nodes.return_value.lxc.return_value.config.get.return_value = {"net0":"name=eth0,bridge=vmbr0,ip=dhcp"}
+    args = {"target":target, "node":"pve", "vmid":"105", "ip":"10.0.0.2/24", "approval_token":token}
+    if allowed:
+        await server.mcp.call_tool("update_container_network", args)
+        api.nodes.return_value.lxc.return_value.config.put.assert_called_once()
+    else:
+        with pytest.raises(ToolError):
+            await server.mcp.call_tool("update_container_network", args)
+        api.nodes.assert_not_called()
+    apis["default.invalid"].nodes.assert_not_called()

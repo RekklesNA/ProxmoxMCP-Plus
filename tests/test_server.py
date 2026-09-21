@@ -190,7 +190,8 @@ def test_streamable_http_runner_wraps_app_when_api_key_is_set(server, monkeypatc
     uvicorn_server.return_value.serve.assert_awaited_once()
 
 
-def test_streamable_http_runner_preserves_no_auth_compatibility(server, monkeypatch, caplog):
+def test_streamable_http_runner_allows_explicit_no_auth(server, monkeypatch, caplog):
+    server.config.mcp.allow_unauthenticated_http = True
     base_app = Mock()
     server.mcp.streamable_http_app = Mock(return_value=base_app)
     monkeypatch.delenv("MCP_API_KEY", raising=False)
@@ -1988,3 +1989,38 @@ async def test_get_next_vmid_and_vm_ip_addresses_tools(server, mock_proxmox):
 
     addresses = await server.mcp.call_tool("get_vm_ip_addresses", {"node": "node1", "vmid": "105"})
     assert json.loads(addresses[0].text)["primary_ip"] == "10.0.0.57"
+
+
+@pytest.mark.parametrize("sse", [False, True])
+@pytest.mark.parametrize("key", [None, ""])
+def test_native_http_requires_key_by_default(server, monkeypatch, sse, key):
+    if key is None:
+        monkeypatch.delenv("MCP_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("MCP_API_KEY", key)
+    with patch("uvicorn.Server") as runner:
+        with pytest.raises(ValueError, match="MCP_API_KEY must be set"):
+            asyncio.run(server._run_streamable_http_async(sse=sse))
+        runner.assert_not_called()
+
+
+@pytest.mark.parametrize("sse", [False, True])
+def test_http_opt_out_does_not_disable_a_configured_key(server, monkeypatch, sse):
+    server.config.mcp.allow_unauthenticated_http = True
+    monkeypatch.setenv("MCP_API_KEY", "valid-secret")
+    with patch("uvicorn.Config") as config, patch("uvicorn.Server") as runner:
+        runner.return_value.serve = AsyncMock()
+        asyncio.run(server._run_streamable_http_async(sse=sse))
+    assert isinstance(config.call_args.args[0], MCPBearerAuthMiddleware)
+
+
+@pytest.mark.parametrize("value, expected", [("true", True), ("false", False)])
+def test_http_opt_out_env_overrides_file(mock_env_vars, monkeypatch, value, expected):
+    monkeypatch.setenv("MCP_ALLOW_UNAUTHENTICATED_HTTP", value)
+    assert load_config(mock_env_vars["PROXMOX_MCP_CONFIG"]).mcp.allow_unauthenticated_http is expected
+
+
+def test_http_opt_out_rejects_malformed_env(mock_env_vars, monkeypatch):
+    monkeypatch.setenv("MCP_ALLOW_UNAUTHENTICATED_HTTP", "tru")
+    with pytest.raises(ValueError, match="must be a boolean"):
+        load_config(mock_env_vars["PROXMOX_MCP_CONFIG"])

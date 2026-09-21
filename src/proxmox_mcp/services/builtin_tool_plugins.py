@@ -398,6 +398,10 @@ class VMToolsPlugin(RegistryPluginBase):
             tags: Annotated[Optional[str], Field(description="Proxmox tags, semicolon-separated (optional)", default=None)] = None,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            iso_volume: Annotated[Optional[str], Field(description="ISO volume ID such as local:iso/debian.iso; 'none' ejects")] = None,
+            cdrom_device: Annotated[str, Field(description="CD-ROM device; refuses to overwrite disks or cloud-init")] = "ide3",
+            boot_order: Annotated[Optional[str], Field(description="Boot devices separated by semicolons, e.g. ide3;scsi0")] = None,
+            network_bridge: Annotated[Optional[str], Field(description="Change net0 bridge while preserving other NIC settings")] = None,
         ) -> Any:
             return self._wrap_sync(server, "update_vm_config", lambda ts: ts.vm_tools.update_vm_config, high_risk=True)(
                 node=node,
@@ -413,6 +417,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 searchdomain=searchdomain,
                 tags=tags,
                 approval_token=approval_token,
+                iso_volume=iso_volume, cdrom_device=cdrom_device, boot_order=boot_order, network_bridge=network_bridge,
                 target=target,
             )
 
@@ -441,6 +446,9 @@ class VMToolsPlugin(RegistryPluginBase):
             network_bridge: Annotated[Optional[str], Field(description="Network bridge name (optional, default: 'vmbr0')", default=None)] = None,
             pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            iso_volume: Annotated[Optional[str], Field(description="Existing ISO volume ID, e.g. local:iso/debian.iso")] = None,
+            cdrom_device: Annotated[str, Field(description="Unused CD-ROM slot (default ide3)")] = "ide3",
+            boot_order: Annotated[Optional[str], Field(description="Semicolon-separated boot devices; with ISO defaults to CD-ROM then disk")] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_vm", lambda ts: ts.vm_tools.create_vm)(
                 node,
@@ -453,6 +461,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 ostype,
                 network_bridge,
                 pool,
+                iso_volume=iso_volume, cdrom_device=cdrom_device, boot_order=boot_order,
                 target=target,
             )
 
@@ -661,6 +670,10 @@ class ContainerToolsPlugin(RegistryPluginBase):
             unprivileged: Annotated[bool, Field(description="Create unprivileged container", default=True)] = True,
             pool: Annotated[Optional[str], Field(description="Target Proxmox resource pool (optional)", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            ip: Annotated[Optional[str], Field(description="IPv4/CIDR, dhcp (default), or manual")] = None,
+            gw: Annotated[Optional[str], Field(description="IPv4 gateway for static IP")] = None,
+            ip6: Annotated[Optional[str], Field(description="IPv6/CIDR, auto, dhcp or manual")] = None,
+            gw6: Annotated[Optional[str], Field(description="IPv6 gateway for static IP")] = None,
         ) -> Any:
             return self._wrap_sync(server, "create_container", lambda ts: ts.container_tools.create_container)(
                 node=node,
@@ -680,7 +693,23 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 nesting=nesting,
                 unprivileged=unprivileged,
                 pool=pool,
+                ip=ip, gw=gw, ip6=ip6, gw6=gw6,
                 target=target,
+            )
+
+        @server.tool_registry.tool(description="Update an existing LXC network interface: bridge, static IPv4/IPv6, DHCP and gateways. Preserves MAC, VLAN, firewall and other NIC settings. Use an empty gateway to remove it.")
+        def update_container_network(
+            node: str, vmid: str,
+            network_bridge: Optional[str] = None,
+            ip: Optional[str] = None, gw: Optional[str] = None,
+            ip6: Optional[str] = None, gw6: Optional[str] = None,
+            interface: str = "net0", approval_token: Optional[str] = None,
+            target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "update_container_network", lambda ts: ts.container_tools.update_container_network, high_risk=True)(
+                node=node, vmid=vmid, network_bridge=network_bridge,
+                ip=ip, gw=gw, ip6=ip6, gw6=gw6, interface=interface,
+                approval_token=approval_token, target=target,
             )
 
         @server.tool_registry.tool(description=DELETE_CONTAINER_DESC)

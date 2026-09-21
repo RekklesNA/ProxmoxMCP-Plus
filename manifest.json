@@ -305,6 +305,10 @@
         {
             "name": "get_guest_firewall_log",
             "description": "Read the firewall log of a VM (qemu) or container (lxc)"
+        },
+        {
+            "name": "update_container_network",
+            "description": "Update an existing LXC network interface, preserving unspecified NIC settings."
         }
     ],
     "keywords": [

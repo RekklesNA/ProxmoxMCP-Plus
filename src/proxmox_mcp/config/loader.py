@@ -63,6 +63,9 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
         for env_name, (key, coerce) in env_map.items()
         if env_name in os.environ
     }
+    allow_unauthenticated = _parse_bool_env("MCP_ALLOW_UNAUTHENTICATED_HTTP")
+    if allow_unauthenticated is not None:
+        overrides["allow_unauthenticated_http"] = allow_unauthenticated
     dns_rebinding_protection = _parse_bool_env("MCP_DNS_REBINDING_PROTECTION")
     if dns_rebinding_protection is not None:
         overrides["dns_rebinding_protection"] = dns_rebinding_protection

@@ -82,7 +82,10 @@ target ID is one Proxmox itself considers unused.
 Example:
 {"vmid": "105"}"""
 
-UPDATE_VM_CONFIG_DESC = """Update sizing and cloud-init settings of an existing QEMU VM.
+UPDATE_VM_CONFIG_DESC = """Update sizing, cloud-init, ISO media, boot order and net0 bridge of an existing QEMU VM.
+iso_volume accepts a storage volume ID or none to eject. cdrom_device defaults to ide3;
+existing disks and cloud-init drives cannot be overwritten. boot_order uses semicolon-separated
+device names. network_bridge preserves the other net0 options.
 
 Uses PUT /nodes/{node}/qemu/{vmid}/config with only the supplied fields. This is
 the step between clone_vm and start_vm that makes a fresh clone reachable:
@@ -126,6 +129,9 @@ Example:
 {"vmid": "105", "primary_ip": "10.0.0.57", "interfaces": [{"name": "eth0", "mac": "bc:24:11:..", "ipv4": ["10.0.0.57"], "ipv6": ["fe80::..."]}]}"""
 
 CREATE_VM_DESC = """Create a new virtual machine with specified configuration.
+Optionally mount an existing iso_volume (e.g. local:iso/debian.iso) at cdrom_device
+(default ide3). With an ISO, the default boot order is CD-ROM then disk; boot_order
+can specify semicolon-separated device names.
 
 Parameters:
 node* - Host node name (e.g. 'pve')
@@ -264,7 +270,10 @@ disk_gb: Additional disk size in GiB to add (optional)
 disk: Disk identifier to resize (default 'rootfs')
 """
 
-CREATE_CONTAINER_DESC = """Create a new LXC container with specified configuration.
+CREATE_CONTAINER_DESC = """Create a new LXC container from an OS template (not an ISO).
+Choose network_bridge and optional ip (IPv4/CIDR, dhcp or manual), gw,
+ip6 (IPv6/CIDR, auto, dhcp or manual) and gw6. IPv4 defaults to DHCP.
+Use update_container_network to edit network settings after creation.
 
 Parameters:
 node* - Host node name (e.g. 'pve', 'pveZ3')
