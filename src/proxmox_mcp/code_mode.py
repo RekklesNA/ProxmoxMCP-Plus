@@ -1,32 +1,19 @@
-"""Manifest-backed Code Mode for the Proxmox MCP server."""
+"""Runtime-catalog-backed Code Mode for the Proxmox MCP server."""
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
-from contextvars import ContextVar
-from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic_core import to_jsonable_python
 
-_INTERNAL = ContextVar("proxmox_code_mode_internal", default=False)
 _SOURCE_LIMIT = 64_000
 
 
 def _safe_error() -> dict[str, Any]:
     return {"success": False, "error": "Code Mode execution failed."}
-
-
-def _load_manifest(path: Path) -> dict[str, dict[str, Any]]:
-    try:
-        raw = json.loads(path.read_text())
-        return {
-            item["name"]: {"name": item["name"], "description": item.get("description", "")}
-            for item in raw.get("tools", [])
-            if isinstance(item, dict) and isinstance(item.get("name"), str)
-        }
-    except (OSError, json.JSONDecodeError, AttributeError):
-        return {}
 
 
 def _schema(tool: Any) -> dict[str, Any]:
@@ -57,9 +44,12 @@ def _source_allowed(source: str) -> bool:
 class CodeMode:
     """Registers the three public Code Mode tools and guards hidden dispatch."""
 
-    def __init__(self, server: Any, manifest_path: Path) -> None:
+    def __init__(self, server: Any) -> None:
         self.server = server
-        self.manifest = _load_manifest(manifest_path)
+        # Snapshot only domain tools registered after exposure/capability filtering.
+        self.domain_tools = dict(server.mcp._tool_manager._tools)
+        self._dispatch = server.mcp.call_tool
+        self._execution_slots = asyncio.Semaphore(2)
 
     def register(self) -> None:
         mcp = self.server.mcp
@@ -70,7 +60,8 @@ class CodeMode:
             limit = max(1, min(limit, 20))
             tools = self._runtime_tools()
             results = []
-            for name, item in self.manifest.items():
+            for name, tool in tools.items():
+                item = {"name": name, "description": tool.description or ""}
                 if name not in tools:
                     continue
                 haystack = f"{name} {item.get('description', '')}".lower()
@@ -95,7 +86,7 @@ class CodeMode:
         self._guard_dispatch()
 
     def _runtime_tools(self) -> dict[str, Any]:
-        return dict(getattr(getattr(self.server.mcp, "_tool_manager", None), "_tools", {}))
+        return self.domain_tools
 
     def _guard_dispatch(self) -> None:
         mcp = self.server.mcp
@@ -106,7 +97,7 @@ class CodeMode:
         public = frozenset({"proxmox_code_search", "proxmox_code_get_schema", "proxmox_code_execute"})
 
         async def guarded_call(name: str, arguments: dict[str, Any]) -> Any:
-            if name not in public and not _INTERNAL.get():
+            if name not in public:
                 raise ToolError("Direct domain tool calls are unavailable in code_mode; use Code Mode tools.")
             return await original_call(name, arguments)
 
@@ -119,45 +110,52 @@ class CodeMode:
         mcp.call_tool = guarded_call
         mcp.list_tools = guarded_list
         tool_manager.list_tools = guarded_manager_list
+        # FastMCP registered bound handlers during initialization; update both
+        # protocol entry points, not just the Python instance attributes.
+        mcp._mcp_server.list_tools()(guarded_list)
+        mcp._mcp_server.call_tool(validate_input=False)(guarded_call)
 
     async def execute(self, code: str) -> dict[str, Any]:
         if not isinstance(code, str) or len(code) > _SOURCE_LIMIT or not _source_allowed(code):
             return {"success": False, "error": "Code Mode source is invalid or exceeds the configured limit."}
         try:
-            from pydantic_monty import AsyncMonty, CollectStreams, MontyRuntimeError
+            from pydantic_monty import AsyncMonty, CollectStreams
         except Exception:
             return _safe_error()
         calls = 0
-        original_call = self.server.mcp.call_tool
+        original_call = self._dispatch
 
         async def call_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
             nonlocal calls
             if not isinstance(name, str) or name not in self._runtime_tools() or name in {
                 "proxmox_code_search", "proxmox_code_get_schema", "proxmox_code_execute",
             }:
-                raise ToolError("Code Mode can invoke only manifest-backed domain tools.")
+                raise ToolError("Code Mode can invoke only available domain tools.")
             calls += 1
             if calls > 25:
                 raise RuntimeError("tool call limit exceeded")
-            token = _INTERNAL.set(True)
-            try:
-                return await original_call(name, {} if arguments is None else arguments)
-            finally:
-                _INTERNAL.reset(token)
+            if arguments is not None and not isinstance(arguments, dict):
+                raise ToolError("Tool arguments must be an object.")
+            # MCP results contain Pydantic content blocks, which cannot cross
+            # the sandbox boundary directly. Preserve their wire representation.
+            result = to_jsonable_python(await original_call(name, {} if arguments is None else arguments))
+            if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 1_000_000:
+                raise RuntimeError("tool result limit exceeded")
+            return result
 
         try:
             streams = CollectStreams(max_bytes=16_000)
-            async with AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
+            async with self._execution_slots, asyncio.timeout(30), AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
                 async with pool.checkout(limits={"max_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
                     result = await session.feed_run(code, external_lookup={"call_tool": call_tool}, print_callback=streams)
-            if len(json.dumps(result, ensure_ascii=False, separators=(",", ":"))) > 16_000:
+            if len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 16_000:
                 return {"success": False, "error": "Code Mode execution exceeded a configured safety limit."}
             return {"success": True, "data": {"result": result}}
-        except (MontyRuntimeError, ToolError, RuntimeError, Exception):
+        except Exception:
             return _safe_error()
 
 
-def install_code_mode(server: Any, manifest_path: Path) -> CodeMode:
-    mode = CodeMode(server, manifest_path)
+def install_code_mode(server: Any) -> CodeMode:
+    mode = CodeMode(server)
     mode.register()
     return mode

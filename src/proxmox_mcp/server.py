@@ -215,7 +215,7 @@ class ProxmoxMCPServer:
         self.tool_registry = ToolRegistry(self.mcp, self.tool_exposure_policy)
         self._setup_tools()
         if self.config.mcp.code_mode:
-            install_code_mode(self, Path(__file__).resolve().parents[2] / "manifest.json")
+            install_code_mode(self)
 
     def _build_transport_security(self) -> Any | None:
         mcp_config = self.config.mcp
