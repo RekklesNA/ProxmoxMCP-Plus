@@ -95,3 +95,9 @@ def test_create_container_retains_dhcp_default_and_supports_static(static):
     assert ("ip=10.0.0.2/24" if static else "ip=dhcp") in network
     if static:
         assert "gw6=fd00::1" in network
+
+
+@pytest.mark.parametrize("kwargs", [{"ip6":"fe80::1%eth0,tag=1/64"}, {"ip6":"fe80::2/64", "gw6":"fe80::1%eth0,tag=1"}])
+def test_ipv6_zone_ids_cannot_inject_network_options(kwargs):
+    with pytest.raises(ValueError, match="zone IDs"):
+        container_network(**kwargs)

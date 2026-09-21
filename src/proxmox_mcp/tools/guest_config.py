@@ -31,6 +31,10 @@ def container_network(existing: str | None = None, *, network_bridge: str | None
     for key, value, family, dynamic in [("ip", ip, 4, {"dhcp", "manual"}), ("ip6", ip6, 6, {"auto", "dhcp", "manual"})]:
         if value is None:
             continue
+        # Python accepts arbitrary IPv6 zone IDs, including commas. Proxmox
+        # network strings use commas as field separators; never interpolate them.
+        if re.search(r"[,\s%]", value):
+            raise ValueError(f"{key} must not contain separators, whitespace or zone IDs")
         if value not in dynamic:
             if "/" not in value or ipaddress.ip_interface(value).version != family:
                 raise ValueError(f"{key} must be IPv{family}/CIDR or a supported automatic mode")
@@ -40,6 +44,10 @@ def container_network(existing: str | None = None, *, network_bridge: str | None
     for key, value, family, address_key in [("gw", gw, 4, "ip"), ("gw6", gw6, 6, "ip6")]:
         if value is None:
             continue
+        # Python accepts arbitrary IPv6 zone IDs, including commas. Proxmox
+        # network strings use commas as field separators; never interpolate them.
+        if re.search(r"[,\s%]", value):
+            raise ValueError(f"{key} must not contain separators, whitespace or zone IDs")
         if value == "":
             settings.pop(key, None)
             continue
