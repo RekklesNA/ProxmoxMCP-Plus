@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import signal
 import sys
-from pathlib import Path
 from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
