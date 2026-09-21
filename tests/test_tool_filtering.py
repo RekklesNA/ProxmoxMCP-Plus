@@ -323,3 +323,18 @@ async def test_stdio_protocol_lists_only_allowlisted_tools(tmp_path):
             result = await session.list_tools()
 
     assert {tool.name for tool in result.tools} == {"get_nodes", "get_vms"}
+
+
+@pytest.mark.asyncio
+async def test_code_mode_search_schema_and_execution_obey_allowlist(tmp_path):
+    server = _create_server(_write_config(tmp_path, mcp={"code_mode": True, "tool_allowlist": ["get_nodes"]}))
+    try:
+        result = await server.mcp.call_tool("proxmox_code_search", {"query": ""})
+        data = json.loads(result[0][0].text) if isinstance(result, tuple) else json.loads(result[0].text)
+        assert [item["name"] for item in data["data"]] == ["get_nodes"]
+        for name, args in [("proxmox_code_get_schema", {"names":["update_container_network"]}), ("proxmox_code_execute", {"code":"await call_tool('update_container_network', {})"})]:
+            result = await server.mcp.call_tool(name, args)
+            data = json.loads(result[0][0].text) if isinstance(result, tuple) else json.loads(result[0].text)
+            assert data["success"] is False
+    finally:
+        server.close()

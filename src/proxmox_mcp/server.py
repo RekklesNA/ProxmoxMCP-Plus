@@ -301,18 +301,24 @@ class ProxmoxMCPServer:
             )
         raise AttributeError(name)
 
-    async def _run_streamable_http_async(self) -> None:
+    async def _run_streamable_http_async(self, *, sse: bool = False) -> None:
         """Run Streamable HTTP with optional inbound Bearer authentication."""
         import uvicorn
 
-        app: Any = self.mcp.streamable_http_app()
+        app: Any = self.mcp.sse_app() if sse else self.mcp.streamable_http_app()
         api_key = os.getenv("MCP_API_KEY")
         if api_key:
             app = MCPBearerAuthMiddleware(app, api_key=api_key)
-            self.logger.info("MCP Streamable HTTP bearer authentication is enabled")
+            self.logger.info("MCP HTTP bearer authentication is enabled")
+        elif not self.config.mcp.allow_unauthenticated_http:
+            raise ValueError(
+                "MCP_API_KEY must be set for native MCP HTTP transport. "
+                "For deployments protected by external access control only, explicitly set "
+                "MCP_ALLOW_UNAUTHENTICATED_HTTP=true (mcp.allow_unauthenticated_http)."
+            )
         else:
             self.logger.warning(
-                "MCP Streamable HTTP is running without MCP_API_KEY; "
+                "MCP HTTP is running without MCP_API_KEY by explicit opt-out; "
                 "any client that can reach the endpoint may invoke MCP tools"
             )
 
@@ -323,6 +329,9 @@ class ProxmoxMCPServer:
             log_level=self.mcp.settings.log_level.lower(),
         )
         await uvicorn.Server(config).serve()
+
+    async def _run_sse_http_async(self) -> None:
+        await self._run_streamable_http_async(sse=True)
 
     def start(self) -> None:
         """Start the MCP server with the configured transport."""
@@ -353,12 +362,9 @@ class ProxmoxMCPServer:
             if transport == "STDIO":
                 anyio.run(self.mcp.run_stdio_async)
             elif transport == "SSE":
-                anyio.run(self.mcp.run_sse_async)
+                anyio.run(self._run_sse_http_async)
             elif transport == "STREAMABLE":
-                try:
-                    anyio.run(self._run_streamable_http_async)
-                except AttributeError:
-                    anyio.run(self.mcp.run_sse_async)
+                anyio.run(self._run_streamable_http_async)
             else:
                 anyio.run(self.mcp.run_stdio_async)
         except Exception as e:

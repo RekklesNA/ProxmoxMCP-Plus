@@ -18,6 +18,16 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.19`
+
+- Release date: 2026-09-21
+- Summary: optional Code Mode, VM ISO and network configuration, LXC static addressing/network edits, and explicit externally protected HTTP authentication opt-out (#130, #131, #132).
+- New tool: `update_container_network`; preserve existing full-catalog and DHCP defaults.
+- Native HTTP: Streamable HTTP and SSE require a key unless `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` is explicitly configured. A configured key is always enforced.
+- Release integrity: metadata/tag/archive version checks prevent the v0.5.18 tag-versus-package mismatch from recurring. Historical tags are retained.
+- Upgrade: install `proxmox-mcp-plus==0.5.19` or pull GHCR `0.5.19`, configure HTTP authentication and reconnect clients. See [v0.5.19 notes](../releases/v0.5.19.md).
+- Rollback: remove new config/filter entries first; existing guest changes are not reversed.
+
 ### Version `0.5.17`
 
 - Release date: 2026-09-16

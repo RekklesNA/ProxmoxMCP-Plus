@@ -11,6 +11,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "get_vm_config",
         "set_vm_description",
         "update_vm_config",
+        "update_container_network",
         "get_vm_ip_addresses",
         "get_next_vmid",
         "create_vm",

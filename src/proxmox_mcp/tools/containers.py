@@ -1,4 +1,6 @@
 from typing import List, Dict, Optional, Tuple, Any, Union, Callable
+from proxmox_mcp.tools.guest_config import container_network
+import re
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
@@ -638,6 +640,10 @@ class ContainerTools(ProxmoxTool):
         nesting: bool = False,
         unprivileged: bool = True,
         pool: Optional[str] = None,
+        ip: Optional[str] = None,
+        gw: Optional[str] = None,
+        ip6: Optional[str] = None,
+        gw6: Optional[str] = None,
     ) -> List[Content]:
         """Create a new LXC container.
 
@@ -663,6 +669,7 @@ class ContainerTools(ProxmoxTool):
         Returns:
             List[Content] with creation result
         """
+        net0 = container_network(network_bridge=network_bridge, ip=ip, gw=gw, ip6=ip6, gw6=gw6)
         try:
             # Validate vmid doesn't already exist
             existing = self._list_ct_pairs(node=None)
@@ -714,7 +721,7 @@ class ContainerTools(ProxmoxTool):
                 "memory": memory,
                 "swap": swap,
                 "rootfs": f"{storage}:{disk_size}",
-                "net0": f"name=eth0,bridge={network_bridge},ip=dhcp",
+                "net0": net0,
                 "unprivileged": 1 if unprivileged else 0,
                 "start": 1 if start_after_create else 0,
                 "onboot": 1 if onboot else 0,
@@ -766,7 +773,7 @@ class ContainerTools(ProxmoxTool):
                 f"  - Memory: {memory} MiB",
                 f"  - Swap: {swap} MiB",
                 f"  - Disk: {disk_size} GB on {storage}",
-                f"  - Network: {network_bridge} (DHCP)",
+                f"  - Network: {net0}",
                 f"  - Unprivileged: {'Yes' if unprivileged else 'No'}",
                 f"  - Auto-start: {'Yes' if start_after_create else 'No'}",
                 f"  - Start on boot: {'Yes' if onboot else 'No'}",
@@ -1129,3 +1136,25 @@ class ContainerTools(ProxmoxTool):
 
         except Exception as e:
             return self._err("Failed to update container(s)", e)
+
+
+    def update_container_network(
+        self, node: str, vmid: str, network_bridge: Optional[str] = None,
+        ip: Optional[str] = None, gw: Optional[str] = None,
+        ip6: Optional[str] = None, gw6: Optional[str] = None,
+        interface: str = "net0", approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Merge selected network fields while preserving other NIC options."""
+        if not re.fullmatch(r"net(?:[0-9]|[12][0-9]|3[01])", interface):
+            raise ValueError("interface must be net0 through net31")
+        if all(v is None for v in (network_bridge, ip, gw, ip6, gw6)):
+            raise ValueError("update_container_network needs at least one setting")
+        current = self.proxmox.nodes(node).lxc(vmid).config.get()
+        if not current.get(interface):
+            raise ValueError(f"Container has no {interface} interface to update")
+        network = container_network(current[interface], network_bridge=network_bridge, ip=ip, gw=gw, ip6=ip6, gw6=gw6)
+        payload = {interface: network}
+        if current.get("digest"):
+            payload["digest"] = current["digest"]
+        self.proxmox.nodes(node).lxc(vmid).config.put(**payload)
+        return self._json_fmt({"node": node, "vmid": vmid, "applied": {interface: network}})
