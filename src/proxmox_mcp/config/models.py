@@ -168,6 +168,8 @@ class MCPConfig(BaseModel):
     allowed_origins: List[str] = Field(default_factory=list)
     tool_allowlist: Optional[List[str]] = None
     tool_denylist: Optional[List[str]] = None
+    # Opt-in: legacy full catalog remains the default for existing clients.
+    code_mode: bool = False
 
     @field_validator("transport", mode="before")
     @classmethod

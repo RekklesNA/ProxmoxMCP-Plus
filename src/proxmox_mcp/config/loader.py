@@ -63,6 +63,8 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
         for env_name, (key, coerce) in env_map.items()
         if env_name in os.environ
     }
+    if "MCP_CODE_MODE" in os.environ:
+        overrides["code_mode"] = _bool_env("MCP_CODE_MODE")
     dns_rebinding_protection = _parse_bool_env("MCP_DNS_REBINDING_PROTECTION")
     if dns_rebinding_protection is not None:
         overrides["dns_rebinding_protection"] = dns_rebinding_protection

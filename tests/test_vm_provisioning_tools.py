@@ -262,3 +262,17 @@ async def test_provisioning_reads_remain_available_on_readonly_target(provisioni
     assert _payload(await server.mcp.call_tool(
         "get_vm_ip_addresses", {"target": "readonly", "node": "pve", "vmid": "105"}
     ))["interfaces"] == []
+
+
+@pytest.mark.asyncio
+async def test_code_mode_preserves_real_target_routing_and_approval(provisioning_server):
+    from proxmox_mcp.code_mode import install_code_mode
+    server, apis = provisioning_server
+    mode = install_code_mode(server)
+    for target, token, allowed in [("strict", "wrong", False), ("readonly", "strict-approval", False), ("strict", "strict-approval", True)]:
+        args = {"target": target, "node": "pve", "vmid": "105", "memory": 4096, "approval_token": token}
+        result = await mode.execute(f"await call_tool('update_vm_config', {args!r})")
+        assert result["success"] is allowed
+    apis["strict.invalid"].nodes.return_value.qemu.return_value.config.put.assert_called_once_with(memory=4096)
+    apis["readonly.invalid"].nodes.assert_not_called()
+    apis["default.invalid"].nodes.assert_not_called()
