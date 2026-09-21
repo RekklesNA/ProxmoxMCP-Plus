@@ -151,6 +151,22 @@ class NodeTools(ProxmoxTool):
             # formatter from always rendering "UNKNOWN".
             if "status" not in result:
                 result["status"] = "online"
+
+            # This endpoint samples CPU usage instantaneously and intermittently
+            # reports exactly 0 on a node that is doing work. /cluster/resources
+            # carries the averaged figure the web UI shows, so prefer that when
+            # the sample looks like the artifact.
+            if not result.get("cpu"):
+                try:
+                    for entry in self.proxmox.cluster.resources.get(type="node"):
+                        if entry.get("node") == node and entry.get("cpu"):
+                            result["cpu"] = entry["cpu"]
+                            break
+                except Exception:  # pragma: no cover - best effort enrichment
+                    self.logger.debug(
+                        "Could not read averaged CPU for node %s", node, exc_info=True
+                    )
+
             return self._format_response((node, result), "node_status")
         except Exception as e:
             try:
