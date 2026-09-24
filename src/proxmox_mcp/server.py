@@ -20,6 +20,7 @@ from proxmox_mcp.core.proxmox import ProxmoxManager
 from proxmox_mcp.code_mode import install_code_mode
 from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
+from proxmox_mcp.mcp_oauth import MCPOAuthMiddleware
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
 from proxmox_mcp.services import (
@@ -307,7 +308,49 @@ class ProxmoxMCPServer:
 
         app: Any = self.mcp.sse_app() if sse else self.mcp.streamable_http_app()
         api_key = os.getenv("MCP_API_KEY")
-        if api_key:
+        oauth_raw = os.getenv("MCP_OAUTH_ENABLED", "false").strip().lower()
+        if oauth_raw in {"1", "true", "yes", "on"}:
+            oauth_enabled = True
+        elif oauth_raw in {"0", "false", "no", "off", ""}:
+            oauth_enabled = False
+        else:
+            raise ValueError("MCP_OAUTH_ENABLED must be a boolean value")
+
+        if oauth_enabled:
+            if sse:
+                raise ValueError("MCP OAuth browser-gate mode supports STREAMABLE HTTP only")
+            if not api_key:
+                raise ValueError("MCP_API_KEY must be set when MCP_OAUTH_ENABLED=true")
+            issuer_url = os.getenv("MCP_OAUTH_ISSUER", "").strip()
+            if not issuer_url:
+                raise ValueError(
+                    "MCP_OAUTH_ISSUER must be set to the public HTTPS origin when MCP OAuth is enabled"
+                )
+            scopes = tuple(
+                item.strip()
+                for item in os.getenv("MCP_OAUTH_SCOPES", "mcp").split(",")
+                if item.strip()
+            )
+            if not scopes:
+                raise ValueError("MCP_OAUTH_SCOPES must contain at least one scope")
+            app = MCPOAuthMiddleware(
+                app,
+                api_key=api_key,
+                issuer_url=issuer_url,
+                resource_url=os.getenv("MCP_OAUTH_RESOURCE") or None,
+                scopes=scopes,
+                access_token_ttl_seconds=int(
+                    os.getenv("MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS", "3600")
+                ),
+                refresh_token_ttl_seconds=int(
+                    os.getenv("MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS", "2592000")
+                ),
+            )
+            self.logger.info(
+                "MCP HTTP OAuth browser gate is enabled for issuer %s",
+                issuer_url,
+            )
+        elif api_key:
             app = MCPBearerAuthMiddleware(app, api_key=api_key)
             self.logger.info("MCP HTTP bearer authentication is enabled")
         elif not self.config.mcp.allow_unauthenticated_http:
