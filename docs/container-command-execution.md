@@ -15,6 +15,31 @@ This feature requires a one-time SSH setup on your Proxmox nodes. It is **entire
 you do not add an `ssh` section to your MCP config, these tools are not registered and will not
 appear in the MCP tool list. Everything else continues to work normally.
 
+## Execution limits (v0.5.21)
+
+Both SSH-backed tools run in a dedicated pool of at most four concurrent workers,
+so a slow command does not block MCP tool discovery or unrelated requests.
+Target selection, read-only restrictions and command/approval policy still apply.
+
+Each command uses GNU coreutils `/usr/bin/timeout` **inside the container**:
+60 seconds, then TERM to the command process group, followed by KILL after a
+5-second grace period. Install coreutils in minimal images before using these
+tools; a missing watchdog is an execution error, never an unbounded fallback.
+Passwordless sudo is still required; `sudo -n` fails instead of prompting.
+
+Paramiko drains stdout and stderr together with a 70-second wall-clock read
+limit; OpenSSH has a 70-second local process limit. SSH setup and API discovery
+have their own timeouts, so total request duration can be longer than 70 seconds.
+Closing a connection does not undo changes. Deliberately detached processes or
+commands escaping their process group are outside the watchdog's guarantee.
+This tool is intended for bounded foreground commands, not background job management.
+
+`execute_container_command` returns `success: false`, `code: COMMAND_TIMEOUT`,
+`timed_out: true`, `exit_code: 124` and any captured output on a timeout
+(including remote watchdog exit statuses 124/137). Inspect partial state before
+retrying package installations or other mutations. SSH-key updates report an
+operation failure if either of their commands fails.
+
 ## Why SSH?
 
 The Proxmox REST API exposes a QEMU guest agent endpoint that lets you run commands inside virtual

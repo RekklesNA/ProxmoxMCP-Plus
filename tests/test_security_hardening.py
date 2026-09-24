@@ -124,6 +124,11 @@ def test_container_command_logging_redacts_command(caplog):
     stdout = MagicMock()
     stdout.read.return_value = b"secret-output\n"
     stdout.channel.recv_exit_status.return_value = 0
+    chunks = [b"secret-output\n"]
+    stdout.channel.recv_ready.side_effect = lambda: bool(chunks)
+    stdout.channel.recv.side_effect = lambda size: chunks.pop(0)
+    stdout.channel.recv_stderr_ready.return_value = False
+    stdout.channel.exit_status_ready.return_value = True
     stderr = MagicMock()
     stderr.read.return_value = b""
     client = MagicMock()

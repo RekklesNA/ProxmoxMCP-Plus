@@ -6,6 +6,7 @@ BUILTIN_TOOL_NAMES = frozenset(
     {
         "list_targets",
         "get_nodes",
+        "list_bridges",
         "get_node_status",
         "get_vms",
         "get_vm_config",

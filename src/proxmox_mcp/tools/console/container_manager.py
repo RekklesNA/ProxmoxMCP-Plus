@@ -11,6 +11,8 @@ import os
 import shlex
 import logging
 import subprocess
+import time
+from threading import Event, Timer
 from typing import Dict, Any
 
 import paramiko  # type: ignore[import-untyped]
@@ -23,6 +25,53 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 class ContainerConsoleManager:
     """Execute shell commands inside LXC containers via SSH + pct exec."""
+
+    COMMAND_TIMEOUT = 60
+    KILL_GRACE = 5
+    SSH_TIMEOUT = 70
+
+    def _timeout_result(self, output: str = "", error: str = "") -> Dict[str, Any]:
+        return {
+            "success": False,
+            "code": "COMMAND_TIMEOUT",
+            "timed_out": True,
+            "output": output,
+            "error": f"Command timeout (command limit {self.COMMAND_TIMEOUT}s; SSH wait limit {self.SSH_TIMEOUT}s). "
+                     "Partial changes may have occurred; check state before retrying."
+                     + (f"\n{error}" if error else ""),
+            "exit_code": 124,
+        }
+
+    def _result(self, code: int, output: str, error: str) -> Dict[str, Any]:
+        if code in (124, 137):
+            return self._timeout_result(output, error)
+        return {"success": code == 0, "output": output, "error": error, "exit_code": code}
+
+    def _read_channel(self, channel: Any) -> Dict[str, Any]:
+        """Drain both streams fairly, with a wall-clock rather than idle timeout."""
+        deadline = time.monotonic() + self.SSH_TIMEOUT
+        out, err = bytearray(), bytearray()
+        try:
+            while time.monotonic() < deadline:
+                received = False
+                # One chunk per stream per iteration: continuously busy stdout
+                # must not starve stderr or prevent checking the deadline.
+                if channel.recv_ready():
+                    out.extend(channel.recv(65536))
+                    received = True
+                if channel.recv_stderr_ready():
+                    err.extend(channel.recv_stderr(65536))
+                    received = True
+                if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
+                    return self._result(channel.recv_exit_status(),
+                                        out.decode("utf-8", errors="replace"),
+                                        err.decode("utf-8", errors="replace"))
+                if not received:
+                    time.sleep(0.01)
+            return self._timeout_result(out.decode("utf-8", errors="replace"),
+                                        err.decode("utf-8", errors="replace"))
+        finally:
+            channel.close()
 
     def __init__(self, proxmox_api: Any, ssh_config: Any) -> None:
         self.proxmox = proxmox_api
@@ -71,20 +120,21 @@ class ContainerConsoleManager:
         # OpenSSH inherits the MCP server's stdin pipe, blocks indefinitely
         # reading from it, and the call hangs until the 70s timeout. This
         # does not reproduce on Linux where stdin behaves differently.
-        completed = subprocess.run(  # noqa: S603
-            ssh_cmd,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=70,
-            check=False,
-        )
-        return {
-            "success": completed.returncode == 0,
-            "output": completed.stdout,
-            "error": completed.stderr,
-            "exit_code": completed.returncode,
-        }
+        try:
+            completed = subprocess.run(  # noqa: S603
+                ssh_cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=self.SSH_TIMEOUT,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            # subprocess.run kills and reaps the local SSH process on timeout.
+            def text(value: Any) -> str:
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
+            return self._timeout_result(text(error.stdout), text(error.stderr))
+        return self._result(completed.returncode, completed.stdout, completed.stderr)
 
     def execute_command(self, node: str, vmid: str, command: str) -> Dict[str, Any]:
         """Execute *command* inside the LXC container identified by *vmid* on *node*.
@@ -107,8 +157,13 @@ class ContainerConsoleManager:
             raise ValueError(f"Container {vmid} on node {node} is not running")
 
         # 2. Build pct exec command
-        prefix = "sudo " if self.ssh_cfg.use_sudo else ""
-        cmd = f"{prefix}/usr/sbin/pct exec {shlex.quote(str(vmid))} -- sh -c {shlex.quote(command)}"
+        prefix = "sudo -n " if self.ssh_cfg.use_sudo else ""
+        # Run the watchdog INSIDE the container so it owns the shell's process
+        # group even if the SSH connection disappears. Never fall back to an
+        # unbounded command if the container lacks GNU coreutils timeout.
+        cmd = (f"{prefix}/usr/sbin/pct exec {shlex.quote(str(vmid))} -- "
+               f"/usr/bin/timeout --signal=TERM --kill-after={self.KILL_GRACE}s "
+               f"{self.COMMAND_TIMEOUT}s sh -c {shlex.quote(command)}")
         self.logger.info("Executing command on CT %s@%s", _log_safe(vmid), _log_safe(node))
         target = self._ssh_host(node)
 
@@ -133,26 +188,44 @@ class ContainerConsoleManager:
             port=self.ssh_cfg.port,
             username=self.ssh_cfg.user,
             timeout=10,
+            banner_timeout=10,
+            auth_timeout=10,
+            channel_timeout=10,
         )
         if self.ssh_cfg.key_file:
             connect_kwargs["key_filename"] = os.path.expanduser(self.ssh_cfg.key_file)
         elif self.ssh_cfg.password:
             connect_kwargs["password"] = self.ssh_cfg.password
 
+        watchdog = None
+        expired = Event()
+
+        def close_expired_session() -> None:
+            expired.set()
+            client.close()
+
         try:
             client.connect(**connect_kwargs)
-            _, stdout, stderr = client.exec_command(cmd, timeout=60)
-            out = stdout.read().decode("utf-8", errors="replace")
-            err = stderr.read().decode("utf-8", errors="replace")
-            exit_code = stdout.channel.recv_exit_status()
-            return {
-                "success": exit_code == 0,
-                "output": out,
-                "error": err,
-                "exit_code": exit_code,
-            }
+            # Paramiko's exec-request acknowledgement waits on an event, not
+            # the channel read timeout. Closing the transport releases it too.
+            watchdog = Timer(self.SSH_TIMEOUT, close_expired_session)
+            watchdog.daemon = True
+            watchdog.start()
+            stdin, stdout, _ = client.exec_command(cmd, timeout=10)
+            stdin.close()
+            stdout.channel.shutdown_write()
+            result = self._read_channel(stdout.channel)
+            if expired.is_set():
+                return self._timeout_result(result["output"], result["error"])
+            return result
+        except TimeoutError:
+            return self._timeout_result()
         except paramiko.SSHException as e:
+            if expired.is_set():
+                return self._timeout_result()
             self.logger.error("SSH error connecting to %s: %s", _log_safe(node), _log_safe(e))
             raise RuntimeError(f"SSH error connecting to node {node}: {e}") from e
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             client.close()
