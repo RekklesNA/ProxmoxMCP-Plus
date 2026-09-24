@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.20`
+
+- Release date: 2026-09-24
+- Summary: detailed node CPU, load, memory, swap and root filesystem status (#134).
+- Preserve valid zero CPU samples; optional cluster CPU enrichment only fills missing readings and tolerates permission failures.
+- Show zero available memory; prefer `rootfs` with the legacy `disk` mapping as fallback.
+- Upgrade: install `proxmox-mcp-plus==0.5.20` or pull GHCR `0.5.20`, then restart/reconnect. No configuration migration required.
+- Details: [v0.5.20 notes](../releases/v0.5.20.md).
+
 ### Version `0.5.19`
 
 - Release date: 2026-09-21

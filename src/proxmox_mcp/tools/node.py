@@ -151,6 +151,18 @@ class NodeTools(ProxmoxTool):
             # formatter from always rendering "UNKNOWN".
             if "status" not in result:
                 result["status"] = "online"
+
+            # Zero is a valid CPU sample. Only enrich a missing reading;
+            # cluster resources may use a different sampling interval.
+            if result.get("cpu") is None:
+                try:
+                    for entry in self.proxmox.cluster.resources.get(type="node"):
+                        if entry.get("node") == node and isinstance(entry.get("cpu"), (int, float)):
+                            result["cpu"] = entry["cpu"]
+                            break
+                except Exception:
+                    self.logger.debug("Could not read optional cluster CPU sample")
+
             return self._format_response((node, result), "node_status")
         except Exception as e:
             try:
