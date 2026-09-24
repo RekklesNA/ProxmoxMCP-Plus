@@ -152,20 +152,16 @@ class NodeTools(ProxmoxTool):
             if "status" not in result:
                 result["status"] = "online"
 
-            # This endpoint samples CPU usage instantaneously and intermittently
-            # reports exactly 0 on a node that is doing work. /cluster/resources
-            # carries the averaged figure the web UI shows, so prefer that when
-            # the sample looks like the artifact.
-            if not result.get("cpu"):
+            # Zero is a valid CPU sample. Only enrich a missing reading;
+            # cluster resources may use a different sampling interval.
+            if result.get("cpu") is None:
                 try:
                     for entry in self.proxmox.cluster.resources.get(type="node"):
-                        if entry.get("node") == node and entry.get("cpu"):
+                        if entry.get("node") == node and isinstance(entry.get("cpu"), (int, float)):
                             result["cpu"] = entry["cpu"]
                             break
-                except Exception:  # pragma: no cover - best effort enrichment
-                    self.logger.debug(
-                        "Could not read averaged CPU for node %s", node, exc_info=True
-                    )
+                except Exception:
+                    self.logger.debug("Could not read optional cluster CPU sample")
 
             return self._format_response((node, result), "node_status")
         except Exception as e:

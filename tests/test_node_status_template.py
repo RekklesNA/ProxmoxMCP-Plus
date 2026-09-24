@@ -1,6 +1,11 @@
 """Node status rendering against the shape /nodes/{node}/status actually returns."""
 from proxmox_mcp.formatting.templates import ProxmoxTemplates
 
+
+def test_node_status_displays_zero_available_memory():
+    out = ProxmoxTemplates.node_status("pve1", {"memory": {"available": 0}})
+    assert "Memory Available: 0.00 B" in out
+
 # Trimmed from a live Proxmox VE 9.2 response.
 LIVE_STATUS = {
     "status": "online",

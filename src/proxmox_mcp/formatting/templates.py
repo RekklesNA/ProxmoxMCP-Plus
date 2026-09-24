@@ -118,7 +118,7 @@ class ProxmoxTemplates:
             f"  - Memory: {ProxmoxFormatters.format_bytes(memory_used)} / "
             f"{ProxmoxFormatters.format_bytes(memory_total)} ({memory_percent:.1f}%)"
         )
-        if memory.get("available"):
+        if memory.get("available") is not None:
             result.append(
                 f"  - Memory Available: "
                 f"{ProxmoxFormatters.format_bytes(memory['available'])}"
