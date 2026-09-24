@@ -186,6 +186,76 @@ keyless startup and logs a warning; it does not configure or verify the external
 access controls. A configured `MCP_API_KEY` is always enforced, even with opt-out.
 This setting does not change OpenAPI authentication or DNS rebinding protection.
 
+##### OAuth browser gate for ChatGPT
+
+Native MCP HTTP can optionally expose an OAuth 2.1 authorization-code flow with
+PKCE while keeping `MCP_API_KEY` as the only credential an operator has to manage.
+This is useful for MCP clients that support OAuth but cannot attach a custom API
+key directly to MCP requests.
+
+In this mode the OAuth authorization page is hosted by ProxmoxMCP-Plus itself.
+The user enters `MCP_API_KEY` in the browser at `/authorize`. If the key matches,
+the server completes the PKCE flow and returns an OAuth authorization code to the
+client. The API key is never placed in a URL and is never returned to the OAuth
+client.
+
+```bash
+export MCP_API_KEY="$(openssl rand -hex 32)"
+
+docker run --rm -p 8000:8000 \
+  -e PROXMOX_MCP_MODE=mcp-http \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_PORT=8000 \
+  -e MCP_TRANSPORT=STREAMABLE_HTTP \
+  -e MCP_API_KEY="$MCP_API_KEY" \
+  -e MCP_OAUTH_ENABLED=true \
+  -e MCP_OAUTH_ISSUER=https://mcp.example.com \
+  -e MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:* \
+  -e MCP_ALLOWED_ORIGINS=https://mcp.example.com \
+  -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
+  ghcr.io/rekklesna/proxmoxmcp-plus:latest
+```
+
+Then connect the OAuth-capable client to:
+
+```text
+https://mcp.example.com/mcp
+```
+
+OAuth mode exposes these endpoints on the same public origin:
+
+- `/.well-known/oauth-protected-resource/mcp` - RFC 9728 protected-resource metadata
+- `/.well-known/oauth-authorization-server` - OAuth authorization-server metadata
+- `/register` - dynamic client registration (DCR)
+- `/authorize` - API-key browser gate and authorization-code endpoint
+- `/token` - authorization-code/refresh-token exchange
+
+The flow requires PKCE `S256`, validates the OAuth `resource`, audience, expiry,
+and required scopes on every MCP request, and returns the protected-resource
+metadata URL in the `WWW-Authenticate` challenge. Dynamic client IDs plus access
+and refresh tokens are signed values derived from `MCP_API_KEY`, so they remain
+valid across a process restart while the API key is unchanged. Rotating
+`MCP_API_KEY` invalidates all existing OAuth credentials immediately.
+
+Only the short-lived browser login transaction (10 minutes) and one-time
+authorization code (5 minutes) are kept in process memory. The current Docker
+runtime starts one Uvicorn process, which matches that design. If you place
+multiple application workers behind a load balancer, use sticky routing for an
+authorization flow or move this short-lived state to a shared store.
+
+Optional OAuth environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier |
+| `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
+| `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
+
+When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>` request
+to `/mcp` is intentionally rejected. The API key is accepted only by the browser
+authorization page; MCP requests must use the issued OAuth access token.
+
 When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection enabled and allow only the hostnames you expect:
 
 ```bash
