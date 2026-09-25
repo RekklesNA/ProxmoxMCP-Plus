@@ -322,74 +322,71 @@ class MCPApiKeyOAuthProvider(
         except ValueError:
             return None
 
-    def _ensure_client_capacity(self, incoming_client_id: str) -> None:
+    def _ensure_client_capacity_locked(self, incoming_client_id: str) -> None:
+        existing = self._db.execute(
+            "SELECT 1 FROM oauth_clients WHERE client_id = ?",
+            (incoming_client_id,),
+        ).fetchone()
+        if existing is not None:
+            return
+
         now = int(time.time())
-        with self._db_lock:
-            existing = self._db.execute(
-                "SELECT 1 FROM oauth_clients WHERE client_id = ?",
-                (incoming_client_id,),
-            ).fetchone()
-            if existing is not None:
-                return
+        self._db.execute(
+            "DELETE FROM oauth_authorization_codes WHERE expires_at <= ?",
+            (now,),
+        )
+        self._db.execute(
+            "DELETE FROM oauth_access_tokens WHERE expires_at <= ?",
+            (now,),
+        )
+        self._db.execute(
+            "DELETE FROM oauth_refresh_tokens WHERE expires_at <= ?",
+            (now,),
+        )
+        count_row = self._db.execute(
+            "SELECT COUNT(*) AS total FROM oauth_clients"
+        ).fetchone()
+        total = int(count_row["total"]) if count_row is not None else 0
+        needed = total - self.max_registered_clients + 1
+        if needed <= 0:
+            return
 
-            self._db.execute(
-                "DELETE FROM oauth_authorization_codes WHERE expires_at <= ?",
-                (now,),
+        stale_rows = self._db.execute(
+            """
+            SELECT c.client_id
+            FROM oauth_clients AS c
+            WHERE NOT EXISTS (
+                SELECT 1 FROM oauth_authorization_codes AS a
+                WHERE a.client_id = c.client_id AND a.expires_at > ?
             )
-            self._db.execute(
-                "DELETE FROM oauth_access_tokens WHERE expires_at <= ?",
-                (now,),
+            AND NOT EXISTS (
+                SELECT 1 FROM oauth_access_tokens AS a
+                WHERE a.client_id = c.client_id AND a.expires_at > ?
             )
-            self._db.execute(
-                "DELETE FROM oauth_refresh_tokens WHERE expires_at <= ?",
-                (now,),
+            AND NOT EXISTS (
+                SELECT 1 FROM oauth_refresh_tokens AS r
+                WHERE r.client_id = c.client_id AND r.expires_at > ?
             )
-            count_row = self._db.execute(
-                "SELECT COUNT(*) AS total FROM oauth_clients"
-            ).fetchone()
-            total = int(count_row["total"]) if count_row is not None else 0
-            needed = total - self.max_registered_clients + 1
-            if needed <= 0:
-                self._db.commit()
-                return
+            ORDER BY c.rowid ASC
+            LIMIT ?
+            """,
+            (now, now, now, needed),
+        ).fetchall()
+        for row in stale_rows:
+            self._db.execute(
+                "DELETE FROM oauth_clients WHERE client_id = ?",
+                (row["client_id"],),
+            )
 
-            stale_rows = self._db.execute(
-                """
-                SELECT c.client_id
-                FROM oauth_clients AS c
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM oauth_authorization_codes AS a
-                    WHERE a.client_id = c.client_id AND a.expires_at > ?
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM oauth_access_tokens AS a
-                    WHERE a.client_id = c.client_id AND a.expires_at > ?
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM oauth_refresh_tokens AS r
-                    WHERE r.client_id = c.client_id AND r.expires_at > ?
-                )
-                ORDER BY c.rowid ASC
-                LIMIT ?
-                """,
-                (now, now, now, needed),
-            ).fetchall()
-            for row in stale_rows:
-                self._db.execute(
-                    "DELETE FROM oauth_clients WHERE client_id = ?",
-                    (row["client_id"],),
-                )
-
-            count_row = self._db.execute(
-                "SELECT COUNT(*) AS total FROM oauth_clients"
-            ).fetchone()
-            total = int(count_row["total"]) if count_row is not None else 0
-            self._db.commit()
-            if total >= self.max_registered_clients:
-                raise RegistrationError(
-                    "invalid_client_metadata",
-                    "dynamic client registration capacity is currently full",
-                )
+        count_row = self._db.execute(
+            "SELECT COUNT(*) AS total FROM oauth_clients"
+        ).fetchone()
+        total = int(count_row["total"]) if count_row is not None else 0
+        if total >= self.max_registered_clients:
+            raise RegistrationError(
+                "invalid_client_metadata",
+                "dynamic client registration capacity is currently full",
+            )
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if not client_info.client_id:
@@ -410,17 +407,23 @@ class MCPApiKeyOAuthProvider(
                 "invalid_client_metadata",
                 "client_name must be 1-256 characters",
             )
-        self._ensure_client_capacity(client_info.client_id)
+
         with self._db_lock:
-            self._db.execute(
-                """
-                INSERT INTO oauth_clients(client_id, payload)
-                VALUES(?, ?)
-                ON CONFLICT(client_id) DO UPDATE SET payload = excluded.payload
-                """,
-                (client_info.client_id, self._model_json(client_info)),
-            )
-            self._db.commit()
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._ensure_client_capacity_locked(client_info.client_id)
+                self._db.execute(
+                    """
+                    INSERT INTO oauth_clients(client_id, payload)
+                    VALUES(?, ?)
+                    ON CONFLICT(client_id) DO UPDATE SET payload = excluded.payload
+                    """,
+                    (client_info.client_id, self._model_json(client_info)),
+                )
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
 
     async def authorize(
         self,
