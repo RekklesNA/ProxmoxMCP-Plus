@@ -354,6 +354,7 @@ class MCPOAuthMiddleware:
                     "client_secret_basic",
                 ],
                 "code_challenge_methods_supported": ["S256"],
+                "authorization_response_iss_parameter_supported": True,
             },
             headers={"Cache-Control": "no-store", "Access-Control-Allow-Origin": "*"},
         )
@@ -590,7 +591,12 @@ class MCPOAuthMiddleware:
             resource=transaction.resource,
             expires_at=self._now() + _AUTH_CODE_TTL_SECONDS,
         )
-        location = _append_query(transaction.redirect_uri, code=code, state=transaction.state)
+        location = _append_query(
+            transaction.redirect_uri,
+            code=code,
+            state=transaction.state,
+            iss=self.issuer_url,
+        )
         response = RedirectResponse(location, status_code=302, headers={"Cache-Control": "no-store"})
         await response(scope, receive, send)
 

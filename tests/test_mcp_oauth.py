@@ -106,6 +106,7 @@ def test_protected_resource_and_authorization_metadata():
     assert auth.json()["token_endpoint"] == "https://mcp.example.com/token"
     assert auth.json()["registration_endpoint"] == "https://mcp.example.com/register"
     assert auth.json()["code_challenge_methods_supported"] == ["S256"]
+    assert auth.json()["authorization_response_iss_parameter_supported"] is True
 
 
 def test_mcp_returns_rfc9728_challenge_without_oauth_token():
@@ -145,6 +146,7 @@ def test_full_authorization_code_pkce_flow_and_mcp_access():
         assert parsed.scheme == "https"
         assert parsed.netloc == "client.example"
         assert query["state"] == ["state-1"]
+        assert query["iss"] == ["https://mcp.example.com"]
         code = query["code"][0]
 
         token_response = exchange(client, client_id, code, verifier)
