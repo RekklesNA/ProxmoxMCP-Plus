@@ -1,5 +1,7 @@
+import asyncio
 import base64
 import hashlib
+import os
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -12,10 +14,21 @@ from proxmox_mcp.mcp_oauth_provider import (
     MCPApiKeyOAuthProvider,
     build_oauth_from_env,
 )
+from proxmox_mcp.mcp_oauth_store import reset_oauth_tables_for_tests
+
+
+@pytest.fixture
+def oauth_database_url():
+    database_url = os.getenv("MCP_OAUTH_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("MCP_OAUTH_TEST_DATABASE_URL is required for PostgreSQL OAuth tests")
+    asyncio.run(reset_oauth_tables_for_tests(database_url))
+    yield database_url
+    asyncio.run(reset_oauth_tables_for_tests(database_url))
 
 
 def make_client(
-    db_path,
+    database_url,
     *,
     api_key="correct-secret",
     client_ip_header=None,
@@ -24,7 +37,7 @@ def make_client(
     provider = MCPApiKeyOAuthProvider(
         api_key=api_key,
         issuer_url="https://mcp.example.com",
-        state_db_path=str(db_path),
+        database_url=database_url,
         client_ip_header=client_ip_header,
         max_registered_clients=max_registered_clients,
     )
@@ -44,6 +57,7 @@ def make_client(
         host="0.0.0.0",
         auth_server_provider=provider,
         auth=auth,
+        lifespan=provider.lifespan,
     )
     provider.register_routes(mcp)
     client = TestClient(
@@ -170,8 +184,8 @@ def initialize_request(client, *, bearer=None):
     )
 
 
-def test_sdk_metadata_and_rfc9728_challenge(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_sdk_metadata_and_rfc9728_challenge(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         resource = client.get("/.well-known/oauth-protected-resource/mcp")
         auth = client.get("/.well-known/oauth-authorization-server")
@@ -190,8 +204,8 @@ def test_sdk_metadata_and_rfc9728_challenge(tmp_path):
     assert "resource_metadata=" in protected.headers["www-authenticate"]
 
 
-def test_full_sdk_oauth_flow_reaches_mcp(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_full_sdk_oauth_flow_reaches_mcp(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         _, token = complete_flow(client)
         mcp = initialize_request(client, bearer=token["access_token"])
@@ -202,8 +216,8 @@ def test_full_sdk_oauth_flow_reaches_mcp(tmp_path):
     assert mcp.status_code == 200
 
 
-def test_wrong_api_key_stays_on_consent_page(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_wrong_api_key_stays_on_consent_page(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         authorization, _ = begin_authorize(client, registration["client_id"])
@@ -217,8 +231,8 @@ def test_wrong_api_key_stays_on_consent_page(tmp_path):
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_non_ascii_api_key_input_is_rejected(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_non_ascii_api_key_input_is_rejected(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         authorization, _ = begin_authorize(client, registration["client_id"])
@@ -232,8 +246,8 @@ def test_non_ascii_api_key_input_is_rejected(tmp_path):
     assert "Invalid API Key" in response.text
 
 
-def test_consent_displays_escaped_client_details(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_consent_displays_escaped_client_details(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(
             client,
@@ -253,8 +267,8 @@ def test_consent_displays_escaped_client_details(tmp_path):
     assert "<code>mcp</code>" in page.text
 
 
-def test_sdk_returns_scope_error_to_registered_client(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_sdk_returns_scope_error_to_registered_client(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         response, _ = begin_authorize(
@@ -271,8 +285,8 @@ def test_sdk_returns_scope_error_to_registered_client(tmp_path):
     assert query["state"] == ["state-1"]
 
 
-def test_provider_returns_resource_error_to_registered_client(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_provider_returns_resource_error_to_registered_client(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         response, _ = begin_authorize(
@@ -287,8 +301,8 @@ def test_provider_returns_resource_error_to_registered_client(tmp_path):
     assert query["error"] == ["invalid_target"]
 
 
-def test_unregistered_redirect_uri_is_rejected_without_redirect(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_unregistered_redirect_uri_is_rejected_without_redirect(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         verifier = "v" * 43
@@ -315,8 +329,8 @@ def test_unregistered_redirect_uri_is_rejected_without_redirect(tmp_path):
     assert "location" not in response.headers
 
 
-def test_remote_http_redirect_is_rejected_at_registration(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_remote_http_redirect_is_rejected_at_registration(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         response = client.post(
             "/register",
@@ -333,9 +347,9 @@ def test_remote_http_redirect_is_rejected_at_registration(tmp_path):
     assert response.json()["error"] == "invalid_redirect_uri"
 
 
-def test_dynamic_client_storage_prunes_inactive_clients_first(tmp_path):
-    client, provider = make_client(
-        tmp_path / "oauth.sqlite3",
+def test_dynamic_client_storage_prunes_inactive_clients_first(oauth_database_url):
+    client, _ = make_client(
+        oauth_database_url,
         max_registered_clients=2,
     )
     with client:
@@ -343,19 +357,17 @@ def test_dynamic_client_storage_prunes_inactive_clients_first(tmp_path):
         inactive_registration = register(client, client_name="Inactive client")
         newest_registration = register(client, client_name="Newest client")
 
-    rows = provider._db.execute(
-        "SELECT client_id FROM oauth_clients ORDER BY rowid"
-    ).fetchall()
-    client_ids = {row["client_id"] for row in rows}
+        active, _ = begin_authorize(client, active_registration["client_id"])
+        inactive, _ = begin_authorize(client, inactive_registration["client_id"])
+        newest, _ = begin_authorize(client, newest_registration["client_id"])
 
-    assert len(client_ids) == 2
-    assert active_registration["client_id"] in client_ids
-    assert inactive_registration["client_id"] not in client_ids
-    assert newest_registration["client_id"] in client_ids
+    assert active.status_code == 302
+    assert inactive.status_code == 400
+    assert newest.status_code == 302
 
 
-def test_authorization_code_is_one_time_use(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_authorization_code_is_one_time_use(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration = register(client)
         authorization, verifier = begin_authorize(client, registration["client_id"])
@@ -369,8 +381,8 @@ def test_authorization_code_is_one_time_use(tmp_path):
     assert second.json()["error"] == "invalid_grant"
 
 
-def test_refresh_token_rotation_rejects_replay(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_refresh_token_rotation_rejects_replay(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         registration, token = complete_flow(client)
         refreshed = client.post(
@@ -398,15 +410,15 @@ def test_refresh_token_rotation_rejects_replay(tmp_path):
     assert replay.json()["error"] == "invalid_grant"
 
 
-def test_consent_transaction_survives_provider_restart(tmp_path):
-    db_path = tmp_path / "oauth.sqlite3"
-    first, _ = make_client(db_path)
+def test_consent_transaction_survives_provider_restart(oauth_database_url):
+    database_url = oauth_database_url
+    first, _ = make_client(database_url)
     with first:
         registration = register(first)
         authorization, _ = begin_authorize(first, registration["client_id"])
         transaction = consent_transaction(authorization)
 
-    restarted, _ = make_client(db_path)
+    restarted, _ = make_client(database_url)
     with restarted:
         approved = approve(restarted, transaction)
 
@@ -414,13 +426,13 @@ def test_consent_transaction_survives_provider_restart(tmp_path):
     assert parse_qs(urlparse(approved.headers["location"]).query)["code"]
 
 
-def test_access_token_survives_provider_restart(tmp_path):
-    db_path = tmp_path / "oauth.sqlite3"
-    first, _ = make_client(db_path)
+def test_access_token_survives_provider_restart(oauth_database_url):
+    database_url = oauth_database_url
+    first, _ = make_client(database_url)
     with first:
         _, token = complete_flow(first)
 
-    restarted, _ = make_client(db_path)
+    restarted, _ = make_client(database_url)
     with restarted:
         response = initialize_request(
             restarted,
@@ -430,64 +442,65 @@ def test_access_token_survives_provider_restart(tmp_path):
     assert response.status_code == 200
 
 
-def test_api_key_rotation_invalidates_oauth_credentials(tmp_path):
-    db_path = tmp_path / "oauth.sqlite3"
-    first, _ = make_client(db_path)
+def test_api_key_rotation_invalidates_oauth_credentials(oauth_database_url):
+    first, _ = make_client(oauth_database_url)
     with first:
         registration, token = complete_flow(first)
 
-    rotated, provider = make_client(db_path, api_key="new-secret")
+    rotated, _ = make_client(oauth_database_url, api_key="new-secret")
     with rotated:
         response = initialize_request(
             rotated,
             bearer=token["access_token"],
         )
+        stale_client, _ = begin_authorize(
+            rotated,
+            registration["client_id"],
+        )
 
     assert response.status_code == 401
-    assert provider._db.execute(
-        "SELECT COUNT(*) FROM oauth_clients WHERE client_id = ?",
-        (registration["client_id"],),
-    ).fetchone()[0] == 0
+    assert stale_client.status_code == 400
 
 
-def test_raw_api_key_is_not_an_access_token(tmp_path):
-    client, _ = make_client(tmp_path / "oauth.sqlite3")
+def test_raw_api_key_is_not_an_access_token(oauth_database_url):
+    client, _ = make_client(oauth_database_url)
     with client:
         response = initialize_request(client, bearer="correct-secret")
 
     assert response.status_code == 401
 
 
-def test_resource_must_share_issuer_origin(tmp_path):
+def test_resource_must_share_issuer_origin(oauth_database_url):
     with pytest.raises(ValueError, match="same origin"):
         MCPApiKeyOAuthProvider(
             api_key="correct-secret",
             issuer_url="https://mcp.example.com",
             resource_url="https://resource.example/mcp",
-            state_db_path=str(tmp_path / "oauth.sqlite3"),
+            database_url=oauth_database_url,
         )
 
 
-def test_invalid_proxy_header_name_is_rejected(tmp_path):
+def test_invalid_proxy_header_name_is_rejected(oauth_database_url):
     with pytest.raises(ValueError, match="header name"):
         MCPApiKeyOAuthProvider(
             api_key="correct-secret",
             issuer_url="https://mcp.example.com",
-            state_db_path=str(tmp_path / "oauth.sqlite3"),
+            database_url=oauth_database_url,
             client_ip_header="X-Forwarded-For: injected",
         )
 
 
-def test_build_oauth_from_env(monkeypatch, tmp_path):
+def test_build_oauth_from_env(monkeypatch, oauth_database_url):
     monkeypatch.setenv("MCP_OAUTH_ENABLED", "true")
     monkeypatch.setenv("MCP_API_KEY", "correct-secret")
     monkeypatch.setenv("MCP_OAUTH_ISSUER", "https://mcp.example.com")
-    monkeypatch.setenv("MCP_OAUTH_STATE_DB", str(tmp_path / "oauth.sqlite3"))
+    monkeypatch.setenv("MCP_OAUTH_DATABASE_URL", oauth_database_url)
 
     provider, auth = build_oauth_from_env()
 
     assert provider is not None
     assert auth is not None
+    assert provider.store.database_url == oauth_database_url
     assert provider.issuer_url == str(auth.issuer_url)
     assert provider.resource_url == "https://mcp.example.com/mcp"
     assert str(auth.resource_server_url) == "https://mcp.example.com/mcp"
