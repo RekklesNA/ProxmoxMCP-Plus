@@ -160,9 +160,9 @@ class MCPApiKeyOAuthProvider(
         )
 
     @asynccontextmanager
-    async def lifespan(self, _app: FastMCP[Any]) -> AsyncIterator[None]:
+    async def lifespan(self, _app: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
         async with self.store.lifespan():
-            yield None
+            yield {}
 
     @staticmethod
     def _model_json(model: Any) -> str:
