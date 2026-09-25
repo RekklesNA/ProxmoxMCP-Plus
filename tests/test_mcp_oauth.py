@@ -48,6 +48,7 @@ def make_client(
     database_url,
     *,
     api_key="correct-secret",
+    api_key_version=1,
     client_ip_header=None,
     max_registered_clients=4096,
 ):
@@ -55,6 +56,7 @@ def make_client(
         api_key=api_key,
         issuer_url="https://mcp.example.com",
         database_url=database_url,
+        api_key_version=api_key_version,
         client_ip_header=client_ip_header,
         max_registered_clients=max_registered_clients,
     )
@@ -464,7 +466,11 @@ def test_api_key_rotation_invalidates_oauth_credentials(oauth_database_url):
     with first:
         registration, token = complete_flow(first)
 
-    rotated, _ = make_client(oauth_database_url, api_key="new-secret")
+    rotated, _ = make_client(
+        oauth_database_url,
+        api_key="new-secret",
+        api_key_version=2,
+    )
     with rotated:
         response = initialize_request(
             rotated,
@@ -484,7 +490,11 @@ def test_api_key_rotation_rejects_old_worker_consent(oauth_database_url):
     with old_client:
         old_registration = register(old_client)
 
-        rotated, _ = make_client(oauth_database_url, api_key="new-secret")
+        rotated, _ = make_client(
+            oauth_database_url,
+            api_key="new-secret",
+            api_key_version=2,
+        )
         with rotated:
             register(rotated, client_name="Rotation trigger")
 
@@ -503,6 +513,44 @@ def test_api_key_rotation_rejects_old_worker_consent(oauth_database_url):
 
     assert response.status_code == 503
     assert stale_registration.status_code == 400
+
+
+def test_same_key_version_rejects_different_api_keys(oauth_database_url):
+    first, _ = make_client(
+        oauth_database_url,
+        api_key="first-secret",
+        api_key_version=7,
+    )
+    with first:
+        register(first)
+
+    conflicting, _ = make_client(
+        oauth_database_url,
+        api_key="different-secret",
+        api_key_version=7,
+    )
+    with pytest.raises(RuntimeError, match="differs across workers"):
+        with conflicting:
+            pass
+
+
+def test_stale_key_version_cannot_replace_newer_state(oauth_database_url):
+    newer, _ = make_client(
+        oauth_database_url,
+        api_key="new-secret",
+        api_key_version=5,
+    )
+    with newer:
+        register(newer)
+
+    stale, _ = make_client(
+        oauth_database_url,
+        api_key="old-secret",
+        api_key_version=4,
+    )
+    with pytest.raises(RuntimeError, match="older than the persisted"):
+        with stale:
+            pass
 
 
 def test_raw_api_key_is_not_an_access_token(oauth_database_url):

@@ -99,6 +99,7 @@ class MCPApiKeyOAuthProvider(
         api_key: str,
         issuer_url: str,
         database_url: str,
+        api_key_version: int = 1,
         resource_url: str | None = None,
         scopes: tuple[str, ...] = ("mcp",),
         access_token_ttl_seconds: int = 3600,
@@ -152,6 +153,7 @@ class MCPApiKeyOAuthProvider(
         self.store = PostgresOAuthStateStore(
             database_url,
             api_key_fingerprint=hashlib.sha256(self._api_key).hexdigest(),
+            api_key_version=api_key_version,
             pool_min_size=db_pool_min_size,
             pool_max_size=db_pool_max_size,
             command_timeout_seconds=db_command_timeout_seconds,
@@ -691,6 +693,7 @@ def build_oauth_from_env() -> tuple[MCPApiKeyOAuthProvider | None, AuthSettings 
         api_key=api_key,
         issuer_url=issuer_url,
         database_url=database_url,
+        api_key_version=int(os.getenv("MCP_OAUTH_KEY_VERSION", "1")),
         resource_url=os.getenv("MCP_OAUTH_RESOURCE") or None,
         scopes=scopes,
         access_token_ttl_seconds=int(

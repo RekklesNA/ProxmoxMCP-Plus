@@ -28,12 +28,15 @@ class PostgresOAuthStateStore:
         database_url: str,
         *,
         api_key_fingerprint: str,
+        api_key_version: int = 1,
         pool_min_size: int = 1,
         pool_max_size: int = 10,
         command_timeout_seconds: float = 10.0,
     ) -> None:
         if not database_url:
             raise ValueError("MCP_OAUTH_DATABASE_URL must not be empty")
+        if api_key_version < 1:
+            raise ValueError("OAuth API key version must be at least 1")
         if pool_min_size < 0:
             raise ValueError("OAuth PostgreSQL pool minimum size must be non-negative")
         if pool_max_size < 1 or pool_max_size < pool_min_size:
@@ -43,6 +46,7 @@ class PostgresOAuthStateStore:
 
         self.database_url = database_url
         self.api_key_fingerprint = api_key_fingerprint
+        self.api_key_version = int(api_key_version)
         self.pool_min_size = int(pool_min_size)
         self.pool_max_size = int(pool_max_size)
         self.command_timeout_seconds = float(command_timeout_seconds)
@@ -158,15 +162,15 @@ class PostgresOAuthStateStore:
                     ON {_FAILURES}(peer_ip, occurred_at)
                     """
                 )
-                await conn.execute(
+                stored_version_raw = await conn.fetchval(
                     f"""
-                    INSERT INTO {_METADATA}(name, value)
-                    VALUES('api_key_fingerprint', $1)
-                    ON CONFLICT(name) DO NOTHING
-                    """,
-                    self.api_key_fingerprint,
+                    SELECT value
+                    FROM {_METADATA}
+                    WHERE name = 'api_key_version'
+                    FOR UPDATE
+                    """
                 )
-                stored = await conn.fetchval(
+                stored_fingerprint = await conn.fetchval(
                     f"""
                     SELECT value
                     FROM {_METADATA}
@@ -174,29 +178,79 @@ class PostgresOAuthStateStore:
                     FOR UPDATE
                     """
                 )
-                if stored != self.api_key_fingerprint:
-                    await conn.execute(f"DELETE FROM {_CLIENTS}")
-                    await conn.execute(f"DELETE FROM {_FAILURES}")
+
+                if stored_version_raw is None and stored_fingerprint is None:
                     await conn.execute(
                         f"""
-                        UPDATE {_METADATA}
-                        SET value = $1
-                        WHERE name = 'api_key_fingerprint'
+                        INSERT INTO {_METADATA}(name, value)
+                        VALUES
+                            ('api_key_version', $1),
+                            ('api_key_fingerprint', $2)
                         """,
+                        str(self.api_key_version),
                         self.api_key_fingerprint,
                     )
+                elif stored_version_raw is None:
+                    if stored_fingerprint != self.api_key_fingerprint:
+                        raise RuntimeError(
+                            "OAuth API key differs from persisted state; "
+                            "set a higher MCP_OAUTH_KEY_VERSION to rotate it"
+                        )
+                    await conn.execute(
+                        f"""
+                        INSERT INTO {_METADATA}(name, value)
+                        VALUES('api_key_version', $1)
+                        """,
+                        str(self.api_key_version),
+                    )
+                else:
+                    try:
+                        stored_version = int(stored_version_raw)
+                    except (TypeError, ValueError) as exc:
+                        raise RuntimeError("Persisted OAuth API key version is invalid") from exc
+
+                    if self.api_key_version < stored_version:
+                        raise RuntimeError(
+                            "MCP_OAUTH_KEY_VERSION is older than the persisted OAuth key version"
+                        )
+                    if self.api_key_version == stored_version:
+                        if stored_fingerprint != self.api_key_fingerprint:
+                            raise RuntimeError(
+                                "MCP_API_KEY differs across workers using the same "
+                                "MCP_OAUTH_KEY_VERSION"
+                            )
+                    else:
+                        await conn.execute(f"DELETE FROM {_CLIENTS}")
+                        await conn.execute(f"DELETE FROM {_FAILURES}")
+                        await conn.execute(
+                            f"""
+                            INSERT INTO {_METADATA}(name, value)
+                            VALUES
+                                ('api_key_version', $1),
+                                ('api_key_fingerprint', $2)
+                            ON CONFLICT(name)
+                            DO UPDATE SET value = EXCLUDED.value
+                            """,
+                            str(self.api_key_version),
+                            self.api_key_fingerprint,
+                        )
 
     async def api_key_is_current(self) -> bool:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            stored = await conn.fetchval(
+            rows = await conn.fetch(
                 f"""
-                SELECT value
+                SELECT name, value
                 FROM {_METADATA}
-                WHERE name = 'api_key_fingerprint'
+                WHERE name IN ('api_key_version', 'api_key_fingerprint')
                 """
             )
-            return stored == self.api_key_fingerprint
+        metadata = {row["name"]: row["value"] for row in rows}
+        return (
+            metadata.get("api_key_version") == str(self.api_key_version)
+            and metadata.get("api_key_fingerprint") == self.api_key_fingerprint
+        )
+
 
     async def get_client_payload(self, client_id: str) -> str | None:
         pool = await self._get_pool()
