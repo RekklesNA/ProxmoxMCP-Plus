@@ -318,6 +318,8 @@ class MCPApiKeyOAuthProvider(
             return None
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        if not client_info.client_id:
+            raise RegistrationError("invalid_client_metadata", "client_id is required")
         if not client_info.redirect_uris:
             raise RegistrationError("invalid_redirect_uri", "at least one redirect URI is required")
         if len(client_info.redirect_uris) > 10:
@@ -350,6 +352,8 @@ class MCPApiKeyOAuthProvider(
         client: OAuthClientInformationFull,
         params: AuthorizationParams,
     ) -> str:
+        if not client.client_id:
+            raise AuthorizeError("invalid_request", "OAuth client has no client_id")
         if not _PKCE_RE.fullmatch(params.code_challenge):
             raise AuthorizeError("invalid_request", "PKCE S256 code challenge is invalid")
         if params.state is not None and len(params.state) > 4096:
@@ -480,6 +484,8 @@ class MCPApiKeyOAuthProvider(
         client: OAuthClientInformationFull,
         authorization_code: AuthorizationCode,
     ) -> OAuthToken:
+        if not client.client_id:
+            raise TokenError("invalid_client", "OAuth client has no client_id")
         resource = authorization_code.resource or self.resource_url
         if resource != self.resource_url:
             raise TokenError("invalid_target", "authorization code resource is not supported")
@@ -548,6 +554,8 @@ class MCPApiKeyOAuthProvider(
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
+        if not client.client_id:
+            raise TokenError("invalid_client", "OAuth client has no client_id")
         resource = refresh_token.resource or self.resource_url
         if resource != self.resource_url:
             raise TokenError("invalid_target", "refresh token resource is not supported")
