@@ -346,6 +346,7 @@ class ProxmoxMCPServer:
                     os.getenv("MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS", "2592000")
                 ),
                 state_db_path=os.getenv("MCP_OAUTH_STATE_DB", "proxmox-oauth.sqlite3"),
+                client_ip_header=os.getenv("MCP_OAUTH_CLIENT_IP_HEADER") or None,
             )
             self.logger.info(
                 "MCP HTTP OAuth browser gate is enabled for issuer %s",

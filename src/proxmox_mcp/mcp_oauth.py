@@ -121,6 +121,7 @@ class MCPOAuthMiddleware:
         access_token_ttl_seconds: int = 3600,
         refresh_token_ttl_seconds: int = 30 * 24 * 3600,
         state_db_path: str = "proxmox-oauth.sqlite3",
+        client_ip_header: str | None = None,
     ) -> None:
         if not api_key or not api_key.isascii() or any(char.isspace() for char in api_key):
             raise ValueError("MCP_API_KEY must be non-empty ASCII without whitespace")
@@ -179,6 +180,11 @@ class MCPOAuthMiddleware:
             """
         )
         self._refresh_db.commit()
+        if client_ip_header is not None:
+            client_ip_header = client_ip_header.strip().lower()
+            if not re.fullmatch(r"[a-z0-9-]{1,64}", client_ip_header):
+                raise ValueError("MCP OAuth client IP header name is invalid")
+        self.client_ip_header = client_ip_header
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -344,6 +350,16 @@ class MCPOAuthMiddleware:
 
     def _secret_hash(self, value: str) -> str:
         return hmac.new(self._signing_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def _peer_ip(self, scope: Scope) -> str:
+        if self.client_ip_header:
+            forwarded = Headers(scope=scope).get(self.client_ip_header)
+            if forwarded:
+                candidate = forwarded.split(",", 1)[0].strip()
+                if candidate:
+                    return candidate
+        peer = scope.get("client")
+        return str(peer[0]) if isinstance(peer, tuple) and peer else "unknown"
 
     def _bearer_token(self, scope: Scope) -> str | None:
         authorization = Headers(scope=scope).get("authorization")
@@ -710,8 +726,7 @@ class MCPOAuthMiddleware:
             await self._html_error(scope, receive, send, 400, "OAuth login expired; start the connection again")
             return
 
-        peer = scope.get("client")
-        peer_ip = str(peer[0]) if isinstance(peer, tuple) and peer else "unknown"
+        peer_ip = self._peer_ip(scope)
         if self._too_many_failures(peer_ip):
             await self._html_error(scope, receive, send, 429, "Too many failed attempts; try again shortly")
             return

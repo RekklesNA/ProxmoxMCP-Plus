@@ -47,6 +47,7 @@ services:
       - MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS=${MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
       - MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       - MCP_OAUTH_STATE_DB=${MCP_OAUTH_STATE_DB:-proxmox-oauth.sqlite3}
+      - MCP_OAUTH_CLIENT_IP_HEADER=${MCP_OAUTH_CLIENT_IP_HEADER:-}
       # For reverse proxy deployments, set explicit Host/Origin allowlists.
       # - MCP_DNS_REBINDING_PROTECTION=true
       # - MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:*

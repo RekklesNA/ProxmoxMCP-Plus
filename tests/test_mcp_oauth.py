@@ -124,6 +124,42 @@ def test_same_origin_custom_resource_path_has_matching_metadata_url():
     assert response.json()["resource"] == "https://mcp.example.com/custom/mcp"
 
 
+
+def test_trusted_client_ip_header_is_opt_in():
+    direct = MCPOAuthMiddleware(
+        inner_app,
+        api_key="correct-secret",
+        issuer_url="https://mcp.example.com",
+        state_db_path=":memory:",
+    )
+    proxied = MCPOAuthMiddleware(
+        inner_app,
+        api_key="correct-secret",
+        issuer_url="https://mcp.example.com",
+        state_db_path=":memory:",
+        client_ip_header="X-Forwarded-For",
+    )
+    scope = {
+        "type": "http",
+        "headers": [(b"x-forwarded-for", b"203.0.113.7, 10.0.0.1")],
+        "client": ("127.0.0.1", 12345),
+    }
+
+    assert direct._peer_ip(scope) == "127.0.0.1"
+    assert proxied._peer_ip(scope) == "203.0.113.7"
+
+
+def test_invalid_client_ip_header_name_is_rejected():
+    with pytest.raises(ValueError, match="header name"):
+        MCPOAuthMiddleware(
+            inner_app,
+            api_key="correct-secret",
+            issuer_url="https://mcp.example.com",
+            state_db_path=":memory:",
+            client_ip_header="X-Forwarded-For: injected",
+        )
+
+
 def test_protected_resource_and_authorization_metadata():
     client, _ = make_client()
     with client:

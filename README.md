@@ -251,6 +251,12 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
 | `MCP_OAUTH_STATE_DB` | `proxmox-oauth.sqlite3` | SQLite state used for refresh-token replay detection |
+| `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
+
+If the server is behind a trusted reverse proxy and per-user login rate limiting
+must use the original client address, set `MCP_OAUTH_CLIENT_IP_HEADER` to a header
+that the proxy overwrites (for example `CF-Connecting-IP`). Leave it unset unless
+the proxy prevents clients from spoofing that header.
 
 When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>` request
 to `/mcp` is intentionally rejected. The API key is accepted only by the browser
