@@ -233,8 +233,9 @@ OAuth mode exposes these endpoints on the same public origin:
 The flow requires PKCE `S256`, validates the OAuth `resource`, audience, expiry,
 and required scopes on every MCP request, and returns the protected-resource
 metadata URL in the `WWW-Authenticate` challenge. Dynamic client IDs plus access
-and refresh tokens are signed values derived from `MCP_API_KEY`, so they remain
-valid across a process restart while the API key is unchanged. Rotating
+and refresh tokens are signed values derived from `MCP_API_KEY`. Refresh-token
+use is recorded in SQLite so rotated tokens cannot be replayed across workers or
+process restarts that share the same state database. Rotating
 `MCP_API_KEY` invalidates all existing OAuth credentials immediately.
 
 Only the short-lived browser login transaction (10 minutes) and one-time
@@ -251,6 +252,7 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
+| `MCP_OAUTH_STATE_DB` | `proxmox-oauth.sqlite3` | SQLite state used for refresh-token replay detection |
 
 When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>` request
 to `/mcp` is intentionally rejected. The API key is accepted only by the browser

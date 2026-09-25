@@ -15,6 +15,8 @@ import html
 import json
 import re
 import secrets
+import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -117,6 +119,7 @@ class MCPOAuthMiddleware:
         scopes: tuple[str, ...] = ("mcp",),
         access_token_ttl_seconds: int = 3600,
         refresh_token_ttl_seconds: int = 30 * 24 * 3600,
+        state_db_path: str = "proxmox-oauth.sqlite3",
     ) -> None:
         if not api_key or not api_key.isascii() or any(char.isspace() for char in api_key):
             raise ValueError("MCP_API_KEY must be non-empty ASCII without whitespace")
@@ -156,6 +159,22 @@ class MCPOAuthMiddleware:
         self._login_transactions: dict[str, _LoginTransaction] = {}
         self._authorization_codes: dict[str, _AuthorizationCode] = {}
         self._failed_logins: dict[str, list[float]] = {}
+        self._refresh_db_lock = threading.RLock()
+        self._refresh_db = sqlite3.connect(
+            state_db_path,
+            check_same_thread=False,
+            timeout=30.0,
+        )
+        self._refresh_db.execute("PRAGMA busy_timeout = 30000")
+        self._refresh_db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oauth_refresh_token_use (
+                jti TEXT PRIMARY KEY,
+                expires_at INTEGER NOT NULL
+            )
+            """
+        )
+        self._refresh_db.commit()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -699,6 +718,7 @@ class MCPOAuthMiddleware:
             audience = str(refresh["aud"])
             resource = str(refresh["resource"])
             granted_scopes = tuple(str(value) for value in refresh["scopes"])
+            refresh_jti = str(refresh["jti"])
         except (KeyError, TypeError, ValueError):
             await self._token_error(scope, receive, send, 400, "invalid_grant", "refresh token is invalid")
             return
@@ -720,7 +740,32 @@ class MCPOAuthMiddleware:
         if not set(self.scopes).issubset(set(scopes)) or not set(scopes).issubset(set(granted_scopes)):
             await self._token_error(scope, receive, send, 400, "invalid_scope", "requested scope was not granted")
             return
+        if not self._consume_refresh_token(refresh_jti, exp):
+            await self._token_error(scope, receive, send, 400, "invalid_grant", "refresh token was already used")
+            return
         await self._issue_tokens(scope, receive, send, client.client_id, scopes, resource)
+
+    def _consume_refresh_token(self, jti: str, expires_at: int) -> bool:
+        now = self._now()
+        with self._refresh_db_lock:
+            try:
+                self._refresh_db.execute("BEGIN IMMEDIATE")
+                self._refresh_db.execute(
+                    "DELETE FROM oauth_refresh_token_use WHERE expires_at <= ?",
+                    (now,),
+                )
+                self._refresh_db.execute(
+                    "INSERT INTO oauth_refresh_token_use (jti, expires_at) VALUES (?, ?)",
+                    (jti, expires_at),
+                )
+                self._refresh_db.commit()
+                return True
+            except sqlite3.IntegrityError:
+                self._refresh_db.rollback()
+                return False
+            except Exception:
+                self._refresh_db.rollback()
+                raise
 
     async def _issue_tokens(
         self,

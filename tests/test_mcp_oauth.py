@@ -24,11 +24,12 @@ async def inner_app(scope, receive, send):
     await JSONResponse({"detail": "not found"}, status_code=404)(scope, receive, send)
 
 
-def make_client():
+def make_client(state_db_path=":memory:"):
     app = MCPOAuthMiddleware(
         inner_app,
         api_key="correct-secret",
         issuer_url="https://mcp.example.com",
+        state_db_path=state_db_path,
     )
     return TestClient(app), app
 
@@ -210,9 +211,58 @@ def test_refresh_token_can_issue_new_access_token():
         )
         assert refreshed.status_code == 200
         new_token = refreshed.json()["access_token"]
+        replayed = client.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": initial["refresh_token"],
+                "resource": "https://mcp.example.com/mcp",
+            },
+        )
         mcp = client.post("/mcp", headers={"Authorization": f"Bearer {new_token}"})
 
+    assert replayed.status_code == 400
+    assert replayed.json()["error"] == "invalid_grant"
     assert mcp.status_code == 200
+
+
+def test_refresh_token_replay_is_rejected_after_process_restart(tmp_path):
+    db_path = str(tmp_path / "oauth-state.sqlite3")
+    client, _ = make_client(db_path)
+    with client:
+        client_id = register(client)
+        nonce, verifier = begin_authorize(client, client_id)
+        approved = authorize(client, nonce)
+        code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
+        refresh_token = exchange(client, client_id, code, verifier).json()["refresh_token"]
+
+    restarted, _ = make_client(db_path)
+    with restarted:
+        first = restarted.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": refresh_token,
+                "resource": "https://mcp.example.com/mcp",
+            },
+        )
+    assert first.status_code == 200
+
+    restarted_again, _ = make_client(db_path)
+    with restarted_again:
+        replay = restarted_again.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": refresh_token,
+                "resource": "https://mcp.example.com/mcp",
+            },
+        )
+    assert replay.status_code == 400
+    assert replay.json()["error"] == "invalid_grant"
 
 
 def test_client_secret_post_registration_and_exchange():
@@ -270,6 +320,7 @@ def test_access_token_survives_process_restart_when_api_key_is_unchanged():
             inner_app,
             api_key="correct-secret",
             issuer_url="https://mcp.example.com",
+            state_db_path=":memory:",
         )
     )
     with restarted:
