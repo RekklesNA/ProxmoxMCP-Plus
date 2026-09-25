@@ -253,6 +253,10 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_STATE_DB` | `proxmox-oauth.sqlite3` | SQLite state used for refresh-token replay detection |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
 
+`MCP_OAUTH_STATE_DB` should point to durable storage when refresh-token replay
+protection must survive container replacement, and to shared storage when multiple
+workers must coordinate refresh-token rotation.
+
 If the server is behind a trusted reverse proxy and per-user login rate limiting
 must use the original client address, set `MCP_OAUTH_CLIENT_IP_HEADER` to a header
 that the proxy overwrites (for example `CF-Connecting-IP`). Leave it unset unless
