@@ -238,11 +238,9 @@ use is recorded in SQLite so rotated tokens cannot be replayed across workers or
 process restarts that share the same state database. Rotating
 `MCP_API_KEY` invalidates all existing OAuth credentials immediately.
 
-Only the short-lived browser login transaction (10 minutes) and one-time
-authorization code (5 minutes) are kept in process memory. The current Docker
-runtime starts one Uvicorn process, which matches that design. If you place
-multiple application workers behind a load balancer, use sticky routing for an
-authorization flow or move this short-lived state to a shared store.
+The short-lived browser login transaction is HMAC-signed and stateless, so
+unauthenticated authorization requests do not allocate server-side session state.
+Only one-time authorization codes (5 minutes) remain in process memory.
 
 Optional OAuth environment variables:
 

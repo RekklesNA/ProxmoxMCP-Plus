@@ -104,9 +104,9 @@ def _normalized_url(value: str, *, allow_local_http: bool = False) -> str:
 class MCPOAuthMiddleware:
     """Expose OAuth discovery/PKCE routes and protect ``/mcp`` bearer access.
 
-    Dynamic client registrations and bearer/refresh tokens are stateless signed
-    values. Only browser login transactions and one-time authorization codes are
-    kept in memory for a few minutes.
+    Dynamic client registrations, browser login transactions, and bearer/refresh
+    tokens are stateless signed values. Only one-time authorization codes are kept
+    in memory for a few minutes.
     """
 
     def __init__(
@@ -156,7 +156,6 @@ class MCPOAuthMiddleware:
         )
         self.resource_metadata_url = f"{self.issuer_url}{self.resource_metadata_path}"
 
-        self._login_transactions: dict[str, _LoginTransaction] = {}
         self._authorization_codes: dict[str, _AuthorizationCode] = {}
         self._failed_logins: dict[str, list[float]] = {}
         self._refresh_db_lock = threading.RLock()
@@ -298,6 +297,42 @@ class MCPOAuthMiddleware:
             issued_at=issued_at,
         )
 
+    def _encode_login_transaction(self, transaction: _LoginTransaction) -> str:
+        return self._sign_payload(
+            "pmcpl1",
+            {
+                "client_id": transaction.client_id,
+                "redirect_uri": transaction.redirect_uri,
+                "redirect_uri_provided": transaction.redirect_uri_provided,
+                "code_challenge": transaction.code_challenge,
+                "state": transaction.state,
+                "scopes": list(transaction.scopes),
+                "resource": transaction.resource,
+                "exp": transaction.expires_at,
+            },
+        )
+
+    def _decode_login_transaction(self, value: str) -> _LoginTransaction | None:
+        payload = self._verify_signed_token(value, "pmcpl1")
+        if payload is None:
+            return None
+        try:
+            transaction = _LoginTransaction(
+                client_id=str(payload["client_id"]),
+                redirect_uri=str(payload["redirect_uri"]),
+                redirect_uri_provided=bool(payload["redirect_uri_provided"]),
+                code_challenge=str(payload["code_challenge"]),
+                state=None if payload.get("state") is None else str(payload["state"]),
+                scopes=tuple(str(item) for item in payload["scopes"]),
+                resource=str(payload["resource"]),
+                expires_at=int(payload["exp"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        if transaction.expires_at <= self._now():
+            return None
+        return transaction
+
     def _secret_hash(self, value: str) -> str:
         return hmac.new(self._signing_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -331,9 +366,6 @@ class MCPOAuthMiddleware:
 
     def _cleanup_pending(self) -> None:
         now = self._now()
-        self._login_transactions = {
-            key: value for key, value in self._login_transactions.items() if value.expires_at > now
-        }
         self._authorization_codes = {
             key: value for key, value in self._authorization_codes.items() if value.expires_at > now
         }
@@ -498,9 +530,6 @@ class MCPOAuthMiddleware:
 
     async def _authorize_get(self, scope: Scope, receive: Receive, send: Send) -> None:
         self._cleanup_pending()
-        if len(self._login_transactions) >= _MAX_PENDING:
-            await self._html_error(scope, receive, send, 503, "Too many pending OAuth logins")
-            return
         try:
             query = scope.get("query_string", b"").decode("utf-8", errors="strict")
         except UnicodeDecodeError:
@@ -553,8 +582,7 @@ class MCPOAuthMiddleware:
             await self._html_error(scope, receive, send, 400, "OAuth state is too long")
             return
 
-        nonce = secrets.token_urlsafe(32)
-        self._login_transactions[nonce] = _LoginTransaction(
+        transaction = _LoginTransaction(
             client_id=client.client_id,
             redirect_uri=redirect_uri,
             redirect_uri_provided=redirect_provided,
@@ -564,7 +592,7 @@ class MCPOAuthMiddleware:
             resource=resource,
             expires_at=self._now() + _LOGIN_TTL_SECONDS,
         )
-        await self._render_login(scope, receive, send, nonce)
+        await self._render_login(scope, receive, send, self._encode_login_transaction(transaction))
 
     async def _authorize_post(self, scope: Scope, receive: Receive, send: Send) -> None:
         self._cleanup_pending()
@@ -579,8 +607,8 @@ class MCPOAuthMiddleware:
             return
         nonce = params.get("login_nonce", [""])[0]
         candidate = params.get("api_key", [""])[0]
-        transaction = self._login_transactions.get(nonce)
-        if transaction is None or transaction.expires_at <= self._now():
+        transaction = self._decode_login_transaction(nonce)
+        if transaction is None:
             await self._html_error(scope, receive, send, 400, "OAuth login expired; start the connection again")
             return
 
@@ -596,7 +624,6 @@ class MCPOAuthMiddleware:
             return
 
         self._failed_logins.pop(peer_ip, None)
-        self._login_transactions.pop(nonce, None)
         if len(self._authorization_codes) >= _MAX_PENDING:
             await self._html_error(scope, receive, send, 503, "Too many pending authorization codes")
             return

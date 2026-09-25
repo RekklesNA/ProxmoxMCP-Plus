@@ -163,6 +163,23 @@ def test_full_authorization_code_pkce_flow_and_mcp_access():
     assert mcp.json() == {"status": "ok"}
 
 
+
+def test_login_transaction_survives_process_restart():
+    client, app = make_client()
+    with client:
+        client_id = register(client)
+        nonce, _ = begin_authorize(client, client_id)
+
+    assert not hasattr(app, "_login_transactions")
+
+    restarted, _ = make_client()
+    with restarted:
+        approved = authorize(restarted, nonce)
+
+    assert approved.status_code == 302
+    assert parse_qs(urlparse(approved.headers["location"]).query)["code"]
+
+
 def test_authorization_code_is_one_time_use():
     client, _ = make_client()
     with client:
