@@ -258,7 +258,6 @@ def test_client_name_is_escaped_on_authorization_page():
     client, _ = make_client()
     with client:
         client_id = register(client, client_name="<script>alert(1)</script>")
-        nonce, _ = begin_authorize(client, client_id)
         page = client.get(
             "/authorize",
             params={
@@ -354,7 +353,7 @@ def test_pkce_verifier_mismatch_is_rejected():
     client, _ = make_client()
     with client:
         client_id = register(client)
-        nonce, verifier = begin_authorize(client, client_id)
+        nonce, _ = begin_authorize(client, client_id)
         approved = authorize(client, nonce)
         code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
         response = exchange(client, client_id, code, "x" * 43)
