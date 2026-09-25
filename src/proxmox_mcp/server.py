@@ -197,7 +197,13 @@ class ProxmoxMCPServer:
             self.config.logging.level.upper(),
         )
         transport_security = self._build_transport_security()
-        self.oauth_provider, oauth_auth = build_oauth_from_env()
+        if self.config.mcp.transport == "STREAMABLE":
+            self.oauth_provider, oauth_auth = build_oauth_from_env()
+        else:
+            self.oauth_provider, oauth_auth = None, None
+            oauth_raw = os.getenv("MCP_OAUTH_ENABLED", "false").strip().lower()
+            if self.config.mcp.transport == "SSE" and oauth_raw in {"1", "true", "yes", "on"}:
+                raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
         if transport_security is None:
             self.mcp = FastMCP(
                 "ProxmoxMCP",
