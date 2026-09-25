@@ -28,7 +28,6 @@ services:
       - "8000:8000"
     volumes:
       - ./proxmox-config:/app/proxmox-config:ro
-      - oauth-state:/app/oauth-state
     environment:
       - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
       - PROXMOX_MCP_MODE=mcp-http
@@ -47,7 +46,11 @@ services:
       - MCP_OAUTH_SCOPES=${MCP_OAUTH_SCOPES:-mcp}
       - MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS=${MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS:-3600}
       - MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
-      - MCP_OAUTH_STATE_DB=${MCP_OAUTH_STATE_DB:-/app/oauth-state/proxmox-oauth.sqlite3}
+      - MCP_OAUTH_DATABASE_URL=${MCP_OAUTH_DATABASE_URL:-}
+      - MCP_OAUTH_MAX_REGISTERED_CLIENTS=${MCP_OAUTH_MAX_REGISTERED_CLIENTS:-4096}
+      - MCP_OAUTH_DB_POOL_MIN_SIZE=${MCP_OAUTH_DB_POOL_MIN_SIZE:-1}
+      - MCP_OAUTH_DB_POOL_MAX_SIZE=${MCP_OAUTH_DB_POOL_MAX_SIZE:-10}
+      - MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS=${MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS:-10}
       - MCP_OAUTH_CLIENT_IP_HEADER=${MCP_OAUTH_CLIENT_IP_HEADER:-}
       # For reverse proxy deployments, set explicit Host/Origin allowlists.
       # - MCP_DNS_REBINDING_PROTECTION=true
@@ -59,9 +62,6 @@ services:
     restart: unless-stopped
     networks:
       - proxmox-network
-
-volumes:
-  oauth-state:
 
 networks:
   proxmox-network:
