@@ -19,12 +19,14 @@ def make_client(
     *,
     api_key="correct-secret",
     client_ip_header=None,
+    max_registered_clients=4096,
 ):
     provider = MCPApiKeyOAuthProvider(
         api_key=api_key,
         issuer_url="https://mcp.example.com",
         state_db_path=str(db_path),
         client_ip_header=client_ip_header,
+        max_registered_clients=max_registered_clients,
     )
     auth = AuthSettings(
         issuer_url=AnyHttpUrl("https://mcp.example.com"),
@@ -329,6 +331,27 @@ def test_remote_http_redirect_is_rejected_at_registration(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_redirect_uri"
+
+
+def test_dynamic_client_storage_prunes_inactive_clients_first(tmp_path):
+    client, provider = make_client(
+        tmp_path / "oauth.sqlite3",
+        max_registered_clients=2,
+    )
+    with client:
+        active_registration, _ = complete_flow(client)
+        inactive_registration = register(client, client_name="Inactive client")
+        newest_registration = register(client, client_name="Newest client")
+
+    rows = provider._db.execute(
+        "SELECT client_id FROM oauth_clients ORDER BY rowid"
+    ).fetchall()
+    client_ids = {row["client_id"] for row in rows}
+
+    assert len(client_ids) == 2
+    assert active_registration["client_id"] in client_ids
+    assert inactive_registration["client_id"] not in client_ids
+    assert newest_registration["client_id"] in client_ids
 
 
 def test_authorization_code_is_one_time_use(tmp_path):

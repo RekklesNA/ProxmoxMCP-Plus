@@ -45,6 +45,7 @@ _LOGIN_TTL_SECONDS = 10 * 60
 _AUTH_CODE_TTL_SECONDS = 5 * 60
 _LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
 _LOGIN_FAILURE_LIMIT = 10
+_DEFAULT_MAX_REGISTERED_CLIENTS = 4096
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -103,6 +104,7 @@ class MCPApiKeyOAuthProvider(
         refresh_token_ttl_seconds: int = 30 * 24 * 3600,
         state_db_path: str = "proxmox-oauth.sqlite3",
         client_ip_header: str | None = None,
+        max_registered_clients: int = _DEFAULT_MAX_REGISTERED_CLIENTS,
     ) -> None:
         if not api_key or not api_key.isascii() or any(ch.isspace() for ch in api_key):
             raise ValueError("MCP_API_KEY must be non-empty ASCII without whitespace")
@@ -112,6 +114,8 @@ class MCPApiKeyOAuthProvider(
             raise ValueError("OAuth access-token TTL must be at least 60 seconds")
         if refresh_token_ttl_seconds < access_token_ttl_seconds:
             raise ValueError("OAuth refresh-token TTL must not be shorter than access-token TTL")
+        if max_registered_clients < 1:
+            raise ValueError("OAuth max registered clients must be at least 1")
 
         self._api_key = api_key.encode("ascii")
         self._signing_key = hmac.new(
@@ -135,6 +139,7 @@ class MCPApiKeyOAuthProvider(
         self.access_token_ttl_seconds = int(access_token_ttl_seconds)
         self.refresh_token_ttl_seconds = int(refresh_token_ttl_seconds)
         self.state_db_path = state_db_path
+        self.max_registered_clients = int(max_registered_clients)
 
         if client_ip_header is not None:
             client_ip_header = client_ip_header.strip().lower()
@@ -317,6 +322,75 @@ class MCPApiKeyOAuthProvider(
         except ValueError:
             return None
 
+    def _ensure_client_capacity(self, incoming_client_id: str) -> None:
+        now = int(time.time())
+        with self._db_lock:
+            existing = self._db.execute(
+                "SELECT 1 FROM oauth_clients WHERE client_id = ?",
+                (incoming_client_id,),
+            ).fetchone()
+            if existing is not None:
+                return
+
+            self._db.execute(
+                "DELETE FROM oauth_authorization_codes WHERE expires_at <= ?",
+                (now,),
+            )
+            self._db.execute(
+                "DELETE FROM oauth_access_tokens WHERE expires_at <= ?",
+                (now,),
+            )
+            self._db.execute(
+                "DELETE FROM oauth_refresh_tokens WHERE expires_at <= ?",
+                (now,),
+            )
+            count_row = self._db.execute(
+                "SELECT COUNT(*) AS total FROM oauth_clients"
+            ).fetchone()
+            total = int(count_row["total"]) if count_row is not None else 0
+            needed = total - self.max_registered_clients + 1
+            if needed <= 0:
+                self._db.commit()
+                return
+
+            stale_rows = self._db.execute(
+                """
+                SELECT c.client_id
+                FROM oauth_clients AS c
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM oauth_authorization_codes AS a
+                    WHERE a.client_id = c.client_id AND a.expires_at > ?
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM oauth_access_tokens AS a
+                    WHERE a.client_id = c.client_id AND a.expires_at > ?
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM oauth_refresh_tokens AS r
+                    WHERE r.client_id = c.client_id AND r.expires_at > ?
+                )
+                ORDER BY c.rowid ASC
+                LIMIT ?
+                """,
+                (now, now, now, needed),
+            ).fetchall()
+            for row in stale_rows:
+                self._db.execute(
+                    "DELETE FROM oauth_clients WHERE client_id = ?",
+                    (row["client_id"],),
+                )
+
+            count_row = self._db.execute(
+                "SELECT COUNT(*) AS total FROM oauth_clients"
+            ).fetchone()
+            total = int(count_row["total"]) if count_row is not None else 0
+            self._db.commit()
+            if total >= self.max_registered_clients:
+                raise RegistrationError(
+                    "invalid_client_metadata",
+                    "dynamic client registration capacity is currently full",
+                )
+
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if not client_info.client_id:
             raise RegistrationError("invalid_client_metadata", "client_id is required")
@@ -336,6 +410,7 @@ class MCPApiKeyOAuthProvider(
                 "invalid_client_metadata",
                 "client_name must be 1-256 characters",
             )
+        self._ensure_client_capacity(client_info.client_id)
         with self._db_lock:
             self._db.execute(
                 """
