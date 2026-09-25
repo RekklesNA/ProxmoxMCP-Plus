@@ -1,8 +1,8 @@
 import base64
 import hashlib
+from urllib.parse import parse_qs, urlparse
 
 import pytest
-from urllib.parse import parse_qs, urlparse
 
 from starlette.responses import JSONResponse
 from starlette.testclient import TestClient
