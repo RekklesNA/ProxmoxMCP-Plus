@@ -551,6 +551,27 @@ class MCPOAuthMiddleware:
         )
         await response(scope, receive, send)
 
+    async def _redirect_authorization_error(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        *,
+        redirect_uri: str,
+        error: str,
+        description: str,
+        state: str | None,
+    ) -> None:
+        location = _append_query(
+            redirect_uri,
+            error=error,
+            error_description=description,
+            state=state,
+            iss=self.issuer_url,
+        )
+        response = RedirectResponse(location, status_code=302, headers={"Cache-Control": "no-store"})
+        await response(scope, receive, send)
+
     async def _authorize_get(self, scope: Scope, receive: Receive, send: Send) -> None:
         self._cleanup_pending()
         try:
@@ -564,13 +585,6 @@ class MCPOAuthMiddleware:
         client = self._decode_client(client_id or "")
         if client is None:
             await self._html_error(scope, receive, send, 400, "Invalid OAuth client")
-            return
-        if value("response_type") != "code":
-            await self._html_error(scope, receive, send, 400, "Only response_type=code is supported")
-            return
-        code_challenge = value("code_challenge") or ""
-        if value("code_challenge_method") != "S256" or not _PKCE_RE.fullmatch(code_challenge):
-            await self._html_error(scope, receive, send, 400, "PKCE S256 is required")
             return
 
         raw_redirect_uri = value("redirect_uri")
@@ -591,18 +605,67 @@ class MCPOAuthMiddleware:
                 return
             redirect_provided = True
 
+        state = value("state")
+        if state is not None and len(state) > 4096:
+            await self._redirect_authorization_error(
+                scope,
+                receive,
+                send,
+                redirect_uri=redirect_uri,
+                error="invalid_request",
+                description="OAuth state is too long",
+                state=None,
+            )
+            return
+        if value("response_type") != "code":
+            await self._redirect_authorization_error(
+                scope,
+                receive,
+                send,
+                redirect_uri=redirect_uri,
+                error="unsupported_response_type",
+                description="Only response_type=code is supported",
+                state=state,
+            )
+            return
+
+        code_challenge = value("code_challenge") or ""
+        if value("code_challenge_method") != "S256" or not _PKCE_RE.fullmatch(code_challenge):
+            await self._redirect_authorization_error(
+                scope,
+                receive,
+                send,
+                redirect_uri=redirect_uri,
+                error="invalid_request",
+                description="PKCE S256 is required",
+                state=state,
+            )
+            return
+
         requested_scope = value("scope")
         scopes = tuple(item for item in requested_scope.split(" ") if item) if requested_scope else client.scopes
         if not set(self.scopes).issubset(set(scopes)) or not set(scopes).issubset(set(client.scopes)):
-            await self._html_error(scope, receive, send, 400, "Invalid OAuth scope")
+            await self._redirect_authorization_error(
+                scope,
+                receive,
+                send,
+                redirect_uri=redirect_uri,
+                error="invalid_scope",
+                description="Invalid OAuth scope",
+                state=state,
+            )
             return
         resource = value("resource") or self.resource_url
         if resource != self.resource_url:
-            await self._html_error(scope, receive, send, 400, "Invalid OAuth resource")
-            return
-        state = value("state")
-        if state is not None and len(state) > 4096:
-            await self._html_error(scope, receive, send, 400, "OAuth state is too long")
+            await self._redirect_authorization_error(
+                scope,
+                receive,
+                send,
+                redirect_uri=redirect_uri,
+                error="invalid_target",
+                description="Invalid OAuth resource",
+                state=state,
+            )
             return
 
         transaction = _LoginTransaction(

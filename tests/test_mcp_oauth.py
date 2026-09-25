@@ -123,6 +123,54 @@ def test_mcp_returns_rfc9728_challenge_without_oauth_token():
     ]
 
 
+
+def test_authorization_error_redirects_to_registered_client():
+    client, _ = make_client()
+    with client:
+        client_id = register(client)
+        response = client.get(
+            "/authorize",
+            params={
+                "client_id": client_id,
+                "redirect_uri": "https://client.example/callback",
+                "response_type": "code",
+                "code_challenge": "a" * 43,
+                "code_challenge_method": "S256",
+                "state": "state-error",
+                "scope": "mcp extra",
+                "resource": "https://mcp.example.com/mcp",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    parsed = urlparse(response.headers["location"])
+    query = parse_qs(parsed.query)
+    assert parsed.netloc == "client.example"
+    assert query["error"] == ["invalid_scope"]
+    assert query["state"] == ["state-error"]
+    assert query["iss"] == ["https://mcp.example.com"]
+
+
+def test_unregistered_redirect_uri_is_not_used_for_errors():
+    client, _ = make_client()
+    with client:
+        client_id = register(client)
+        response = client.get(
+            "/authorize",
+            params={
+                "client_id": client_id,
+                "redirect_uri": "https://attacker.example/callback",
+                "response_type": "invalid",
+                "state": "state-error",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+    assert "location" not in response.headers
+
+
 def test_wrong_api_key_stays_on_login_page_without_leaking_key():
     client, _ = make_client()
     with client:
