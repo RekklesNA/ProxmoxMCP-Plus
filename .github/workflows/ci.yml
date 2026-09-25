@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feat/mcp-oauth-api-key ]
   pull_request:
     branches: [ main, master ]
 
