@@ -11,10 +11,9 @@ import json
 import os
 import re
 import secrets
-import sqlite3
-import threading
 import time
-from pathlib import Path
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -35,6 +34,7 @@ from mcp.server.auth.provider import (
 )
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from proxmox_mcp.mcp_oauth_store import PostgresOAuthStateStore
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -91,20 +91,23 @@ def _parse_bool_env(name: str, default: str = "false") -> bool:
 class MCPApiKeyOAuthProvider(
     OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]
 ):
-    """Persist OAuth state while using MCP_API_KEY as the human credential."""
+    """Use MCP_API_KEY for browser consent and PostgreSQL for OAuth state."""
 
     def __init__(
         self,
         *,
         api_key: str,
         issuer_url: str,
+        database_url: str,
         resource_url: str | None = None,
         scopes: tuple[str, ...] = ("mcp",),
         access_token_ttl_seconds: int = 3600,
         refresh_token_ttl_seconds: int = 30 * 24 * 3600,
-        state_db_path: str = "proxmox-oauth.sqlite3",
         client_ip_header: str | None = None,
         max_registered_clients: int = _DEFAULT_MAX_REGISTERED_CLIENTS,
+        db_pool_min_size: int = 1,
+        db_pool_max_size: int = 10,
+        db_command_timeout_seconds: float = 10.0,
     ) -> None:
         if not api_key or not api_key.isascii() or any(ch.isspace() for ch in api_key):
             raise ValueError("MCP_API_KEY must be non-empty ASCII without whitespace")
@@ -138,7 +141,6 @@ class MCPApiKeyOAuthProvider(
         self.scopes = tuple(dict.fromkeys(scopes))
         self.access_token_ttl_seconds = int(access_token_ttl_seconds)
         self.refresh_token_ttl_seconds = int(refresh_token_ttl_seconds)
-        self.state_db_path = state_db_path
         self.max_registered_clients = int(max_registered_clients)
 
         if client_ip_header is not None:
@@ -147,78 +149,18 @@ class MCPApiKeyOAuthProvider(
                 raise ValueError("MCP OAuth client IP header name is invalid")
         self.client_ip_header = client_ip_header
 
-        self._db_lock = threading.RLock()
-        self._db = sqlite3.connect(
-            state_db_path,
-            check_same_thread=False,
-            timeout=30.0,
+        self.store = PostgresOAuthStateStore(
+            database_url,
+            api_key_fingerprint=hashlib.sha256(self._api_key).hexdigest(),
+            pool_min_size=db_pool_min_size,
+            pool_max_size=db_pool_max_size,
+            command_timeout_seconds=db_command_timeout_seconds,
         )
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA busy_timeout = 30000")
-        if state_db_path != ":memory:":
-            try:
-                Path(state_db_path).chmod(0o600)
-            except OSError:
-                pass
-        self._init_db()
 
-    def _init_db(self) -> None:
-        key_fingerprint = hashlib.sha256(self._api_key).hexdigest()
-        with self._db_lock:
-            self._db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS oauth_metadata (
-                    name TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS oauth_clients (
-                    client_id TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
-                    code TEXT PRIMARY KEY,
-                    client_id TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS oauth_access_tokens (
-                    token TEXT PRIMARY KEY,
-                    client_id TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
-                    token TEXT PRIMARY KEY,
-                    client_id TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    payload TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS oauth_login_failures (
-                    peer_ip TEXT NOT NULL,
-                    occurred_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS oauth_login_failures_peer_time
-                    ON oauth_login_failures(peer_ip, occurred_at);
-                """
-            )
-            row = self._db.execute(
-                "SELECT value FROM oauth_metadata WHERE name = 'api_key_fingerprint'"
-            ).fetchone()
-            if row is not None and row["value"] != key_fingerprint:
-                self._db.execute("DELETE FROM oauth_clients")
-                self._db.execute("DELETE FROM oauth_authorization_codes")
-                self._db.execute("DELETE FROM oauth_access_tokens")
-                self._db.execute("DELETE FROM oauth_refresh_tokens")
-                self._db.execute("DELETE FROM oauth_login_failures")
-            self._db.execute(
-                """
-                INSERT INTO oauth_metadata(name, value)
-                VALUES('api_key_fingerprint', ?)
-                ON CONFLICT(name) DO UPDATE SET value = excluded.value
-                """,
-                (key_fingerprint,),
-            )
-            self._db.commit()
+    @asynccontextmanager
+    async def lifespan(self, _app: FastMCP[Any]) -> AsyncIterator[None]:
+        async with self.store.lifespan():
+            yield None
 
     @staticmethod
     def _model_json(model: Any) -> str:
@@ -267,40 +209,6 @@ class MCPApiKeyOAuthProvider(
                     return candidate
         return request.client.host if request.client is not None else "unknown"
 
-    def _too_many_failures(self, peer_ip: str) -> bool:
-        cutoff = time.time() - _LOGIN_FAILURE_WINDOW_SECONDS
-        with self._db_lock:
-            self._db.execute(
-                "DELETE FROM oauth_login_failures WHERE occurred_at <= ?",
-                (cutoff,),
-            )
-            row = self._db.execute(
-                """
-                SELECT COUNT(*) AS total
-                FROM oauth_login_failures
-                WHERE peer_ip = ? AND occurred_at > ?
-                """,
-                (peer_ip, cutoff),
-            ).fetchone()
-            self._db.commit()
-        return bool(row and int(row["total"]) >= _LOGIN_FAILURE_LIMIT)
-
-    def _record_failure(self, peer_ip: str) -> None:
-        with self._db_lock:
-            self._db.execute(
-                "INSERT INTO oauth_login_failures(peer_ip, occurred_at) VALUES(?, ?)",
-                (peer_ip, time.time()),
-            )
-            self._db.commit()
-
-    def _clear_failures(self, peer_ip: str) -> None:
-        with self._db_lock:
-            self._db.execute(
-                "DELETE FROM oauth_login_failures WHERE peer_ip = ?",
-                (peer_ip,),
-            )
-            self._db.commit()
-
     @staticmethod
     def _redirect_uri_allowed(value: str) -> bool:
         try:
@@ -310,83 +218,13 @@ class MCPApiKeyOAuthProvider(
         return normalized == value
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        with self._db_lock:
-            row = self._db.execute(
-                "SELECT payload FROM oauth_clients WHERE client_id = ?",
-                (client_id,),
-            ).fetchone()
-        if row is None:
+        payload = await self.store.get_client_payload(client_id)
+        if payload is None:
             return None
         try:
-            return OAuthClientInformationFull.model_validate_json(row["payload"])
+            return OAuthClientInformationFull.model_validate_json(payload)
         except ValueError:
             return None
-
-    def _ensure_client_capacity_locked(self, incoming_client_id: str) -> None:
-        existing = self._db.execute(
-            "SELECT 1 FROM oauth_clients WHERE client_id = ?",
-            (incoming_client_id,),
-        ).fetchone()
-        if existing is not None:
-            return
-
-        now = int(time.time())
-        self._db.execute(
-            "DELETE FROM oauth_authorization_codes WHERE expires_at <= ?",
-            (now,),
-        )
-        self._db.execute(
-            "DELETE FROM oauth_access_tokens WHERE expires_at <= ?",
-            (now,),
-        )
-        self._db.execute(
-            "DELETE FROM oauth_refresh_tokens WHERE expires_at <= ?",
-            (now,),
-        )
-        count_row = self._db.execute(
-            "SELECT COUNT(*) AS total FROM oauth_clients"
-        ).fetchone()
-        total = int(count_row["total"]) if count_row is not None else 0
-        needed = total - self.max_registered_clients + 1
-        if needed <= 0:
-            return
-
-        stale_rows = self._db.execute(
-            """
-            SELECT c.client_id
-            FROM oauth_clients AS c
-            WHERE NOT EXISTS (
-                SELECT 1 FROM oauth_authorization_codes AS a
-                WHERE a.client_id = c.client_id AND a.expires_at > ?
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM oauth_access_tokens AS a
-                WHERE a.client_id = c.client_id AND a.expires_at > ?
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM oauth_refresh_tokens AS r
-                WHERE r.client_id = c.client_id AND r.expires_at > ?
-            )
-            ORDER BY c.rowid ASC
-            LIMIT ?
-            """,
-            (now, now, now, needed),
-        ).fetchall()
-        for row in stale_rows:
-            self._db.execute(
-                "DELETE FROM oauth_clients WHERE client_id = ?",
-                (row["client_id"],),
-            )
-
-        count_row = self._db.execute(
-            "SELECT COUNT(*) AS total FROM oauth_clients"
-        ).fetchone()
-        total = int(count_row["total"]) if count_row is not None else 0
-        if total >= self.max_registered_clients:
-            raise RegistrationError(
-                "invalid_client_metadata",
-                "dynamic client registration capacity is currently full",
-            )
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if not client_info.client_id:
@@ -408,22 +246,18 @@ class MCPApiKeyOAuthProvider(
                 "client_name must be 1-256 characters",
             )
 
-        with self._db_lock:
-            try:
-                self._db.execute("BEGIN IMMEDIATE")
-                self._ensure_client_capacity_locked(client_info.client_id)
-                self._db.execute(
-                    """
-                    INSERT INTO oauth_clients(client_id, payload)
-                    VALUES(?, ?)
-                    ON CONFLICT(client_id) DO UPDATE SET payload = excluded.payload
-                    """,
-                    (client_info.client_id, self._model_json(client_info)),
-                )
-                self._db.commit()
-            except Exception:
-                self._db.rollback()
-                raise
+        try:
+            await self.store.register_client(
+                client_id=client_info.client_id,
+                payload=self._model_json(client_info),
+                max_registered_clients=self.max_registered_clients,
+                now=time.time(),
+            )
+        except OverflowError as exc:
+            raise RegistrationError(
+                "invalid_client_metadata",
+                "dynamic client registration capacity is currently full",
+            ) from exc
 
     async def authorize(
         self,
@@ -464,26 +298,17 @@ class MCPApiKeyOAuthProvider(
         client: OAuthClientInformationFull,
         authorization_code: str,
     ) -> AuthorizationCode | None:
-        with self._db_lock:
-            row = self._db.execute(
-                """
-                SELECT payload, expires_at
-                FROM oauth_authorization_codes
-                WHERE code = ? AND client_id = ?
-                """,
-                (authorization_code, client.client_id),
-            ).fetchone()
-            if row is not None and int(row["expires_at"]) <= int(time.time()):
-                self._db.execute(
-                    "DELETE FROM oauth_authorization_codes WHERE code = ?",
-                    (authorization_code,),
-                )
-                self._db.commit()
-                return None
-        if row is None:
+        if not client.client_id:
+            return None
+        payload = await self.store.get_authorization_code_payload(
+            client_id=client.client_id,
+            code=authorization_code,
+            now=time.time(),
+        )
+        if payload is None:
             return None
         try:
-            return AuthorizationCode.model_validate_json(row["payload"])
+            return AuthorizationCode.model_validate_json(payload)
         except ValueError:
             return None
 
@@ -514,36 +339,6 @@ class MCPApiKeyOAuthProvider(
         )
         return access, refresh
 
-    def _insert_token_pair(
-        self,
-        access: AccessToken,
-        refresh: RefreshToken,
-    ) -> None:
-        self._db.execute(
-            """
-            INSERT INTO oauth_access_tokens(token, client_id, expires_at, payload)
-            VALUES(?, ?, ?, ?)
-            """,
-            (
-                access.token,
-                access.client_id,
-                int(access.expires_at or 0),
-                self._model_json(access),
-            ),
-        )
-        self._db.execute(
-            """
-            INSERT INTO oauth_refresh_tokens(token, client_id, expires_at, payload)
-            VALUES(?, ?, ?, ?)
-            """,
-            (
-                refresh.token,
-                refresh.client_id,
-                int(refresh.expires_at or 0),
-                self._model_json(refresh),
-            ),
-        )
-
     @staticmethod
     def _oauth_token(access: AccessToken, refresh: RefreshToken) -> OAuthToken:
         expires_in = None
@@ -573,26 +368,18 @@ class MCPApiKeyOAuthProvider(
             resource=resource,
             subject=authorization_code.subject,
         )
-        with self._db_lock:
-            try:
-                self._db.execute("BEGIN IMMEDIATE")
-                cursor = self._db.execute(
-                    """
-                    DELETE FROM oauth_authorization_codes
-                    WHERE code = ? AND client_id = ?
-                    """,
-                    (authorization_code.code, client.client_id),
-                )
-                if cursor.rowcount != 1:
-                    self._db.rollback()
-                    raise TokenError("invalid_grant", "authorization code was already used")
-                self._insert_token_pair(access, refresh)
-                self._db.commit()
-            except TokenError:
-                raise
-            except Exception:
-                self._db.rollback()
-                raise
+        consumed = await self.store.consume_authorization_code_and_store_tokens(
+            code=authorization_code.code,
+            client_id=client.client_id,
+            access_token=access.token,
+            access_expires_at=float(access.expires_at or 0),
+            access_payload=self._model_json(access),
+            refresh_token=refresh.token,
+            refresh_expires_at=float(refresh.expires_at or 0),
+            refresh_payload=self._model_json(refresh),
+        )
+        if not consumed:
+            raise TokenError("invalid_grant", "authorization code was already used")
         return self._oauth_token(access, refresh)
 
     async def load_refresh_token(
@@ -600,26 +387,17 @@ class MCPApiKeyOAuthProvider(
         client: OAuthClientInformationFull,
         refresh_token: str,
     ) -> RefreshToken | None:
-        with self._db_lock:
-            row = self._db.execute(
-                """
-                SELECT payload, expires_at
-                FROM oauth_refresh_tokens
-                WHERE token = ? AND client_id = ?
-                """,
-                (refresh_token, client.client_id),
-            ).fetchone()
-            if row is not None and int(row["expires_at"]) <= int(time.time()):
-                self._db.execute(
-                    "DELETE FROM oauth_refresh_tokens WHERE token = ?",
-                    (refresh_token,),
-                )
-                self._db.commit()
-                return None
-        if row is None:
+        if not client.client_id:
+            return None
+        payload = await self.store.get_refresh_token_payload(
+            client_id=client.client_id,
+            token=refresh_token,
+            now=time.time(),
+        )
+        if payload is None:
             return None
         try:
-            token = RefreshToken.model_validate_json(row["payload"])
+            token = RefreshToken.model_validate_json(payload)
         except ValueError:
             return None
         if token.resource != self.resource_url:
@@ -643,45 +421,29 @@ class MCPApiKeyOAuthProvider(
             resource=resource,
             subject=refresh_token.subject,
         )
-        with self._db_lock:
-            try:
-                self._db.execute("BEGIN IMMEDIATE")
-                cursor = self._db.execute(
-                    """
-                    DELETE FROM oauth_refresh_tokens
-                    WHERE token = ? AND client_id = ?
-                    """,
-                    (refresh_token.token, client.client_id),
-                )
-                if cursor.rowcount != 1:
-                    self._db.rollback()
-                    raise TokenError("invalid_grant", "refresh token was already used")
-                self._insert_token_pair(access, rotated_refresh)
-                self._db.commit()
-            except TokenError:
-                raise
-            except Exception:
-                self._db.rollback()
-                raise
+        consumed = await self.store.rotate_refresh_token(
+            old_token=refresh_token.token,
+            client_id=client.client_id,
+            access_token=access.token,
+            access_expires_at=float(access.expires_at or 0),
+            access_payload=self._model_json(access),
+            refresh_token=rotated_refresh.token,
+            refresh_expires_at=float(rotated_refresh.expires_at or 0),
+            refresh_payload=self._model_json(rotated_refresh),
+        )
+        if not consumed:
+            raise TokenError("invalid_grant", "refresh token was already used")
         return self._oauth_token(access, rotated_refresh)
 
     async def load_access_token(self, token: str) -> AccessToken | None:
-        with self._db_lock:
-            row = self._db.execute(
-                "SELECT payload, expires_at FROM oauth_access_tokens WHERE token = ?",
-                (token,),
-            ).fetchone()
-            if row is not None and int(row["expires_at"]) <= int(time.time()):
-                self._db.execute(
-                    "DELETE FROM oauth_access_tokens WHERE token = ?",
-                    (token,),
-                )
-                self._db.commit()
-                return None
-        if row is None:
+        payload = await self.store.get_access_token_payload(
+            token=token,
+            now=time.time(),
+        )
+        if payload is None:
             return None
         try:
-            access = AccessToken.model_validate_json(row["payload"])
+            access = AccessToken.model_validate_json(payload)
         except ValueError:
             return None
         if access.resource != self.resource_url:
@@ -691,17 +453,7 @@ class MCPApiKeyOAuthProvider(
         return access
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
-        token_value = token.token
-        with self._db_lock:
-            self._db.execute(
-                "DELETE FROM oauth_access_tokens WHERE token = ?",
-                (token_value,),
-            )
-            self._db.execute(
-                "DELETE FROM oauth_refresh_tokens WHERE token = ?",
-                (token_value,),
-            )
-            self._db.commit()
+        await self.store.revoke_token(token.token)
 
     async def _read_consent_form(self, request: Request) -> dict[str, str] | None:
         chunks: list[bytes] = []
@@ -834,7 +586,11 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
             )
 
         peer_ip = self._peer_ip(request)
-        if self._too_many_failures(peer_ip):
+        if await self.store.too_many_failures(
+            peer_ip=peer_ip,
+            cutoff=time.time() - _LOGIN_FAILURE_WINDOW_SECONDS,
+            limit=_LOGIN_FAILURE_LIMIT,
+        ):
             return HTMLResponse(
                 "Too many failed attempts; try again shortly",
                 status_code=429,
@@ -843,7 +599,10 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
 
         candidate_bytes = candidate.encode("ascii") if candidate.isascii() else b""
         if not candidate.isascii() or not hmac.compare_digest(candidate_bytes, self._api_key):
-            self._record_failure(peer_ip)
+            await self.store.record_failure(
+                peer_ip=peer_ip,
+                occurred_at=time.time(),
+            )
             return self._render_consent(
                 transaction_token=transaction_token,
                 transaction=transaction,
@@ -851,7 +610,7 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
                 error="Invalid API Key",
             )
 
-        self._clear_failures(peer_ip)
+        await self.store.clear_failures(peer_ip)
         code = secrets.token_urlsafe(32)
         auth_code = AuthorizationCode(
             code=code,
@@ -866,20 +625,12 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
             resource=str(transaction["resource"]),
             subject="mcp-api-key",
         )
-        with self._db_lock:
-            self._db.execute(
-                """
-                INSERT INTO oauth_authorization_codes(code, client_id, expires_at, payload)
-                VALUES(?, ?, ?, ?)
-                """,
-                (
-                    auth_code.code,
-                    auth_code.client_id,
-                    int(auth_code.expires_at),
-                    self._model_json(auth_code),
-                ),
-            )
-            self._db.commit()
+        await self.store.store_authorization_code(
+            code=auth_code.code,
+            client_id=auth_code.client_id,
+            expires_at=float(auth_code.expires_at),
+            payload=self._model_json(auth_code),
+        )
 
         location = construct_redirect_uri(
             str(auth_code.redirect_uri),
@@ -892,10 +643,6 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
             status_code=302,
             headers={"Cache-Control": "no-store"},
         )
-
-    def close(self) -> None:
-        with self._db_lock:
-            self._db.close()
 
     def register_routes(self, mcp: FastMCP[Any]) -> None:
         mcp.custom_route(
@@ -920,6 +667,12 @@ def build_oauth_from_env() -> tuple[MCPApiKeyOAuthProvider | None, AuthSettings 
             "MCP_OAUTH_ISSUER must be set to the public HTTPS origin when MCP OAuth is enabled"
         )
 
+    database_url = os.getenv("MCP_OAUTH_DATABASE_URL", "").strip()
+    if not database_url:
+        raise ValueError(
+            "MCP_OAUTH_DATABASE_URL must be set to a PostgreSQL DSN when MCP OAuth is enabled"
+        )
+
     scopes = tuple(
         item.strip()
         for item in os.getenv("MCP_OAUTH_SCOPES", "mcp").split(",")
@@ -931,6 +684,7 @@ def build_oauth_from_env() -> tuple[MCPApiKeyOAuthProvider | None, AuthSettings 
     provider = MCPApiKeyOAuthProvider(
         api_key=api_key,
         issuer_url=issuer_url,
+        database_url=database_url,
         resource_url=os.getenv("MCP_OAUTH_RESOURCE") or None,
         scopes=scopes,
         access_token_ttl_seconds=int(
@@ -939,8 +693,15 @@ def build_oauth_from_env() -> tuple[MCPApiKeyOAuthProvider | None, AuthSettings 
         refresh_token_ttl_seconds=int(
             os.getenv("MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS", "2592000")
         ),
-        state_db_path=os.getenv("MCP_OAUTH_STATE_DB", "proxmox-oauth.sqlite3"),
         client_ip_header=os.getenv("MCP_OAUTH_CLIENT_IP_HEADER") or None,
+        max_registered_clients=int(
+            os.getenv("MCP_OAUTH_MAX_REGISTERED_CLIENTS", "4096")
+        ),
+        db_pool_min_size=int(os.getenv("MCP_OAUTH_DB_POOL_MIN_SIZE", "1")),
+        db_pool_max_size=int(os.getenv("MCP_OAUTH_DB_POOL_MAX_SIZE", "10")),
+        db_command_timeout_seconds=float(
+            os.getenv("MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS", "10")
+        ),
     )
     auth = AuthSettings(
         issuer_url=AnyHttpUrl(provider.issuer_url),

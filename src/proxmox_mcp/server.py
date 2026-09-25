@@ -212,6 +212,7 @@ class ProxmoxMCPServer:
                 log_level=log_level,
                 auth_server_provider=self.oauth_provider,
                 auth=oauth_auth,
+                lifespan=self.oauth_provider.lifespan if self.oauth_provider is not None else None,
             )
         else:
             self.mcp = FastMCP(
@@ -222,6 +223,7 @@ class ProxmoxMCPServer:
                 transport_security=transport_security,
                 auth_server_provider=self.oauth_provider,
                 auth=oauth_auth,
+                lifespan=self.oauth_provider.lifespan if self.oauth_provider is not None else None,
             )
         if self.oauth_provider is not None:
             self.oauth_provider.register_routes(self.mcp)
@@ -290,11 +292,6 @@ class ProxmoxMCPServer:
         return self.target_toolsets[name]
 
     def close(self) -> None:
-        if self.oauth_provider is not None:
-            try:
-                self.oauth_provider.close()
-            except Exception as exc:
-                self.logger.warning("Failed to close OAuth state database: %s", _log_safe(exc))
         if hasattr(self, "job_store"):
             try:
                 self.job_store.close()
