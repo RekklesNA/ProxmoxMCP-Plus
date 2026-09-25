@@ -290,6 +290,11 @@ class ProxmoxMCPServer:
         return self.target_toolsets[name]
 
     def close(self) -> None:
+        if self.oauth_provider is not None:
+            try:
+                self.oauth_provider.close()
+            except Exception as exc:
+                self.logger.warning("Failed to close OAuth state database: %s", _log_safe(exc))
         if hasattr(self, "job_store"):
             try:
                 self.job_store.close()

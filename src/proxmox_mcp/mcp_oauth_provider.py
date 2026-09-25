@@ -747,6 +747,13 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
                 headers={"Cache-Control": "no-store"},
             )
         transaction, client = loaded
+        client_id = client.client_id
+        if not client_id:
+            return HTMLResponse(
+                "Invalid OAuth client",
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
 
         peer_ip = self._peer_ip(request)
         if self._too_many_failures(peer_ip):
@@ -770,7 +777,7 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
         code = secrets.token_urlsafe(32)
         auth_code = AuthorizationCode(
             code=code,
-            client_id=client.client_id,
+            client_id=client_id,
             redirect_uri=transaction["redirect_uri"],
             redirect_uri_provided_explicitly=bool(
                 transaction["redirect_uri_provided_explicitly"]
@@ -807,6 +814,10 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
             status_code=302,
             headers={"Cache-Control": "no-store"},
         )
+
+    def close(self) -> None:
+        with self._db_lock:
+            self._db.close()
 
     def register_routes(self, mcp: FastMCP[Any]) -> None:
         mcp.custom_route(
