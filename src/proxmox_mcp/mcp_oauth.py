@@ -1063,6 +1063,8 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
         total = 0
         while True:
             message = await receive()
+            if message["type"] == "http.disconnect":
+                return None
             if message["type"] != "http.request":
                 continue
             chunk = message.get("body", b"")

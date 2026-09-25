@@ -442,6 +442,22 @@ def test_raw_api_key_is_not_an_oauth_access_token():
     assert response.status_code == 401
 
 
+
+@pytest.mark.asyncio
+async def test_read_body_stops_on_disconnect():
+    app = MCPOAuthMiddleware(
+        inner_app,
+        api_key="correct-secret",
+        issuer_url="https://mcp.example.com",
+        state_db_path=":memory:",
+    )
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    assert await app._read_body(receive) is None
+
+
 def test_access_token_survives_process_restart_when_api_key_is_unchanged():
     client, _ = make_client()
     with client:
