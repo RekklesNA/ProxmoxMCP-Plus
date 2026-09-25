@@ -527,13 +527,3 @@ class PostgresOAuthStateStore:
         async with pool.acquire() as conn:
             await conn.execute(f"DELETE FROM {_FAILURES} WHERE peer_ip = $1", peer_ip)
 
-
-async def reset_oauth_tables_for_tests(database_url: str) -> None:
-    """Clear OAuth tables. Intended only for this project's PostgreSQL test fixture."""
-    conn = await asyncpg.connect(database_url)
-    try:
-        tables = [_CODES, _ACCESS, _REFRESH, _FAILURES, _CLIENTS, _METADATA]
-        for table in tables:
-            await conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    finally:
-        await conn.close()
