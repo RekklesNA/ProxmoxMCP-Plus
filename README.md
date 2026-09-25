@@ -246,7 +246,7 @@ Optional OAuth environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier |
+| `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier; must use the issuer origin |
 | `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |

@@ -141,6 +141,10 @@ class MCPOAuthMiddleware:
             resource_url or f"{issuer}/mcp",
             allow_local_http=True,
         )
+        parsed_resource = urlparse(self.resource_url)
+        resource_origin = f"{parsed_resource.scheme}://{parsed_resource.netloc}"
+        if resource_origin != self.issuer_url:
+            raise ValueError("MCP OAuth resource must use the same origin as MCP_OAUTH_ISSUER")
         if not scopes or any(not scope or any(ch.isspace() for ch in scope) for scope in scopes):
             raise ValueError("MCP OAuth scopes must be non-empty strings without whitespace")
         self.scopes = tuple(dict.fromkeys(scopes))

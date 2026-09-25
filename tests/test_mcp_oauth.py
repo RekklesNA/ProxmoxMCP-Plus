@@ -1,5 +1,7 @@
 import base64
 import hashlib
+
+import pytest
 from urllib.parse import parse_qs, urlparse
 
 from starlette.responses import JSONResponse
@@ -92,6 +94,34 @@ def exchange(client, client_id, code, verifier):
             "resource": "https://mcp.example.com/mcp",
         },
     )
+
+
+
+def test_resource_must_share_issuer_origin():
+    with pytest.raises(ValueError, match="same origin"):
+        MCPOAuthMiddleware(
+            inner_app,
+            api_key="correct-secret",
+            issuer_url="https://mcp.example.com",
+            resource_url="https://resource.example/mcp",
+            state_db_path=":memory:",
+        )
+
+
+def test_same_origin_custom_resource_path_has_matching_metadata_url():
+    app = MCPOAuthMiddleware(
+        inner_app,
+        api_key="correct-secret",
+        issuer_url="https://mcp.example.com",
+        resource_url="https://mcp.example.com/custom/mcp",
+        state_db_path=":memory:",
+    )
+    client = TestClient(app)
+    with client:
+        response = client.get("/.well-known/oauth-protected-resource/custom/mcp")
+
+    assert response.status_code == 200
+    assert response.json()["resource"] == "https://mcp.example.com/custom/mcp"
 
 
 def test_protected_resource_and_authorization_metadata():
