@@ -119,14 +119,16 @@ class MCPApiKeyOAuthProvider(
             b"ProxmoxMCP-Plus OAuth consent state v2",
             hashlib.sha256,
         ).digest()
-        self.issuer_url = _normalize_issuer(issuer_url)
+        issuer_origin = _normalize_issuer(issuer_url)
+        self.issuer_url = str(AnyHttpUrl(issuer_origin))
+        self._issuer_origin = issuer_origin
         self.resource_url = _normalize_url(
-            resource_url or f"{self.issuer_url}/mcp",
+            resource_url or f"{issuer_origin}/mcp",
             allow_local_http=True,
         )
         parsed_resource = urlparse(self.resource_url)
         resource_origin = f"{parsed_resource.scheme}://{parsed_resource.netloc}"
-        if resource_origin != self.issuer_url:
+        if resource_origin != issuer_origin:
             raise ValueError("MCP OAuth resource must use the same origin as MCP_OAUTH_ISSUER")
 
         self.scopes = tuple(dict.fromkeys(scopes))
@@ -373,7 +375,7 @@ class MCPApiKeyOAuthProvider(
                 "exp": int(time.time()) + _LOGIN_TTL_SECONDS,
             }
         )
-        return f"{self.issuer_url}/oauth/consent?{urlencode({'transaction': transaction})}"
+        return f"{self._issuer_origin}/oauth/consent?{urlencode({'transaction': transaction})}"
 
     async def load_authorization_code(
         self,
