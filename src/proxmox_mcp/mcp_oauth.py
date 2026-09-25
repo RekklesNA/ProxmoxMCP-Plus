@@ -1,9 +1,9 @@
 """Minimal OAuth 2.1/PKCE wrapper for native MCP HTTP.
 
 This module deliberately keeps the existing ``MCP_API_KEY`` as the human-held
-credential. OAuth is only the compatibility layer used by clients such as
-OAuth clients: the browser posts the API key to this server, the server validates it,
-and the OAuth client receives short-lived bearer tokens instead of the API key.
+credential while exposing a standard OAuth flow for compatible MCP clients. The
+browser posts the API key to this server, the server validates it, and the OAuth
+client receives short-lived bearer tokens instead of the API key.
 """
 
 from __future__ import annotations
