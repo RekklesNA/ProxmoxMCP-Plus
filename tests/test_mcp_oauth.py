@@ -137,7 +137,7 @@ def complete_flow(client):
     query = parse_qs(callback.query)
     assert callback.netloc == "client.example"
     assert query["state"] == ["state-1"]
-    assert query["iss"] == ["https://mcp.example.com"]
+    assert query["iss"] == ["https://mcp.example.com/"]
     token_response = exchange(
         client,
         registration["client_id"],
@@ -177,8 +177,9 @@ def test_sdk_metadata_and_rfc9728_challenge(tmp_path):
 
     assert resource.status_code == 200
     assert resource.json()["resource"] == "https://mcp.example.com/mcp"
-    assert resource.json()["authorization_servers"] == ["https://mcp.example.com"]
+    assert resource.json()["authorization_servers"] == ["https://mcp.example.com/"]
     assert auth.status_code == 200
+    assert auth.json()["issuer"] == "https://mcp.example.com/"
     assert auth.json()["authorization_endpoint"] == "https://mcp.example.com/authorize"
     assert auth.json()["token_endpoint"] == "https://mcp.example.com/token"
     assert auth.json()["registration_endpoint"] == "https://mcp.example.com/register"
@@ -464,6 +465,7 @@ def test_build_oauth_from_env(monkeypatch, tmp_path):
 
     assert provider is not None
     assert auth is not None
+    assert provider.issuer_url == str(auth.issuer_url)
     assert provider.resource_url == "https://mcp.example.com/mcp"
     assert str(auth.resource_server_url) == "https://mcp.example.com/mcp"
     assert auth.validate_token_resource is True
