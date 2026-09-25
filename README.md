@@ -256,9 +256,12 @@ credential. Dynamic client registration capacity is also serialized with a
 PostgreSQL transaction-scoped advisory lock; inactive registrations are pruned
 before the configured limit is exceeded.
 
-Rotating `MCP_API_KEY` changes its stored fingerprint. On provider startup,
-PostgreSQL invalidates existing OAuth client registrations and their dependent
-codes/tokens when the fingerprint changes.
+API-key rotation is versioned for multi-worker safety. `MCP_OAUTH_KEY_VERSION`
+defaults to `1`. When changing `MCP_API_KEY`, increment the version at the same
+time on every new worker. A higher version atomically invalidates existing client
+registrations and their dependent codes/tokens. A worker with an older version is
+rejected, and workers using different keys with the same version are rejected.
+This prevents a stale worker from reversing a distributed key rotation.
 
 Required when OAuth is enabled:
 
@@ -272,6 +275,7 @@ Optional OAuth environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `MCP_OAUTH_KEY_VERSION` | `1` | Monotonic API-key epoch; increment whenever `MCP_API_KEY` changes |
 | `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier; must use the issuer origin |
 | `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
@@ -281,6 +285,16 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_DB_POOL_MAX_SIZE` | `10` | Maximum asyncpg connections per MCP worker |
 | `MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS` | `10` | PostgreSQL command timeout used by the OAuth store |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
+
+To rotate the browser-gate credential, deploy the new key with a higher version,
+for example:
+
+```bash
+MCP_API_KEY=<new-secret>
+MCP_OAUTH_KEY_VERSION=2
+```
+
+Do not reuse a version number for a different key.
 
 The database role must be able to create and modify the
 `proxmox_mcp_oauth_*` tables in its database. The tables contain OAuth client
