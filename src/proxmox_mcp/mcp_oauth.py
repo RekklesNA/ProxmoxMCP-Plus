@@ -37,6 +37,7 @@ _AUTH_CODE_TTL_SECONDS = 5 * 60
 @dataclass(frozen=True)
 class _ClientInfo:
     client_id: str
+    client_name: str
     redirect_uris: tuple[str, ...]
     token_endpoint_auth_method: str
     scopes: tuple[str, ...]
@@ -252,6 +253,7 @@ class MCPOAuthMiddleware:
     def _encode_client(
         self,
         *,
+        client_name: str,
         redirect_uris: tuple[str, ...],
         auth_method: str,
         scopes: tuple[str, ...],
@@ -261,6 +263,7 @@ class MCPOAuthMiddleware:
         return self._sign_payload(
             "pmcpc1",
             {
+                "client_name": client_name,
                 "redirect_uris": list(redirect_uris),
                 "auth_method": auth_method,
                 "scopes": list(scopes),
@@ -275,6 +278,7 @@ class MCPOAuthMiddleware:
         if payload is None:
             return None
         try:
+            client_name = str(payload.get("client_name") or "OAuth client")
             redirect_uris = tuple(str(value) for value in payload["redirect_uris"])
             auth_method = str(payload["auth_method"])
             scopes = tuple(str(value) for value in payload["scopes"])
@@ -289,6 +293,7 @@ class MCPOAuthMiddleware:
             return None
         return _ClientInfo(
             client_id=client_id,
+            client_name=client_name,
             redirect_uris=redirect_uris,
             token_endpoint_auth_method=auth_method,
             scopes=scopes,
@@ -497,12 +502,29 @@ class MCPOAuthMiddleware:
             await self._oauth_json_error(scope, receive, send, 400, "invalid_client_metadata", "scope must be a string")
             return
 
+        client_name_raw = data.get("client_name")
+        if client_name_raw is None:
+            client_name = "OAuth client"
+        elif isinstance(client_name_raw, str) and 1 <= len(client_name_raw) <= 256:
+            client_name = client_name_raw
+        else:
+            await self._oauth_json_error(
+                scope,
+                receive,
+                send,
+                400,
+                "invalid_client_metadata",
+                "client_name must be a non-empty string up to 256 characters",
+            )
+            return
+
         client_secret: str | None = None
         secret_hash: str | None = None
         if auth_method != "none":
             client_secret = secrets.token_urlsafe(32)
             secret_hash = self._secret_hash(client_secret)
         client_id = self._encode_client(
+            client_name=client_name,
             redirect_uris=tuple(redirect_uris),
             auth_method=auth_method,
             scopes=registered_scopes,
@@ -512,6 +534,7 @@ class MCPOAuthMiddleware:
         result: dict[str, Any] = {
             "client_id": client_id,
             "client_id_issued_at": self._now(),
+            "client_name": client_name,
             "redirect_uris": redirect_uris,
             "token_endpoint_auth_method": auth_method,
             "grant_types": list(grant_types),
@@ -592,7 +615,15 @@ class MCPOAuthMiddleware:
             resource=resource,
             expires_at=self._now() + _LOGIN_TTL_SECONDS,
         )
-        await self._render_login(scope, receive, send, self._encode_login_transaction(transaction))
+        await self._render_login(
+            scope,
+            receive,
+            send,
+            self._encode_login_transaction(transaction),
+            client_name=client.client_name,
+            redirect_uri=transaction.redirect_uri,
+            scopes=transaction.scopes,
+        )
 
     async def _authorize_post(self, scope: Scope, receive: Receive, send: Send) -> None:
         self._cleanup_pending()
@@ -620,7 +651,17 @@ class MCPOAuthMiddleware:
         candidate_bytes = candidate.encode("utf-8", errors="ignore")
         if not hmac.compare_digest(candidate_bytes, self._api_key):
             self._record_failure(peer_ip)
-            await self._render_login(scope, receive, send, nonce, error="Invalid API Key")
+            client = self._decode_client(transaction.client_id)
+            await self._render_login(
+                scope,
+                receive,
+                send,
+                nonce,
+                client_name=client.client_name if client is not None else "OAuth client",
+                redirect_uri=transaction.redirect_uri,
+                scopes=transaction.scopes,
+                error="Invalid API Key",
+            )
             return
 
         self._failed_logins.pop(peer_ip, None)
@@ -882,9 +923,18 @@ class MCPOAuthMiddleware:
         receive: Receive,
         send: Send,
         nonce: str,
+        *,
+        client_name: str,
+        redirect_uri: str,
+        scopes: tuple[str, ...],
         error: str | None = None,
     ) -> None:
         error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
+        redirect = urlparse(redirect_uri)
+        redirect_origin = f"{redirect.scheme}://{redirect.netloc}"
+        client_name_html = html.escape(client_name)
+        redirect_origin_html = html.escape(redirect_origin)
+        scopes_html = html.escape(" ".join(scopes))
         body = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -896,13 +946,18 @@ body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f5f7;margin:0
 .card{{width:min(420px,calc(100% - 40px));background:white;border-radius:16px;padding:28px;box-shadow:0 12px 40px rgba(0,0,0,.12)}}
 h1{{font-size:22px;margin:0 0 8px}}p{{line-height:1.45;color:#555}}label{{display:block;font-weight:600;margin:22px 0 8px}}+input{{box-sizing:border-box;width:100%;padding:12px 14px;border:1px solid #bbb;border-radius:10px;font:inherit}}
 button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px;background:#111;color:white;font:inherit;font-weight:650;cursor:pointer}}
-.error{{color:#b00020;font-weight:650}}.hint{{font-size:13px;color:#777}}
+.error{{color:#b00020;font-weight:650}}.hint{{font-size:13px;color:#777}}dl{{margin:18px 0}}dt{{font-size:12px;color:#777;text-transform:uppercase}}dd{{margin:3px 0 12px;overflow-wrap:anywhere}}code{{font-size:13px}}
 </style>
 </head>
 <body>
 <main class="card">
 <h1>Authorize ProxmoxMCP-Plus</h1>
-<p>Enter the MCP API Key to allow this OAuth connection.</p>
+<p>Review the OAuth client before entering the MCP API Key.</p>
+<dl>
+<dt>Client</dt><dd>{client_name_html}</dd>
+<dt>Redirect origin</dt><dd><code>{redirect_origin_html}</code></dd>
+<dt>Scopes</dt><dd><code>{scopes_html}</code></dd>
+</dl>
 {error_html}
 <form method="post" action="/authorize" autocomplete="off">
 <input type="hidden" name="login_nonce" value="{html.escape(nonce, quote=True)}">

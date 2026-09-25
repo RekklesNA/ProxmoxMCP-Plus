@@ -34,10 +34,11 @@ def make_client(state_db_path=":memory:"):
     return TestClient(app), app
 
 
-def register(client):
+def register(client, client_name="Test MCP Client"):
     response = client.post(
         "/register",
         json={
+            "client_name": client_name,
             "redirect_uris": ["https://client.example/callback"],
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code", "refresh_token"],
@@ -131,8 +132,35 @@ def test_wrong_api_key_stays_on_login_page_without_leaking_key():
 
     assert response.status_code == 200
     assert "Invalid API Key" in response.text
+    assert "Test MCP Client" in response.text
+    assert "https://client.example" in response.text
+    assert "<code>mcp</code>" in response.text
     assert "wrong-secret" not in response.text
     assert response.headers["cache-control"] == "no-store"
+
+
+
+def test_client_name_is_escaped_on_authorization_page():
+    client, _ = make_client()
+    with client:
+        client_id = register(client, client_name="<script>alert(1)</script>")
+        nonce, _ = begin_authorize(client, client_id)
+        page = client.get(
+            "/authorize",
+            params={
+                "client_id": client_id,
+                "redirect_uri": "https://client.example/callback",
+                "response_type": "code",
+                "code_challenge": "a" * 43,
+                "code_challenge_method": "S256",
+                "scope": "mcp",
+                "resource": "https://mcp.example.com/mcp",
+            },
+        )
+
+    assert page.status_code == 200
+    assert "<script>alert(1)</script>" not in page.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
 
 
 def test_full_authorization_code_pkce_flow_and_mcp_access():
