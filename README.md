@@ -188,16 +188,22 @@ This setting does not change OpenAPI authentication or DNS rebinding protection.
 
 ##### OAuth browser gate for MCP clients
 
-Native MCP HTTP can optionally expose an OAuth 2.1 authorization-code flow with
-PKCE while keeping `MCP_API_KEY` as the only credential an operator has to manage.
-This is useful for MCP clients that support OAuth but cannot attach a custom API
-key directly to MCP requests.
+Native MCP HTTP can optionally expose an OAuth authorization-code flow with PKCE
+while keeping `MCP_API_KEY` as the only human credential an operator has to
+manage. This is useful for MCP clients that support OAuth but cannot attach a
+custom API key directly to MCP requests.
 
-In this mode the OAuth authorization page is hosted by ProxmoxMCP-Plus itself.
-The user enters `MCP_API_KEY` in the browser at `/authorize`. If the key matches,
-the server completes the PKCE flow and returns an OAuth authorization code to the
-client. The API key is never placed in a URL and is never returned to the OAuth
-client.
+OAuth protocol handling is delegated to the MCP Python SDK (`mcp>=1.30.0,<2`).
+The SDK owns authorization-server metadata, dynamic client registration, PKCE
+validation, token endpoint handling, RFC 9728 protected-resource metadata, and
+Bearer protection for `/mcp`. ProxmoxMCP-Plus supplies the credential policy,
+the API-key consent page, and persistent OAuth state.
+
+The client starts at the standard SDK `/authorize` endpoint. After the SDK has
+validated the client, redirect URI, scope, PKCE request, and resource, the browser
+is redirected to `/oauth/consent` on the same MCP origin. The user reviews the
+client name, redirect origin, and requested scopes, then enters `MCP_API_KEY`.
+The API key is never placed in a URL and is never returned to the OAuth client.
 
 ```bash
 export MCP_API_KEY="$(openssl rand -hex 32)"
@@ -210,8 +216,10 @@ docker run --rm -p 8000:8000 \
   -e MCP_API_KEY="$MCP_API_KEY" \
   -e MCP_OAUTH_ENABLED=true \
   -e MCP_OAUTH_ISSUER=https://mcp.example.com \
+  -e MCP_OAUTH_STATE_DB=/app/oauth-state/proxmox-oauth.sqlite3 \
   -e MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:* \
   -e MCP_ALLOWED_ORIGINS=https://mcp.example.com \
+  -v proxmox-mcp-oauth-state:/app/oauth-state \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
@@ -225,22 +233,23 @@ https://mcp.example.com/mcp
 OAuth mode exposes these endpoints on the same public origin:
 
 - `/.well-known/oauth-protected-resource/mcp` - RFC 9728 protected-resource metadata
-- `/.well-known/oauth-authorization-server` - OAuth authorization-server metadata
-- `/register` - dynamic client registration (DCR)
-- `/authorize` - API-key browser gate and authorization-code endpoint
-- `/token` - authorization-code/refresh-token exchange
+- `/.well-known/oauth-authorization-server` - SDK authorization-server metadata
+- `/register` - SDK dynamic client registration (DCR)
+- `/authorize` - SDK authorization endpoint
+- `/token` - SDK authorization-code/refresh-token exchange
+- `/oauth/consent` - ProxmoxMCP-Plus API-key consent page
 
-The flow requires PKCE `S256`, validates the OAuth `resource`, audience, expiry,
-and required scopes on every MCP request, and returns the protected-resource
-metadata URL in the `WWW-Authenticate` challenge. Dynamic client IDs plus access
-and refresh tokens are signed values derived from `MCP_API_KEY`. Refresh-token
-use is recorded in SQLite so rotated tokens cannot be replayed across workers or
-process restarts that share the same state database. Rotating
-`MCP_API_KEY` invalidates all existing OAuth credentials immediately.
+The SDK requires PKCE `S256` and protects the MCP resource with issued OAuth
+access tokens. ProxmoxMCP-Plus stores registered clients, one-time authorization
+codes, opaque access tokens, rotated refresh tokens, and login-rate-limit state in
+SQLite. Browser consent transactions are HMAC-signed and stateless, so merely
+opening authorization pages does not allocate login-session rows.
 
-The short-lived browser login transaction is HMAC-signed and stateless, so
-unauthenticated authorization requests do not allocate server-side session state.
-Only one-time authorization codes (5 minutes) remain in process memory.
+Refresh tokens are rotated atomically: the old refresh token is deleted before
+the replacement pair is committed, so replay is rejected across processes that
+share the same local SQLite database. Rotating `MCP_API_KEY` changes the stored
+key fingerprint and invalidates registered clients and outstanding OAuth
+credentials.
 
 Optional OAuth environment variables:
 
@@ -250,23 +259,27 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
-| `MCP_OAUTH_STATE_DB` | `proxmox-oauth.sqlite3` | SQLite state used for refresh-token replay detection |
+| `MCP_OAUTH_STATE_DB` | `proxmox-oauth.sqlite3` | SQLite file for OAuth clients, codes, tokens, and rate-limit state |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
 
-`MCP_OAUTH_STATE_DB` should point to durable storage when refresh-token replay
-protection must survive container replacement, and to shared storage when multiple
-workers must coordinate refresh-token rotation.
+Treat `MCP_OAUTH_STATE_DB` as sensitive credential storage. The provider sets
+the database file to mode `0600` when possible. Persist it if registrations and
+tokens should survive container replacement. Multiple workers on one host may
+share the same local SQLite file; for a multi-host deployment, use one OAuth
+worker or replace the provider storage with a database designed for shared
+network access rather than placing SQLite on an arbitrary network filesystem.
 
 If the server is behind a trusted reverse proxy and per-user login rate limiting
 must use the original client address, set `MCP_OAUTH_CLIENT_IP_HEADER` to a header
 that the proxy overwrites (for example `CF-Connecting-IP`). Leave it unset unless
 the proxy prevents clients from spoofing that header.
 
-When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>` request
-to `/mcp` is intentionally rejected. The API key is accepted only by the browser
-authorization page; MCP requests must use the issued OAuth access token.
+When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>`
+request to `/mcp` is intentionally rejected. The API key is accepted only by the
+consent page; MCP requests must use an issued OAuth access token.
 
-When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection enabled and allow only the hostnames you expect:
+When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection
+enabled and allow only the hostnames you expect:
 
 ```bash
 docker run --rm -p 8000:8000 \
