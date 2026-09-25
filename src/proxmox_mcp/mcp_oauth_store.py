@@ -186,6 +186,18 @@ class PostgresOAuthStateStore:
                         self.api_key_fingerprint,
                     )
 
+    async def api_key_is_current(self) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            stored = await conn.fetchval(
+                f"""
+                SELECT value
+                FROM {_METADATA}
+                WHERE name = 'api_key_fingerprint'
+                """
+            )
+            return stored == self.api_key_fingerprint
+
     async def get_client_payload(self, client_id: str) -> str | None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:

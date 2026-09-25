@@ -577,6 +577,12 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
                 headers={"Cache-Control": "no-store"},
             )
         transaction, client = loaded
+        if not await self.store.api_key_is_current():
+            return HTMLResponse(
+                "OAuth credential configuration changed; restart this server instance",
+                status_code=503,
+                headers={"Cache-Control": "no-store"},
+            )
         client_id = client.client_id
         if not client_id:
             return HTMLResponse(

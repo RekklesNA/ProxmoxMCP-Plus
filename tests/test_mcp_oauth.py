@@ -479,6 +479,32 @@ def test_api_key_rotation_invalidates_oauth_credentials(oauth_database_url):
     assert stale_client.status_code == 400
 
 
+def test_api_key_rotation_rejects_old_worker_consent(oauth_database_url):
+    old_client, _ = make_client(oauth_database_url, api_key="old-secret")
+    with old_client:
+        old_registration = register(old_client)
+
+        rotated, _ = make_client(oauth_database_url, api_key="new-secret")
+        with rotated:
+            register(rotated, client_name="Rotation trigger")
+
+        replacement_registration = register(old_client, client_name="Old worker client")
+        authorization, _ = begin_authorize(
+            old_client,
+            replacement_registration["client_id"],
+        )
+        transaction = consent_transaction(authorization)
+        response = approve(old_client, transaction, api_key="old-secret")
+
+        stale_registration, _ = begin_authorize(
+            old_client,
+            old_registration["client_id"],
+        )
+
+    assert response.status_code == 503
+    assert stale_registration.status_code == 400
+
+
 def test_raw_api_key_is_not_an_access_token(oauth_database_url):
     client, _ = make_client(oauth_database_url)
     with client:
