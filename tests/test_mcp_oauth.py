@@ -241,6 +241,19 @@ def test_client_name_is_escaped_on_authorization_page():
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
 
 
+
+def test_non_ascii_api_key_input_is_rejected():
+    client, _ = make_client()
+    with client:
+        client_id = register(client)
+        nonce, _ = begin_authorize(client, client_id)
+        response = authorize(client, nonce, api_key="correct-secret☃")
+
+    assert response.status_code == 200
+    assert "Invalid API Key" in response.text
+    assert "location" not in response.headers
+
+
 def test_full_authorization_code_pkce_flow_and_mcp_access():
     client, _ = make_client()
     with client:

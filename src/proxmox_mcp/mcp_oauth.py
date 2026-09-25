@@ -715,8 +715,8 @@ class MCPOAuthMiddleware:
         if self._too_many_failures(peer_ip):
             await self._html_error(scope, receive, send, 429, "Too many failed attempts; try again shortly")
             return
-        candidate_bytes = candidate.encode("utf-8", errors="ignore")
-        if not hmac.compare_digest(candidate_bytes, self._api_key):
+        candidate_bytes = candidate.encode("ascii") if candidate.isascii() else b""
+        if not candidate.isascii() or not hmac.compare_digest(candidate_bytes, self._api_key):
             self._record_failure(peer_ip)
             client = self._decode_client(transaction.client_id)
             await self._render_login(
