@@ -97,6 +97,11 @@ def test_job_store_retry_and_cancel(tmp_path: Path):
     )
 
     cancelled = store.cancel_job(job["job_id"])
+    with pytest.raises(JobConflictError, match="cancel_requested"):
+        store.retry_job(job["job_id"])
+    proxmox.nodes.return_value.tasks.return_value.status.get.return_value = {"status": "stopped"}
+    proxmox.nodes.return_value.tasks.return_value.log.get.return_value = []
+    store.poll_job(job["job_id"])
     retried = store.retry_job(job["job_id"])
 
     cancel.assert_called_once_with("UPID:original")

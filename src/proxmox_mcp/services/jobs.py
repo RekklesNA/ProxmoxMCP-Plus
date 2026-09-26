@@ -7,14 +7,16 @@ import re
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
-_RETRYABLE_STATUSES = {"failed", "cancelled", "cancel_requested"}
+_RETRYABLE_STATUSES = {"failed", "cancelled"}
 _RETRYING_STATUS = "retrying"
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
@@ -87,6 +89,7 @@ class JobRecord:
     audit_log: list[JobAuditEvent] = field(default_factory=list)
     retry_spec: Optional[dict[str, Any]] = None
     retry_spec_redacted: bool = False
+    _persisted_audit_count: int = field(default=0, repr=False)
     retry_factory: Optional[Callable[[], Any]] = field(default=None, repr=False)
     cancel_factory: Optional[Callable[[str], Any]] = field(default=None, repr=False)
 
@@ -121,7 +124,10 @@ class JobRecord:
 class JobStore:
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
-    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False) -> None:
+    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False, audit_retention_days: int | None = None) -> None:
+        if audit_retention_days is not None and audit_retention_days < 1:
+            raise ValueError("audit_retention_days must be positive")
+        self.audit_retention_days = audit_retention_days
         self.proxmox = proxmox_api
         self.target_name = target_name
         # Legacy mode: a single unambiguous target owns the whole database, so
@@ -136,6 +142,8 @@ class JobStore:
         self._conn.row_factory = sqlite3.Row
         self._configure_connection()
         self._init_db()
+        if self.audit_retention_days is not None:
+            self.prune_audit_events()
         self._register_builtin_retry_handlers()
         self._load_records()
 
@@ -157,6 +165,24 @@ class JobStore:
 
     def register_retry_handler(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         self._retry_handlers[kind] = handler
+
+    def prune_audit_events(self) -> None:
+        """Prune expired history only for jobs owned by this target."""
+        if self.audit_retention_days is None:
+            return
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.audit_retention_days)).isoformat()
+        with self._write_transaction():
+            where = ""
+            params: list[Any] = [cutoff]
+            if self.target_name is not None:
+                target_filter = "json_extract(metadata_json, '$.target') = ?"
+                if self.legacy_mode:
+                    target_filter += " OR json_extract(metadata_json, '$.target') IS NULL"
+                where = f" AND job_id IN (SELECT job_id FROM jobs WHERE {target_filter})"
+                params.append(self.target_name)
+            self._conn.execute(
+                "DELETE FROM job_audit_events WHERE timestamp < ?" + where, params,
+            )
 
     def register_task(
         self,
@@ -190,7 +216,7 @@ class JobStore:
             cancel_factory=cancel_factory,
         )
         record.add_audit("created", upid=upid, metadata=record.metadata)
-        with self._lock:
+        with self._write_transaction():
             self._jobs[job_id] = record
             self._save_record(record)
         return record.as_dict()
@@ -211,8 +237,10 @@ class JobStore:
             return self._load_record_from_db(job_id).as_dict()
 
     def poll_job(self, job_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
+            if record.status == _RETRYING_STATUS:
+                return record.as_dict()
             if not record.upid or not record.node:
                 record.add_audit("poll_skipped", reason="missing_upid_or_node")
                 self._save_record(record)
@@ -225,16 +253,18 @@ class JobStore:
         progress = self._extract_progress(log_payload)
         status, last_error, completed_at = self._normalize_status(status_payload)
 
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
-            if record.upid != upid:
+            if record.upid != upid or record.status == _RETRYING_STATUS:
                 record.add_audit("poll_discarded", stale_upid=upid, current_upid=record.upid)
                 self._save_record(record)
                 return record.as_dict()
+            if record.status == "cancel_requested" and status == "running":
+                status = "cancel_requested"
             record.progress = progress
             record.status = status
             record.last_error = last_error
-            record.completed_at = completed_at
+            record.completed_at = record.completed_at or completed_at
             record.result = status_payload if isinstance(status_payload, dict) else {"raw": status_payload}
             record.add_audit(
                 "polled",
@@ -246,7 +276,7 @@ class JobStore:
             return record.as_dict()
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
             if not record.upid or not record.node:
                 raise JobConflictError(f"Job {job_id} has no task UPID to cancel")
@@ -259,9 +289,9 @@ class JobStore:
         if cancel_factory is not None:
             cancel_factory(upid)
         else:
-            self.proxmox.nodes(node).tasks(upid).status.stop.post()
+            self.proxmox.nodes(node).tasks(upid).delete()
 
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
             if record.upid != upid:
                 record.add_audit("cancel_discarded", stale_upid=upid, current_upid=record.upid)
@@ -277,7 +307,7 @@ class JobStore:
             return record.as_dict()
 
     def retry_job(self, job_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
             if record.retry_spec_redacted and record.retry_factory is None:
                 raise JobConflictError(f"Job {job_id} retry recipe was redacted and cannot be retried")
@@ -316,7 +346,7 @@ class JobStore:
             self._rollback_retry_claim(job_id, original_upid, previous_status, exc)
             raise
 
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
             if record.status != _RETRYING_STATUS or record.upid != original_upid:
                 record.add_audit(
@@ -350,23 +380,22 @@ class JobStore:
         cursor = self._conn.execute(
             f"""
             UPDATE jobs
-            SET status = ?, updated_at = ?, audit_log_json = ?
+            SET status = ?, updated_at = ?
             WHERE job_id = ? AND status IN ({placeholders})
             """,
             (
                 record.status,
                 record.updated_at,
-                json.dumps([item.as_dict() for item in record.audit_log]),
                 record.job_id,
                 *sorted(_RETRYABLE_STATUSES),
             ),
         )
-        self._conn.commit()
         if cursor.rowcount != 1:
             fresh = self._load_record_from_db(record.job_id)
             raise JobConflictError(
                 f"Job {record.job_id} cannot be retried while status is '{fresh.status}'"
             )
+        self._save_record(record)
         self._jobs[record.job_id] = record
 
     def _rollback_retry_claim(
@@ -376,7 +405,7 @@ class JobStore:
         previous_status: str,
         error: Exception,
     ) -> None:
-        with self._lock:
+        with self._write_transaction():
             record = self._load_record_from_db(job_id)
             if record.status != _RETRYING_STATUS or record.upid != original_upid:
                 record.add_audit(
@@ -398,6 +427,13 @@ class JobStore:
             return self._jobs[job_id]
         except KeyError as exc:
             raise JobNotFoundError(f"Unknown job_id: {job_id}") from exc
+
+    @contextmanager
+    def _write_transaction(self) -> Iterator[None]:
+        # Never hold this transaction during network I/O.
+        with self._lock, self._conn:
+            self._conn.execute("BEGIN IMMEDIATE")
+            yield
 
     def _configure_connection(self) -> None:
         self._conn.execute("PRAGMA busy_timeout = 5000")
@@ -451,6 +487,32 @@ class JobStore:
             (1, _utcnow()),
         )
         self._conn.commit()
+        with self._write_transaction():
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS job_audit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    event TEXT NOT NULL,
+                    details_json TEXT NOT NULL
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_job_audit_job_time "
+                "ON job_audit_events(job_id, timestamp)"
+            )
+            for row in self._conn.execute(
+                "SELECT job_id, audit_log_json FROM jobs WHERE audit_log_json != '[]'"
+            ).fetchall():
+                for item in json.loads(row["audit_log_json"] or "[]"):
+                    self._conn.execute(
+                        "INSERT INTO job_audit_events(job_id, timestamp, event, details_json) VALUES (?, ?, ?, ?)",
+                        (row["job_id"], item["timestamp"], item["event"], json.dumps(_sanitize(item.get("details", {})))),
+                    )
+                self._conn.execute("UPDATE jobs SET audit_log_json = '[]' WHERE job_id = ?", (row["job_id"],))
+            self._conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (2, _utcnow()),
+            )
         # Migration warning: legacy jobs without target metadata cannot be safely
         # isolated between named targets. In legacy mode this store owns the whole
         # database and still serves those jobs, so no warning is warranted.
@@ -475,6 +537,9 @@ class JobStore:
     def _row_to_record(self, row: sqlite3.Row) -> JobRecord:
         job_id = str(row["job_id"])
         existing = self._jobs.get(job_id)
+        audit = self._conn.execute(
+            "SELECT timestamp, event, details_json FROM job_audit_events WHERE job_id = ? ORDER BY id", (job_id,),
+        ).fetchall()
         return JobRecord(
             job_id=job_id,
             tool_name=str(row["tool_name"]),
@@ -496,10 +561,11 @@ class JobStore:
                 JobAuditEvent(
                     timestamp=item["timestamp"],
                     event=item["event"],
-                    details=item.get("details", {}),
+                    details=json.loads(item["details_json"]),
                 )
-                for item in (json.loads(row["audit_log_json"]) if row["audit_log_json"] else [])
+                for item in audit
             ],
+            _persisted_audit_count=len(audit),
             retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
             retry_spec_redacted=bool(row["retry_spec_redacted"]) if "retry_spec_redacted" in row.keys() else False,
             retry_factory=existing.retry_factory if existing is not None else None,
@@ -594,12 +660,24 @@ class JobStore:
                 json.dumps(_sanitize(record.result), sort_keys=True) if record.result is not None else None,
                 json.dumps(_sanitize(record.metadata), sort_keys=True),
                 json.dumps(record.previous_upids),
-                json.dumps(_sanitize([item.as_dict() for item in record.audit_log])),
+                "[]",
                 json.dumps(record.retry_spec, sort_keys=True) if record.retry_spec is not None else None,
                 int(record.retry_spec_redacted),
             ),
         )
-        self._conn.commit()
+        for event in record.audit_log[record._persisted_audit_count:]:
+            self._conn.execute(
+                "INSERT INTO job_audit_events(job_id, timestamp, event, details_json) VALUES (?, ?, ?, ?)",
+                (record.job_id, event.timestamp, event.event, json.dumps(_sanitize(event.details))),
+            )
+        record._persisted_audit_count = len(record.audit_log)
+        if self.audit_retention_days is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.audit_retention_days)).isoformat()
+            self._conn.execute(
+                "DELETE FROM job_audit_events WHERE job_id = ? AND timestamp < ?", (record.job_id, cutoff),
+            )
+            record.audit_log = [event for event in record.audit_log if event.timestamp >= cutoff]
+            record._persisted_audit_count = len(record.audit_log)
 
     def _extract_progress(self, log_payload: Any) -> Optional[int]:
         max_progress: Optional[int] = None
@@ -636,6 +714,14 @@ class JobStore:
         if state in {"error", "failed"}:
             return "failed", state, now
         return "running", None, None
+
+    @staticmethod
+    def _lxc_restore_request(request: dict[str, Any]) -> dict[str, Any]:
+        request = dict(request)
+        if "archive" in request:
+            request["ostemplate"] = request.pop("archive")
+        request["restore"] = 1
+        return request
 
     def _register_builtin_retry_handlers(self) -> None:
         self.register_retry_handler("vm.create", lambda params: self.proxmox.nodes(params["node"]).qemu.create(**params["vm_config"]))
@@ -688,7 +774,7 @@ class JobStore:
         self.register_retry_handler(
             "backup.restore",
             lambda params: (
-                self.proxmox.nodes(params["node"]).lxc.post(**params["request"])
+                self.proxmox.nodes(params["node"]).lxc.post(**self._lxc_restore_request(params["request"]))
                 if params.get("is_lxc")
                 else self.proxmox.nodes(params["node"]).qemu.post(**params["request"])
             ),

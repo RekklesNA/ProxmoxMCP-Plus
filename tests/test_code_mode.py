@@ -4,14 +4,15 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolRequest, ListToolsRequest
 
 from proxmox_mcp.code_mode import install_code_mode
 
 
-@pytest.fixture
-def mode():
+@pytest_asyncio.fixture(params=[False, True], ids=["fresh-worker", "reused-worker"])
+async def mode(request):
     mcp = FastMCP("sandbox-test")
 
     @mcp.tool(description="List cluster nodes")
@@ -24,7 +25,13 @@ def mode():
             raise ValueError("approval required; secret detail")
         return "done"
 
-    return install_code_mode(SimpleNamespace(mcp=mcp))
+    mode = install_code_mode(SimpleNamespace(mcp=mcp))
+    if request.param:
+        async with mode.pool_lifespan():
+            yield mode
+        assert mode._pool is None
+    else:
+        yield mode
 
 
 async def protocol_call(mode, name, arguments):
@@ -85,3 +92,31 @@ async def test_concurrent_execution_does_not_enable_direct_calls(mode):
     good, direct = await asyncio.gather(mode.execute('await call_tool("get_nodes", {})'), protocol_call(mode, "get_nodes", {}))
     assert good["success"]
     assert direct.isError
+
+
+@pytest.mark.asyncio
+async def test_requests_do_not_share_globals_or_approval(mode):
+    assert (await mode.execute('private_value = "request-secret"'))["success"]
+    assert not (await mode.execute('private_value'))["success"]
+    assert (await mode.execute('await call_tool("protected_action", {"approval_token":"approved"})'))["success"]
+    assert not (await mode.execute('await call_tool("protected_action", {})'))["success"]
+    assert (await mode.execute('1 + 1'))["success"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_execution_releases_worker(mode):
+    started = asyncio.Event()
+
+    async def blocked_call(name, arguments):
+        started.set()
+        await asyncio.Event().wait()
+
+    original = mode._dispatch
+    mode._dispatch = blocked_call
+    task = asyncio.create_task(mode.execute('await call_tool("get_nodes", {})'))
+    await asyncio.wait_for(started.wait(), 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    mode._dispatch = original
+    assert (await mode.execute('await call_tool("get_nodes", {})'))["success"]

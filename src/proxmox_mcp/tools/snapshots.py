@@ -151,7 +151,7 @@ class SnapshotTools(ProxmoxTool):
                     if vm_type == "lxc"
                     else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot.post(**params))
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -218,7 +218,7 @@ class SnapshotTools(ProxmoxTool):
                     if vm_type == "lxc"
                     else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot(snapname).delete())
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -297,7 +297,7 @@ class SnapshotTools(ProxmoxTool):
                     if vm_type == "lxc"
                     else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot(snapname).rollback.post())
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [

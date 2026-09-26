@@ -1089,7 +1089,8 @@ async def test_list_backups_skips_offline_node(server, mock_proxmox):
     text = response[0].text
     assert "vm-100.vma" in text
     assert "node1" in text
-    assert "node2" not in text
+    assert "partial results" in text
+    assert "Unable to list storage on node node2" in text
 
 @pytest.mark.asyncio
 async def test_get_cluster_status(server, mock_proxmox):
@@ -2060,3 +2061,34 @@ def test_http_opt_out_rejects_malformed_env(mock_env_vars, monkeypatch):
     monkeypatch.setenv("MCP_ALLOW_UNAUTHENTICATED_HTTP", "tru")
     with pytest.raises(ValueError, match="must be a boolean"):
         load_config(mock_env_vars["PROXMOX_MCP_CONFIG"])
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('transport', ['STDIO', 'STREAMABLE', 'SSE'])
+async def test_code_mode_pool_transport_lifecycle(mock_proxmox, tmp_path, transport):
+    config = tmp_path / 'pool.json'
+    config.write_text(json.dumps({
+        'proxmox': {'host': 'test.invalid'},
+        'auth': {'user': 'u', 'token_name': 't', 'token_value': 'v'},
+        'mcp': {'transport': transport, 'code_mode': True, 'code_mode_pool_reuse': True},
+        'jobs': {'sqlite_path': str(tmp_path / 'pool.sqlite3'), 'audit_retention_days': 7},
+    }))
+    instance = ProxmoxMCPServer(str(config))
+    try:
+        assert instance.job_store.audit_retention_days == 7
+        mode = instance.code_mode
+        assert mode._pool is None
+        if transport == 'STDIO':
+            async with instance._lifespan(instance.mcp):
+                assert mode._pool is not None
+                assert (await mode.execute('1 + 1'))['success']
+        else:
+            async with instance._code_mode_lifespan():
+                pool = mode._pool
+                async with instance._lifespan(instance.mcp):
+                    async with instance._lifespan(instance.mcp):
+                        assert mode._pool is pool
+                assert mode._pool is pool
+                assert (await mode.execute('1 + 1'))['success']
+        assert mode._pool is None
+    finally:
+        instance.close()

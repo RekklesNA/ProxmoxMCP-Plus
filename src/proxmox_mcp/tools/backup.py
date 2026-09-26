@@ -69,6 +69,7 @@ class BackupTools(ProxmoxTool):
         """
         try:
             results = []
+            failures: list[str] = []
             try:
                 nodes = _as_list(self.proxmox.nodes.get())
             except Exception as e:
@@ -83,12 +84,8 @@ class BackupTools(ProxmoxTool):
 
                 try:
                     storages = _as_list(self.proxmox.nodes(node_name).storage.get())
-                except Exception as node_error:
-                    self.logger.warning(
-                        "Skipping node %s while listing backups: %s",
-                        node_name,
-                        node_error,
-                    )
+                except Exception:
+                    failures.append(f"Unable to list storage on node {node_name}")
                     continue
                 for s in storages:
                     storage_name = _get(s, "storage")
@@ -115,9 +112,12 @@ class BackupTools(ProxmoxTool):
                             item["_storage"] = storage_name
                             results.append(item)
                     except Exception:
+                        failures.append(f"Unable to query backups in {storage_name} on node {node_name}")
                         continue
 
             if not results:
+                if failures:
+                    raise RuntimeError("Backup listing incomplete: " + "; ".join(failures))
                 msg = "No backups found"
                 if node:
                     msg += f" on node {node}"
@@ -131,6 +131,8 @@ class BackupTools(ProxmoxTool):
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
             lines = ["Available Backups", ""]
+            if failures:
+                lines.extend(["Warning: partial results; " + "; ".join(failures), ""])
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
@@ -212,7 +214,7 @@ class BackupTools(ProxmoxTool):
                 metadata={"vmid": vmid, "storage": storage},
                 retry_spec={"kind": "backup.create", "params": {"node": node, "request": params}},
                 retry_factory=lambda: self.proxmox.nodes(node).vzdump.post(**params),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -269,9 +271,12 @@ class BackupTools(ProxmoxTool):
             is_lxc = "/ct/" in archive.lower() or "vzdump-lxc" in archive.lower()
 
             params: Dict[str, Any] = {
-                "archive": archive,
                 "vmid": int(vmid),
             }
+            if is_lxc:
+                params.update(ostemplate=archive, restore=1)
+            else:
+                params["archive"] = archive
 
             if storage:
                 params["storage"] = storage
@@ -297,7 +302,7 @@ class BackupTools(ProxmoxTool):
                     if is_lxc
                     else (lambda: self.proxmox.nodes(node).qemu.post(**params))
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -373,7 +378,7 @@ class BackupTools(ProxmoxTool):
                 metadata={"storage": storage, "volid": volid},
                 retry_spec={"kind": "backup.delete", "params": {"node": node, "storage": storage, "volid": volid}},
                 retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
