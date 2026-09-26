@@ -20,6 +20,7 @@ from proxmox_mcp.core.proxmox import ProxmoxManager
 from proxmox_mcp.code_mode import install_code_mode
 from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
+from proxmox_mcp.mcp_oauth_provider import build_oauth_from_env
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
 from proxmox_mcp.services import (
@@ -196,12 +197,22 @@ class ProxmoxMCPServer:
             self.config.logging.level.upper(),
         )
         transport_security = self._build_transport_security()
+        if self.config.mcp.transport == "STREAMABLE":
+            self.oauth_provider, oauth_auth = build_oauth_from_env()
+        else:
+            self.oauth_provider, oauth_auth = None, None
+            oauth_raw = os.getenv("MCP_OAUTH_ENABLED", "false").strip().lower()
+            if self.config.mcp.transport == "SSE" and oauth_raw in {"1", "true", "yes", "on"}:
+                raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
         if transport_security is None:
             self.mcp = FastMCP(
                 "ProxmoxMCP",
                 host=self.config.mcp.host,
                 port=self.config.mcp.port,
                 log_level=log_level,
+                auth_server_provider=self.oauth_provider,
+                auth=oauth_auth,
+                lifespan=None,
             )
         else:
             self.mcp = FastMCP(
@@ -210,7 +221,12 @@ class ProxmoxMCPServer:
                 port=self.config.mcp.port,
                 log_level=log_level,
                 transport_security=transport_security,
+                auth_server_provider=self.oauth_provider,
+                auth=oauth_auth,
+                lifespan=None,
             )
+        if self.oauth_provider is not None:
+            self.oauth_provider.register_routes(self.mcp)
         self.tool_registry = ToolRegistry(self.mcp, self.tool_exposure_policy)
         self._setup_tools()
         if self.config.mcp.code_mode:
@@ -302,12 +318,22 @@ class ProxmoxMCPServer:
         raise AttributeError(name)
 
     async def _run_streamable_http_async(self, *, sse: bool = False) -> None:
-        """Run Streamable HTTP with optional inbound Bearer authentication."""
+        """Run Streamable HTTP with SDK OAuth or legacy Bearer authentication."""
         import uvicorn
 
+        if self.oauth_provider is not None and sse:
+            raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
+
         app: Any = self.mcp.sse_app() if sse else self.mcp.streamable_http_app()
+        if self.oauth_provider is not None:
+            app = self.oauth_provider.bind_http_lifespan(app)
         api_key = os.getenv("MCP_API_KEY")
-        if api_key:
+        if self.oauth_provider is not None:
+            self.logger.info(
+                "MCP HTTP OAuth is enabled for issuer %s",
+                self.oauth_provider.issuer_url,
+            )
+        elif api_key:
             app = MCPBearerAuthMiddleware(app, api_key=api_key)
             self.logger.info("MCP HTTP bearer authentication is enabled")
         elif not self.config.mcp.allow_unauthenticated_http:
