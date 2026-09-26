@@ -155,6 +155,16 @@ network access except registered tool calls. Limits: 64,000 source characters,
 Execution has a 30-second budget; cancelling or failing a script does not roll back
 tool side effects. Do not automatically retry a failed mutation script.
 
+Optional worker reuse: set `mcp.code_mode_pool_reuse: true` or
+`MCP_CODE_MODE_POOL_REUSE=true`. The default remains one fresh worker per execution.
+Reuse keeps up to two workers for the server lifetime, recycles each after 100
+checkouts, and starts a new sandbox session per request. Globals, approvals, output
+collectors and call limits are not shared between requests. HTTP clients share the
+server-owned pool; disconnecting a client does not close it. Run
+`python scripts/benchmark_code_mode.py` to measure local startup overhead; this is
+a microbenchmark, not an estimate of Proxmox operation latency.
+
+
 #### Native MCP HTTP with Docker
 
 Use this path when a remote MCP client supports Streamable HTTP:
@@ -493,6 +503,17 @@ The job record stores:
 - audit history for create, poll, retry, and cancel actions
 
 By default the job store persists to `proxmox-jobs.sqlite3`, so restart does not lose in-flight or completed job metadata.
+
+Audit events are appended to a separate SQLite table. Existing history is migrated
+on startup and the API's `audit_log` format stays unchanged. Retention is unlimited
+by default; set `jobs.audit_retention_days` to a positive number in JSON config to
+prune expired events at startup and when each job is updated. This never deletes
+the job itself. Stop all workers sharing the database and back it up before this
+upgrade. Do not run old and new versions against the same database; restore the
+pre-upgrade backup if downgrading and retaining audit history is required.
+
+A cancellation request is not completion. Poll until the task is failed/cancelled
+before calling `retry_job`; pending cancellation cannot be retried.
 
 ### MCP Job Tools
 

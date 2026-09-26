@@ -550,7 +550,7 @@ class VMTools(ProxmoxTool):
                 metadata={"vmid": vmid, "name": name},
                 retry_spec={"kind": "vm.create", "params": {"node": node, "vm_config": vm_config}},
                 retry_factory=lambda: self.proxmox.nodes(node).qemu.create(**vm_config),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
             
             cloudinit_note = ""
@@ -654,7 +654,7 @@ Next steps:
             },
             retry_spec={"kind": "vm.clone", "params": {"node": node, "source_vmid": source_vmid, "clone_payload": clone_payload}},
             retry_factory=lambda: self.proxmox.nodes(node).qemu(source_vmid).clone.post(**clone_payload),
-            cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
         )
 
         result_text = f"""VM clone initiated successfully
@@ -711,7 +711,7 @@ Clone Configuration:
                     metadata={"vmid": vmid},
                     retry_spec={"kind": "vm.start", "params": {"node": node, "vmid": vmid}},
                     retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.start.post(),
-                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
                 )
                 result_text = (
                     f"VM {vmid} start initiated successfully\n"
@@ -758,7 +758,7 @@ Clone Configuration:
                     metadata={"vmid": vmid},
                     retry_spec={"kind": "vm.stop", "params": {"node": node, "vmid": vmid}},
                     retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.stop.post(),
-                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
                 )
                 result_text = (
                     f"VM {vmid} stop initiated successfully\n"
@@ -805,7 +805,7 @@ Clone Configuration:
                     metadata={"vmid": vmid},
                     retry_spec={"kind": "vm.shutdown", "params": {"node": node, "vmid": vmid}},
                     retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.shutdown.post(),
-                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
                 )
                 result_text = (
                     f"VM {vmid} graceful shutdown initiated\n"
@@ -852,7 +852,7 @@ Clone Configuration:
                     metadata={"vmid": vmid},
                     retry_spec={"kind": "vm.reset", "params": {"node": node, "vmid": vmid}},
                     retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.reset.post(),
-                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
                 )
                 result_text = (
                     f"VM {vmid} reset initiated successfully\n"
@@ -991,7 +991,7 @@ Clone Configuration:
                 metadata={"vmid": vmid, "force": force},
                 retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid}},
                 retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
             
             result_text += f"""VM {vmid} ({vm_name}) deletion initiated successfully

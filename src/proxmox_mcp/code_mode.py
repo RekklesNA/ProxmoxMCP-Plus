@@ -4,6 +4,8 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -50,6 +52,29 @@ class CodeMode:
         self.domain_tools = dict(server.mcp._tool_manager._tools)
         self._dispatch = server.mcp.call_tool
         self._execution_slots = asyncio.Semaphore(2)
+        self._pool: Any | None = None
+
+    @asynccontextmanager
+    async def pool_lifespan(self) -> AsyncIterator[None]:
+        """Reuse workers, but create a fresh sandbox session for every request."""
+        from pydantic_monty import AsyncMonty
+
+        async with AsyncMonty(min_processes=1, max_processes=2, max_checkouts_per_worker=100, request_timeout=30) as pool:
+            self._pool = pool
+            try:
+                yield
+            finally:
+                self._pool = None
+
+    @asynccontextmanager
+    async def _execution_pool(self) -> AsyncIterator[Any]:
+        if self._pool is not None:
+            yield self._pool
+        else:
+            from pydantic_monty import AsyncMonty
+
+            async with AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
+                yield pool
 
     def register(self) -> None:
         mcp = self.server.mcp
@@ -119,7 +144,7 @@ class CodeMode:
         if not isinstance(code, str) or len(code) > _SOURCE_LIMIT or not _source_allowed(code):
             return {"success": False, "error": "Code Mode source is invalid or exceeds the configured limit."}
         try:
-            from pydantic_monty import AsyncMonty, CollectStreams
+            from pydantic_monty import CollectStreams
         except Exception:
             return _safe_error()
         calls = 0
@@ -145,7 +170,7 @@ class CodeMode:
 
         try:
             streams = CollectStreams(max_bytes=16_000)
-            async with self._execution_slots, asyncio.timeout(30), AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
+            async with self._execution_slots, asyncio.timeout(30), self._execution_pool() as pool:
                 async with pool.checkout(limits={"max_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
                     result = await session.feed_run(code, external_lookup={"call_tool": call_tool}, print_callback=streams)
             if len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 16_000:

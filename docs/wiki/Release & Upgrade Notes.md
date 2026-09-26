@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.23`
+
+- Fix default command deny rules, LXC restore parameters, task cancellation, and poll/retry races.
+- Report backup query failures and partial results instead of an empty list.
+- Append job audit events separately with opt-in retention; stop workers and back up SQLite before upgrading.
+- Add opt-in Code Mode worker reuse with isolated sessions and a local benchmark.
+- Include PR #139's PgDog-compatible OAuth pool reset and matching asyncpg metadata.
+- See [v0.5.23 upgrade notes](../releases/v0.5.23.md).
+
 ### Version `0.5.22`
 
 - Release date: 2026-09-26

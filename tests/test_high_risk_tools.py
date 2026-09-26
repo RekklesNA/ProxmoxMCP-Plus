@@ -99,7 +99,8 @@ def test_restore_lxc_backup_uses_lxc_endpoint():
 
     assert "Container Restore Started" in response[0].text
     proxmox.nodes.return_value.lxc.post.assert_called_once_with(
-        archive="local:backup/vzdump-lxc-101.tar.zst",
+        ostemplate="local:backup/vzdump-lxc-101.tar.zst",
+        restore=1,
         vmid=201,
         storage="local-lvm",
         unique=1,

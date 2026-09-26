@@ -480,7 +480,7 @@ class ContainerTools(ProxmoxTool):
                         return self.proxmox.nodes(node_name).lxc(vmid_value).status.start.post()
 
                     def cancel_factory(upid: str, node_name: str = node) -> Any:
-                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
 
                     job = self._register_background_job(
                         tool_name="start_container",
@@ -540,7 +540,7 @@ class ContainerTools(ProxmoxTool):
                             return self.proxmox.nodes(node_name).lxc(vmid_value).status.stop.post()
 
                     def cancel_factory(upid: str, node_name: str = node) -> Any:
-                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
 
                     job = self._register_background_job(
                         tool_name="stop_container",
@@ -590,7 +590,7 @@ class ContainerTools(ProxmoxTool):
                         return self.proxmox.nodes(node_name).lxc(vmid_value).status.reboot.post()
 
                     def cancel_factory(upid: str, node_name: str = node) -> Any:
-                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
 
                     job = self._register_background_job(
                         tool_name="restart_container",
@@ -748,7 +748,7 @@ class ContainerTools(ProxmoxTool):
                 return self.proxmox.nodes(node).lxc.create(**ct_config)
 
             def cancel_factory(upid: str) -> Any:
-                return self.proxmox.nodes(node).tasks(upid).status.stop.post()
+                return self.proxmox.nodes(node).tasks(upid).delete()
 
             job = self._register_background_job(
                 tool_name="create_container",
@@ -846,7 +846,7 @@ class ContainerTools(ProxmoxTool):
                         return self.proxmox.nodes(node_name).lxc(vmid_value).delete()
 
                     def cancel_factory(upid: str, node_name: str = node) -> Any:
-                        return self.proxmox.nodes(node_name).tasks(upid).status.stop.post()
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
 
                     job = self._register_background_job(
                         tool_name="delete_container",

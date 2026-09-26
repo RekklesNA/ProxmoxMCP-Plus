@@ -243,7 +243,7 @@ class ISOTools(ProxmoxTool):
                 metadata={"storage": storage, "filename": filename, "url": url},
                 retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
                 retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -321,7 +321,7 @@ class ISOTools(ProxmoxTool):
                 metadata={"storage": storage, "volid": volid},
                 retry_spec={"kind": "iso.delete", "params": {"node": node, "storage": storage, "volid": volid}},
                 retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [

@@ -627,6 +627,7 @@ def main() -> None:
                     sqlite_path=sqlite_path,
                     target_name=target_name,
                     legacy_mode=target_registry.is_legacy,
+                    audit_retention_days=config.jobs.audit_retention_days,
                 )
                 command_policies[target_name] = CommandPolicyGate(
                     target.command_policy or config.command_policy
