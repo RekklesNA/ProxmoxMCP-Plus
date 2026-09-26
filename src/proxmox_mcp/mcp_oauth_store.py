@@ -20,6 +20,22 @@ _REFRESH = "proxmox_mcp_oauth_refresh_tokens"
 _FAILURES = "proxmox_mcp_oauth_login_failures"
 
 
+async def _reset_pool_connection(conn: Any) -> None:
+    """Reset asyncpg pool connections without a multi-statement query.
+
+    PgDog currently rejects asyncpg's default combined reset query because it
+    mixes RESET with other statements. Sending the same reset operations one at
+    a time preserves asyncpg's pool hygiene while remaining proxy-compatible.
+    """
+    for statement in (
+        "SELECT pg_advisory_unlock_all()",
+        "CLOSE ALL",
+        "UNLISTEN *",
+        "RESET ALL",
+    ):
+        await conn.execute(statement)
+
+
 class PostgresOAuthStateStore:
     """Persist OAuth state in PostgreSQL with cross-process transactions."""
 
@@ -64,6 +80,7 @@ class PostgresOAuthStateStore:
                 min_size=self.pool_min_size,
                 max_size=self.pool_max_size,
                 command_timeout=self.command_timeout_seconds,
+                reset=_reset_pool_connection,
             )
             if pool is None:  # pragma: no cover - asyncpg documents a Pool return
                 raise RuntimeError("Failed to create OAuth PostgreSQL connection pool")
