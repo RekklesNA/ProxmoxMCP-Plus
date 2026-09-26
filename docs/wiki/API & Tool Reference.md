@@ -48,7 +48,7 @@ tools accept an optional `target` argument; it is required when multiple targets
 Target configuration owns the API/SSH connections, job store, read-only setting, and
 command policy. Direct OpenAPI `/jobs` routes use the `target` query parameter.
 
-The complete catalog has 50 tools. Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
+The complete catalog has 55 tools. Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
 settings filter tools before MCP registration and OpenAPI route generation, including
 `list_targets`. The default exposes every available tool; SSH-only tools still require
 SSH configuration. Filtering does not disable direct operational OpenAPI routes or
@@ -109,6 +109,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
+| `list_bridges` | Read-only | `node` | `target` | Proxmox network API accessible | permissions filter visible bridges/VNets; API failures are returned |
 | `get_nodes` | Read-only | none | none | Proxmox API reachable | auth failure, API unavailable |
 | `get_node_status` | Read-only | `node` | none | target node exists | unknown node, auth failure |
 

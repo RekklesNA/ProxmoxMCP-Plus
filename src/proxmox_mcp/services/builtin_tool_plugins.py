@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from typing import Annotated, Any, Awaitable, Callable, Literal, Optional
 
+import anyio
 from pydantic import BaseModel, Field
 
 from proxmox_mcp.tools.definitions import (
@@ -70,6 +72,7 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 
 _READ_ONLY_TOOLS = {
+    "list_bridges",
     "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
     "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
     "get_next_vmid", "get_containers",
@@ -271,6 +274,13 @@ class CoreToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_node_status", lambda ts: ts.node_tools.get_node_status)(
                 node, target=target
             )
+
+        @server.tool_registry.tool(description="List available network bridges (Linux, OVS and permitted SDN VNets) on a node for VM/LXC networking. Returns the Proxmox network records as JSON.")
+        async def list_bridges(node: str, target: Optional[str] = None) -> Any:
+            return await anyio.to_thread.run_sync(partial(
+                self._wrap_sync(server, "list_bridges", lambda ts: ts.node_tools.list_bridges),
+                node=node, target=target,
+            ))
 
         @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
@@ -738,6 +748,8 @@ class ContainerToolsPlugin(RegistryPluginBase):
             target_names == ("default",) and bool(server.config.ssh)
         )
         if has_target_ssh:
+            # Keep console workers separate from other offloaded read operations.
+            console_limiter = anyio.CapacityLimiter(4)
             configured_names = (
                 ("default",) if server.config.ssh and target_names == ("default",)
                 else has_target_ssh_names
@@ -748,21 +760,22 @@ class ContainerToolsPlugin(RegistryPluginBase):
             )
 
             @server.tool_registry.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
-            def execute_container_command(
+            async def execute_container_command(
                 selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
                 target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(server, "execute_container_command", lambda ts: ts.container_tools.execute_command)(
+                return await anyio.to_thread.run_sync(partial(
+                    self._wrap_sync(server, "execute_container_command", lambda ts: ts.container_tools.execute_command),
                     selector=selector,
                     command=command,
                     approval_token=approval_token,
                     target=target,
-                )
+                ), limiter=console_limiter)
 
             @server.tool_registry.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
-            def update_container_ssh_keys(
+            async def update_container_ssh_keys(
                 node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
                 vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
                 public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
@@ -770,19 +783,19 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
                 target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(
+                return await anyio.to_thread.run_sync(partial(self._wrap_sync(
                     server,
                     "update_container_ssh_keys",
                     lambda ts: ts.container_tools.update_container_ssh_keys,
                     high_risk=True,
-                )(
+                ),
                     node=node,
                     vmid=vmid,
                     public_keys=public_keys,
                     mode=mode,
                     approval_token=approval_token,
                     target=target,
-                )
+                ), limiter=console_limiter)
         else:
             server.logger.info("Container command execution disabled (no [ssh] section in config)")
 
