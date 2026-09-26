@@ -409,6 +409,7 @@ class PostgresOAuthStateStore:
                     f"""
                     DELETE FROM {_CODES}
                     WHERE code = $1 AND client_id = $2
+                      AND expires_at > EXTRACT(EPOCH FROM clock_timestamp())
                     RETURNING 1
                     """,
                     code,
@@ -472,6 +473,7 @@ class PostgresOAuthStateStore:
                     f"""
                     DELETE FROM {_REFRESH}
                     WHERE token = $1 AND client_id = $2
+                      AND expires_at > EXTRACT(EPOCH FROM clock_timestamp())
                     RETURNING 1
                     """,
                     old_token,
@@ -592,4 +594,3 @@ class PostgresOAuthStateStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(f"DELETE FROM {_FAILURES} WHERE peer_ip = $1", peer_ip)
-

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyHttpUrl
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
@@ -152,7 +153,17 @@ class MCPApiKeyOAuthProvider(
 
         self.store = PostgresOAuthStateStore(
             database_url,
-            api_key_fingerprint=hashlib.sha256(self._api_key).hexdigest(),
+            # The persisted verifier must resist offline guessing if database
+            # backups leak. The issuer separates otherwise identical API keys
+            # across deployments while remaining stable across workers.
+            api_key_fingerprint=hashlib.scrypt(
+                self._api_key,
+                salt=b"ProxmoxMCP OAuth API-key fingerprint v1\0" + issuer_origin.encode("utf-8"),
+                n=2**15,
+                r=8,
+                p=1,
+                maxmem=64 * 1024 * 1024,
+            ).hex(),
             api_key_version=api_key_version,
             pool_min_size=db_pool_min_size,
             pool_max_size=db_pool_max_size,
@@ -163,6 +174,19 @@ class MCPApiKeyOAuthProvider(
     async def lifespan(self, _app: FastMCP[Any]) -> AsyncIterator[dict[str, Any]]:
         async with self.store.lifespan():
             yield {}
+
+    def bind_http_lifespan(self, app: Starlette) -> Starlette:
+        """Open OAuth state when the HTTP app starts, before auth routes serve traffic."""
+        original_lifespan = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def lifespan(http_app: Starlette) -> AsyncIterator[Any]:
+            async with self.store.lifespan():
+                async with original_lifespan(http_app) as state:
+                    yield state
+
+        app.router.lifespan_context = lifespan
+        return app
 
     @staticmethod
     def _model_json(model: Any) -> str:
@@ -279,7 +303,7 @@ class MCPApiKeyOAuthProvider(
 
         resource = params.resource or self.resource_url
         if resource != self.resource_url:
-            raise AuthorizeError("invalid_target", "OAuth resource is not supported")
+            raise AuthorizeError("invalid_request", "OAuth resource is not supported")
 
         transaction = self._sign_transaction(
             {

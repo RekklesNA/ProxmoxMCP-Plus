@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import time
 from urllib.parse import parse_qs, urlparse
 
 import asyncpg
@@ -15,6 +16,46 @@ from proxmox_mcp.mcp_oauth_provider import (
     MCPApiKeyOAuthProvider,
     build_oauth_from_env,
 )
+from proxmox_mcp.mcp_oauth_store import PostgresOAuthStateStore
+
+
+@pytest.mark.asyncio
+async def test_atomic_consumption_rejects_expired_credentials(oauth_database_url):
+    """A token may expire between SDK load and transactional consumption."""
+    store = PostgresOAuthStateStore(
+        oauth_database_url, api_key_fingerprint="test", api_key_version=1,
+    )
+    async with store.lifespan():
+        await store.register_client(
+            client_id="boundary-client", payload="{}", max_registered_clients=10, now=time.time(),
+        )
+        await store.store_authorization_code(
+            code="expired-code", client_id="boundary-client",
+            expires_at=time.time() - 1, payload="{}",
+        )
+        common = dict(
+            client_id="boundary-client", access_token="new-access",
+            access_expires_at=time.time() + 60, access_payload="{}",
+            refresh_token="new-refresh", refresh_expires_at=time.time() + 120,
+            refresh_payload="{}",
+        )
+        assert not await store.consume_authorization_code_and_store_tokens(
+            code="expired-code", **common,
+        )
+        pool = await store._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO proxmox_mcp_oauth_refresh_tokens"
+                "(token, client_id, expires_at, payload) VALUES($1, $2, $3, $4::jsonb)",
+                "expired-refresh", "boundary-client", time.time() - 1, "{}",
+            )
+        assert not await store.rotate_refresh_token(
+            old_token="expired-refresh", **common,
+        )
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM proxmox_mcp_oauth_access_tokens"
+            ) == 0
 
 
 async def _reset_oauth_tables(database_url):
@@ -76,11 +117,11 @@ def make_client(
         host="0.0.0.0",
         auth_server_provider=provider,
         auth=auth,
-        lifespan=provider.lifespan,
+        lifespan=None,
     )
     provider.register_routes(mcp)
     client = TestClient(
-        mcp.streamable_http_app(),
+        provider.bind_http_lifespan(mcp.streamable_http_app()),
         base_url="https://mcp.example.com",
     )
     return client, provider
@@ -317,7 +358,7 @@ def test_provider_returns_resource_error_to_registered_client(oauth_database_url
     assert response.status_code == 302
     callback = urlparse(response.headers["location"])
     query = parse_qs(callback.query)
-    assert query["error"] == ["invalid_target"]
+    assert query["error"] == ["invalid_request"]
 
 
 def test_unregistered_redirect_uri_is_rejected_without_redirect(oauth_database_url):

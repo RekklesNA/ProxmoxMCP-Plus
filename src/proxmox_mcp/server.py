@@ -212,7 +212,7 @@ class ProxmoxMCPServer:
                 log_level=log_level,
                 auth_server_provider=self.oauth_provider,
                 auth=oauth_auth,
-                lifespan=self.oauth_provider.lifespan if self.oauth_provider is not None else None,
+                lifespan=None,
             )
         else:
             self.mcp = FastMCP(
@@ -223,7 +223,7 @@ class ProxmoxMCPServer:
                 transport_security=transport_security,
                 auth_server_provider=self.oauth_provider,
                 auth=oauth_auth,
-                lifespan=self.oauth_provider.lifespan if self.oauth_provider is not None else None,
+                lifespan=None,
             )
         if self.oauth_provider is not None:
             self.oauth_provider.register_routes(self.mcp)
@@ -325,6 +325,8 @@ class ProxmoxMCPServer:
             raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
 
         app: Any = self.mcp.sse_app() if sse else self.mcp.streamable_http_app()
+        if self.oauth_provider is not None:
+            app = self.oauth_provider.bind_http_lifespan(app)
         api_key = os.getenv("MCP_API_KEY")
         if self.oauth_provider is not None:
             self.logger.info(

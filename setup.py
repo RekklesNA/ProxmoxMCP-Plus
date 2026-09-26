@@ -16,7 +16,8 @@ setup(
     package_dir={"": "src"},
     python_requires=">=3.11",
     install_requires=[
-        "mcp>=1.8.0,<2.0.0",
+        "mcp>=1.30.0,<2.0.0",
+        "asyncpg>=0.29.0,<1.0.0",
         "proxmoxer>=2.0.1,<3.0.0",
         "requests>=2.31.0,<3.0.0",
         "pydantic>=2.0.0,<3.0.0",
