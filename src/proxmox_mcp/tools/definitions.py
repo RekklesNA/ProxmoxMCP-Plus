@@ -322,6 +322,9 @@ Examples:
 EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
 
 No guest agent required - connects to the Proxmox node via SSH and uses `pct exec`.
+Commands have a 60-second wall-clock limit (TERM, then KILL after 5 seconds).
+Timeout returns success=false, code=COMMAND_TIMEOUT with partial output.
+Partial changes are not rolled back; inspect state before retrying.
 
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name'
@@ -332,6 +335,7 @@ Example:
 
 Requirements:
 - Container must be running
+- Container must provide GNU coreutils /usr/bin/timeout
 - MCP config must include valid [ssh] credentials for the Proxmox nodes
 """
 
