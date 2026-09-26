@@ -16,7 +16,30 @@ from proxmox_mcp.mcp_oauth_provider import (
     MCPApiKeyOAuthProvider,
     build_oauth_from_env,
 )
-from proxmox_mcp.mcp_oauth_store import PostgresOAuthStateStore
+from proxmox_mcp.mcp_oauth_store import (
+    PostgresOAuthStateStore,
+    _reset_pool_connection,
+)
+
+
+@pytest.mark.asyncio
+async def test_pool_reset_uses_proxy_safe_single_statements():
+    class FakeConnection:
+        def __init__(self):
+            self.statements = []
+
+        async def execute(self, statement):
+            self.statements.append(statement)
+
+    conn = FakeConnection()
+    await _reset_pool_connection(conn)
+
+    assert conn.statements == [
+        "SELECT pg_advisory_unlock_all()",
+        "CLOSE ALL",
+        "UNLISTEN *",
+        "RESET ALL",
+    ]
 
 
 @pytest.mark.asyncio
