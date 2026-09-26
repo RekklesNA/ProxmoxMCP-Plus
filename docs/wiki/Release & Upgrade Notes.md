@@ -20,7 +20,7 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ### Version `0.5.21`
 
-- Release date: 2026-09-25
+- Release date: 2026-09-26
 - Summary: prevent long LXC commands from blocking MCP; add read-only `list_bridges` (#135).
 - Commands have a 60-second remote deadline plus 5-second kill grace, and a bounded local SSH wait. Containers require GNU coreutils `/usr/bin/timeout`.
 - Upgrade: install `proxmox-mcp-plus==0.5.21` or pull GHCR `0.5.21`, restart/reconnect clients; add `list_bridges` to explicit allowlists if desired.
@@ -738,3 +738,4 @@ After upgrading:
 ## Existing Notes
 
 Older release history has not been backfilled yet.
+
