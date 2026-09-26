@@ -4,6 +4,7 @@ import hashlib
 import os
 import time
 from urllib.parse import parse_qs, urlparse
+from unittest.mock import AsyncMock
 
 import asyncpg
 import pytest
@@ -40,6 +41,18 @@ async def test_pool_reset_uses_proxy_safe_single_statements():
         "UNLISTEN *",
         "RESET ALL",
     ]
+
+
+@pytest.mark.asyncio
+async def test_store_configures_proxy_safe_reset(monkeypatch):
+    pool = AsyncMock()
+    create_pool = AsyncMock(return_value=pool)
+    monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+    store = PostgresOAuthStateStore("postgresql://unused", api_key_fingerprint="test")
+    monkeypatch.setattr(store, "_initialize", AsyncMock())
+    async with store.lifespan():
+        assert create_pool.call_args.kwargs["reset"] is _reset_pool_connection
+    pool.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
