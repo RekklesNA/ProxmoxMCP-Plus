@@ -18,6 +18,16 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.22`
+
+- Release date: 2026-09-26
+- Summary: opt-in MCP Streamable HTTP OAuth authorization-code flow with PKCE and PostgreSQL state (#138).
+- The existing API-key Bearer mode remains the default. OAuth mode requires PostgreSQL, an issuer URL, and the existing `MCP_API_KEY` as the human consent credential.
+- Browser consent never returns the API key to an OAuth client. Key-version rotation invalidates issued credentials across workers.
+- Security review hardens persisted key verification, HTTP startup validation, and authorization/refresh-token expiry checks.
+- Upgrade: install `proxmox-mcp-plus==0.5.22` or pull GHCR `0.5.22`. Configure OAuth explicitly if desired and reconnect clients. See [v0.5.22 notes](../releases/v0.5.22.md).
+
+
 ### Version `0.5.21`
 
 - Release date: 2026-09-26

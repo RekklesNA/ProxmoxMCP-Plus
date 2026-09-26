@@ -387,7 +387,7 @@ class MCPApiKeyOAuthProvider(
             raise TokenError("invalid_client", "OAuth client has no client_id")
         resource = authorization_code.resource or self.resource_url
         if resource != self.resource_url:
-            raise TokenError("invalid_target", "authorization code resource is not supported")
+            raise TokenError("invalid_grant", "authorization code resource is not supported")
         access, refresh = self._new_token_pair(
             client_id=client.client_id,
             scopes=list(authorization_code.scopes),
@@ -440,7 +440,7 @@ class MCPApiKeyOAuthProvider(
             raise TokenError("invalid_client", "OAuth client has no client_id")
         resource = refresh_token.resource or self.resource_url
         if resource != self.resource_url:
-            raise TokenError("invalid_target", "refresh token resource is not supported")
+            raise TokenError("invalid_grant", "refresh token resource is not supported")
         access, rotated_refresh = self._new_token_pair(
             client_id=client.client_id,
             scopes=scopes,
