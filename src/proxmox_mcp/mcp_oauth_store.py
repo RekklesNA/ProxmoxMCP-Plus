@@ -12,7 +12,7 @@ import asyncpg
 _INIT_ADVISORY_LOCK = 0x4D43504F
 _REGISTER_ADVISORY_LOCK = 0x4D435052
 
-_METADATA = "proxmox_mcp_oauth_metadata"
+_LEGACY_METADATA = "proxmox_mcp_oauth_metadata"
 _CLIENTS = "proxmox_mcp_oauth_clients"
 _CODES = "proxmox_mcp_oauth_authorization_codes"
 _ACCESS = "proxmox_mcp_oauth_access_tokens"
@@ -43,16 +43,12 @@ class PostgresOAuthStateStore:
         self,
         database_url: str,
         *,
-        api_key_fingerprint: str,
-        api_key_version: int = 1,
         pool_min_size: int = 1,
         pool_max_size: int = 10,
         command_timeout_seconds: float = 10.0,
     ) -> None:
         if not database_url:
             raise ValueError("MCP_OAUTH_DATABASE_URL must not be empty")
-        if api_key_version < 1:
-            raise ValueError("OAuth API key version must be at least 1")
         if pool_min_size < 0:
             raise ValueError("OAuth PostgreSQL pool minimum size must be non-negative")
         if pool_max_size < 1 or pool_max_size < pool_min_size:
@@ -61,8 +57,6 @@ class PostgresOAuthStateStore:
             raise ValueError("OAuth PostgreSQL command timeout must be positive")
 
         self.database_url = database_url
-        self.api_key_fingerprint = api_key_fingerprint
-        self.api_key_version = int(api_key_version)
         self.pool_min_size = int(pool_min_size)
         self.pool_max_size = int(pool_max_size)
         self.command_timeout_seconds = float(command_timeout_seconds)
@@ -114,14 +108,10 @@ class PostgresOAuthStateStore:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", _INIT_ADVISORY_LOCK)
-                await conn.execute(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS {_METADATA} (
-                        name TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    )
-                    """
-                )
+                # OAuth builds before this migration persisted MCP_API_KEY
+                # version/fingerprint metadata here. MCP_API_KEY is now sourced
+                # only from the process environment, so remove the obsolete table.
+                await conn.execute(f"DROP TABLE IF EXISTS {_LEGACY_METADATA}")
                 await conn.execute(
                     f"""
                     CREATE TABLE IF NOT EXISTS {_CLIENTS} (
@@ -179,95 +169,6 @@ class PostgresOAuthStateStore:
                     ON {_FAILURES}(peer_ip, occurred_at)
                     """
                 )
-                stored_version_raw = await conn.fetchval(
-                    f"""
-                    SELECT value
-                    FROM {_METADATA}
-                    WHERE name = 'api_key_version'
-                    FOR UPDATE
-                    """
-                )
-                stored_fingerprint = await conn.fetchval(
-                    f"""
-                    SELECT value
-                    FROM {_METADATA}
-                    WHERE name = 'api_key_fingerprint'
-                    FOR UPDATE
-                    """
-                )
-
-                if stored_version_raw is None and stored_fingerprint is None:
-                    await conn.execute(
-                        f"""
-                        INSERT INTO {_METADATA}(name, value)
-                        VALUES
-                            ('api_key_version', $1),
-                            ('api_key_fingerprint', $2)
-                        """,
-                        str(self.api_key_version),
-                        self.api_key_fingerprint,
-                    )
-                elif stored_version_raw is None:
-                    if stored_fingerprint != self.api_key_fingerprint:
-                        raise RuntimeError(
-                            "OAuth API key differs from persisted state; "
-                            "set a higher MCP_OAUTH_KEY_VERSION to rotate it"
-                        )
-                    await conn.execute(
-                        f"""
-                        INSERT INTO {_METADATA}(name, value)
-                        VALUES('api_key_version', $1)
-                        """,
-                        str(self.api_key_version),
-                    )
-                else:
-                    try:
-                        stored_version = int(stored_version_raw)
-                    except (TypeError, ValueError) as exc:
-                        raise RuntimeError("Persisted OAuth API key version is invalid") from exc
-
-                    if self.api_key_version < stored_version:
-                        raise RuntimeError(
-                            "MCP_OAUTH_KEY_VERSION is older than the persisted OAuth key version"
-                        )
-                    if self.api_key_version == stored_version:
-                        if stored_fingerprint != self.api_key_fingerprint:
-                            raise RuntimeError(
-                                "MCP_API_KEY differs across workers using the same "
-                                "MCP_OAUTH_KEY_VERSION"
-                            )
-                    else:
-                        await conn.execute(f"DELETE FROM {_CLIENTS}")
-                        await conn.execute(f"DELETE FROM {_FAILURES}")
-                        await conn.execute(
-                            f"""
-                            INSERT INTO {_METADATA}(name, value)
-                            VALUES
-                                ('api_key_version', $1),
-                                ('api_key_fingerprint', $2)
-                            ON CONFLICT(name)
-                            DO UPDATE SET value = EXCLUDED.value
-                            """,
-                            str(self.api_key_version),
-                            self.api_key_fingerprint,
-                        )
-
-    async def api_key_is_current(self) -> bool:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                f"""
-                SELECT name, value
-                FROM {_METADATA}
-                WHERE name IN ('api_key_version', 'api_key_fingerprint')
-                """
-            )
-        metadata = {row["name"]: row["value"] for row in rows}
-        return (
-            metadata.get("api_key_version") == str(self.api_key_version)
-            and metadata.get("api_key_fingerprint") == self.api_key_fingerprint
-        )
-
 
     async def get_client_payload(self, client_id: str) -> str | None:
         pool = await self._get_pool()
