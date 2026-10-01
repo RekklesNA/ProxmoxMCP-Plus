@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.24`
+
+- Release date: 2026-10-01
+- Use the environment's `MCP_API_KEY` for OAuth browser consent; ignore legacy `MCP_OAUTH_KEY_VERSION`.
+- Preserve legacy key metadata for old-worker compatibility and same-key rollback.
+- Key changes preserve OAuth clients, authorization codes and issued tokens; use explicit revocation when needed.
+- Stop all instances before rotating the key, then restart them with the same new value. Stale instances are not disabled by a database guard.
+- See [v0.5.24 upgrade and rollback notes](../releases/v0.5.24.md).
+
 ### Version `0.5.23`
 
 - Fix default command deny rules, LXC restore parameters, task cancellation, and poll/retry races.
