@@ -100,7 +100,6 @@ class MCPApiKeyOAuthProvider(
         api_key: str,
         issuer_url: str,
         database_url: str,
-        api_key_version: int = 1,
         resource_url: str | None = None,
         scopes: tuple[str, ...] = ("mcp",),
         access_token_ttl_seconds: int = 3600,
@@ -153,18 +152,6 @@ class MCPApiKeyOAuthProvider(
 
         self.store = PostgresOAuthStateStore(
             database_url,
-            # The persisted verifier must resist offline guessing if database
-            # backups leak. The issuer separates otherwise identical API keys
-            # across deployments while remaining stable across workers.
-            api_key_fingerprint=hashlib.scrypt(
-                self._api_key,
-                salt=b"ProxmoxMCP OAuth API-key fingerprint v1\0" + issuer_origin.encode("utf-8"),
-                n=2**15,
-                r=8,
-                p=1,
-                maxmem=64 * 1024 * 1024,
-            ).hex(),
-            api_key_version=api_key_version,
             pool_min_size=db_pool_min_size,
             pool_max_size=db_pool_max_size,
             command_timeout_seconds=db_command_timeout_seconds,
@@ -603,12 +590,6 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
                 headers={"Cache-Control": "no-store"},
             )
         transaction, client = loaded
-        if not await self.store.api_key_is_current():
-            return HTMLResponse(
-                "OAuth credential configuration changed; restart this server instance",
-                status_code=503,
-                headers={"Cache-Control": "no-store"},
-            )
         client_id = client.client_id
         if not client_id:
             return HTMLResponse(
@@ -717,7 +698,6 @@ def build_oauth_from_env() -> tuple[MCPApiKeyOAuthProvider | None, AuthSettings 
         api_key=api_key,
         issuer_url=issuer_url,
         database_url=database_url,
-        api_key_version=int(os.getenv("MCP_OAUTH_KEY_VERSION", "1")),
         resource_url=os.getenv("MCP_OAUTH_RESOURCE") or None,
         scopes=scopes,
         access_token_ttl_seconds=int(

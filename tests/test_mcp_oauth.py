@@ -48,7 +48,7 @@ async def test_store_configures_proxy_safe_reset(monkeypatch):
     pool = AsyncMock()
     create_pool = AsyncMock(return_value=pool)
     monkeypatch.setattr(asyncpg, "create_pool", create_pool)
-    store = PostgresOAuthStateStore("postgresql://unused", api_key_fingerprint="test")
+    store = PostgresOAuthStateStore("postgresql://unused")
     monkeypatch.setattr(store, "_initialize", AsyncMock())
     async with store.lifespan():
         assert create_pool.call_args.kwargs["reset"] is _reset_pool_connection
@@ -56,11 +56,334 @@ async def test_store_configures_proxy_safe_reset(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fresh_store_never_creates_legacy_key_metadata(oauth_database_url):
+    store = PostgresOAuthStateStore(oauth_database_url)
+    async with store.lifespan():
+        pool = await store._get_pool()
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
+            ) is None
+            for table in (
+                "proxmox_mcp_oauth_clients",
+                "proxmox_mcp_oauth_authorization_codes",
+                "proxmox_mcp_oauth_access_tokens",
+                "proxmox_mcp_oauth_refresh_tokens",
+                "proxmox_mcp_oauth_login_failures",
+            ):
+                assert await conn.fetchval("SELECT to_regclass($1)", table) == table
+
+
+@pytest.mark.asyncio
+async def test_store_preserves_ignored_legacy_metadata_and_oauth_state(
+    oauth_database_url,
+):
+    now = time.time()
+    initial = PostgresOAuthStateStore(oauth_database_url)
+    async with initial.lifespan():
+        await initial.register_client(
+            client_id="preserved-client",
+            payload='{"kind":"client"}',
+            max_registered_clients=10,
+            now=now,
+        )
+        await initial.store_authorization_code(
+            code="preserved-code",
+            client_id="preserved-client",
+            expires_at=now + 600,
+            payload='{"kind":"code"}',
+        )
+        await initial.record_failure(
+            peer_ip="203.0.113.10",
+            occurred_at=now,
+        )
+        pool = await initial._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO proxmox_mcp_oauth_access_tokens
+                    (token, client_id, expires_at, payload)
+                VALUES($1, $2, $3, $4::jsonb)
+                """,
+                "preserved-access",
+                "preserved-client",
+                now + 600,
+                '{"kind":"access"}',
+            )
+            await conn.execute(
+                """
+                INSERT INTO proxmox_mcp_oauth_refresh_tokens
+                    (token, client_id, expires_at, payload)
+                VALUES($1, $2, $3, $4::jsonb)
+                """,
+                "preserved-refresh",
+                "preserved-client",
+                now + 1200,
+                '{"kind":"refresh"}',
+            )
+
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            """
+            CREATE TABLE proxmox_mcp_oauth_metadata (
+                name TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        await conn.executemany(
+            """
+            INSERT INTO proxmox_mcp_oauth_metadata(name, value)
+            VALUES($1, $2)
+            """,
+            [
+                ("api_key_version", "not-an-integer"),
+                ("api_key_fingerprint", "legacy-fingerprint"),
+                ("unexpected_legacy_key", "ignored"),
+            ],
+        )
+    finally:
+        await conn.close()
+
+    restarted = PostgresOAuthStateStore(oauth_database_url)
+    async with restarted.lifespan():
+        pool = await restarted._get_pool()
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
+            ) == "proxmox_mcp_oauth_metadata"
+            assert dict(await conn.fetch(
+                "SELECT name, value FROM proxmox_mcp_oauth_metadata"
+            )) == {
+                "api_key_version": "not-an-integer",
+                "api_key_fingerprint": "legacy-fingerprint",
+                "unexpected_legacy_key": "ignored",
+            }
+            assert await conn.fetchval(
+                """
+                SELECT payload ->> 'kind'
+                FROM proxmox_mcp_oauth_clients
+                WHERE client_id = $1
+                """,
+                "preserved-client",
+            ) == "client"
+            assert await conn.fetchval(
+                """
+                SELECT payload ->> 'kind'
+                FROM proxmox_mcp_oauth_authorization_codes
+                WHERE code = $1
+                """,
+                "preserved-code",
+            ) == "code"
+            assert await conn.fetchval(
+                """
+                SELECT payload ->> 'kind'
+                FROM proxmox_mcp_oauth_access_tokens
+                WHERE token = $1
+                """,
+                "preserved-access",
+            ) == "access"
+            assert await conn.fetchval(
+                """
+                SELECT payload ->> 'kind'
+                FROM proxmox_mcp_oauth_refresh_tokens
+                WHERE token = $1
+                """,
+                "preserved-refresh",
+            ) == "refresh"
+            assert await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM proxmox_mcp_oauth_login_failures
+                WHERE peer_ip = $1
+                """,
+                "203.0.113.10",
+            ) == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_startup_preserves_legacy_metadata(oauth_database_url):
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            """
+            CREATE TABLE proxmox_mcp_oauth_metadata (
+                name TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO proxmox_mcp_oauth_metadata(name, value)
+            VALUES('api_key_version', '1')
+            """
+        )
+    finally:
+        await conn.close()
+
+    for _ in range(2):
+        store = PostgresOAuthStateStore(oauth_database_url)
+        async with store.lifespan():
+            pool = await store._get_pool()
+            async with pool.acquire() as conn:
+                assert await conn.fetchval(
+                    "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
+                ) == "proxmox_mcp_oauth_metadata"
+                assert await conn.fetchval(
+                    "SELECT value FROM proxmox_mcp_oauth_metadata "
+                    "WHERE name = 'api_key_version'"
+                ) == "1"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_store_startup_preserves_legacy_metadata(
+    oauth_database_url,
+):
+    initial = PostgresOAuthStateStore(oauth_database_url)
+    async with initial.lifespan():
+        await initial.register_client(
+            client_id="concurrent-client",
+            payload="{}",
+            max_registered_clients=10,
+            now=time.time(),
+        )
+
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            """
+            CREATE TABLE proxmox_mcp_oauth_metadata (
+                name TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO proxmox_mcp_oauth_metadata(name, value)
+            VALUES('api_key_version', '1')
+            """
+        )
+    finally:
+        await conn.close()
+
+    first = PostgresOAuthStateStore(oauth_database_url)
+    second = PostgresOAuthStateStore(oauth_database_url)
+    try:
+        await asyncio.gather(first.start(), second.start())
+        pool = await first._get_pool()
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
+            ) == "proxmox_mcp_oauth_metadata"
+            assert await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM proxmox_mcp_oauth_clients
+                WHERE client_id = $1
+                """,
+                "concurrent-client",
+            ) == 1
+    finally:
+        await first.close()
+        await second.close()
+
+
+@pytest.mark.asyncio
+async def test_startup_preserves_legacy_worker_queries_and_dependent_views(
+    oauth_database_url,
+):
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            "CREATE TABLE proxmox_mcp_oauth_metadata "
+            "(name TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        await conn.executemany(
+            "INSERT INTO proxmox_mcp_oauth_metadata VALUES($1, $2)",
+            [("api_key_version", "7"), ("api_key_fingerprint", "old-verifier")],
+        )
+        await conn.execute(
+            "CREATE VIEW legacy_oauth_metadata_audit AS "
+            "SELECT name, value FROM proxmox_mcp_oauth_metadata"
+        )
+        store = PostgresOAuthStateStore(oauth_database_url)
+        async with store.lifespan():
+            # The old consent guard must remain queryable, with identical values.
+            assert dict(await conn.fetch(
+                "SELECT name, value FROM proxmox_mcp_oauth_metadata "
+                "WHERE name IN ('api_key_version', 'api_key_fingerprint')"
+            )) == {"api_key_version": "7", "api_key_fingerprint": "old-verifier"}
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM legacy_oauth_metadata_audit"
+            ) == 2
+    finally:
+        await conn.execute("DROP VIEW IF EXISTS legacy_oauth_metadata_audit")
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_schema_initialization_preserves_legacy_metadata(
+    oauth_database_url,
+):
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            """
+            CREATE TABLE proxmox_mcp_oauth_metadata (
+                name TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO proxmox_mcp_oauth_metadata(name, value)
+            VALUES('api_key_version', '1')
+            """
+        )
+        # Deliberately create an incompatible pre-existing relation. _initialize()
+        # will skip CREATE TABLE IF NOT EXISTS for it and then fail when creating
+        # the expected two-column index. Existing metadata must remain untouched.
+        await conn.execute(
+            """
+            CREATE TABLE proxmox_mcp_oauth_login_failures (
+                peer_ip TEXT NOT NULL
+            )
+            """
+        )
+    finally:
+        await conn.close()
+
+    store = PostgresOAuthStateStore(oauth_database_url)
+    with pytest.raises(asyncpg.PostgresError):
+        await store.start()
+
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        assert await conn.fetchval(
+            "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
+        ) == "proxmox_mcp_oauth_metadata"
+        assert await conn.fetchval(
+            """
+            SELECT value
+            FROM proxmox_mcp_oauth_metadata
+            WHERE name = 'api_key_version'
+            """
+        ) == "1"
+        assert await conn.fetchval(
+            "SELECT to_regclass('proxmox_mcp_oauth_clients')"
+        ) is None
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
 async def test_atomic_consumption_rejects_expired_credentials(oauth_database_url):
     """A token may expire between SDK load and transactional consumption."""
-    store = PostgresOAuthStateStore(
-        oauth_database_url, api_key_fingerprint="test", api_key_version=1,
-    )
+    store = PostgresOAuthStateStore(oauth_database_url)
     async with store.lifespan():
         await store.register_client(
             client_id="boundary-client", payload="{}", max_registered_clients=10, now=time.time(),
@@ -125,7 +448,6 @@ def make_client(
     database_url,
     *,
     api_key="correct-secret",
-    api_key_version=1,
     client_ip_header=None,
     max_registered_clients=4096,
 ):
@@ -133,7 +455,6 @@ def make_client(
         api_key=api_key,
         issuer_url="https://mcp.example.com",
         database_url=database_url,
-        api_key_version=api_key_version,
         client_ip_header=client_ip_header,
         max_registered_clients=max_registered_clients,
     )
@@ -522,6 +843,39 @@ def test_consent_transaction_survives_provider_restart(oauth_database_url):
     assert parse_qs(urlparse(approved.headers["location"]).query)["code"]
 
 
+def test_oauth_flow_crosses_same_key_instances(oauth_database_url):
+    first, _ = make_client(oauth_database_url)
+    second, _ = make_client(oauth_database_url)
+    with first, second:
+        registration = register(first)
+        authorization, verifier = begin_authorize(first, registration["client_id"])
+        approved = approve(second, consent_transaction(authorization))
+        assert approved.status_code == 302
+        code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
+        exchanged = exchange(first, registration["client_id"], code, verifier)
+        assert exchanged.status_code == 200
+        token = exchanged.json()
+        assert initialize_request(second, bearer=token["access_token"]).status_code == 200
+        replay = exchange(second, registration["client_id"], code, verifier)
+        assert replay.status_code == 400
+        assert replay.json()["error"] == "invalid_grant"
+
+
+def test_consent_transaction_is_invalid_after_api_key_change(oauth_database_url):
+    first, _ = make_client(oauth_database_url)
+    with first:
+        registration = register(first)
+        authorization, _ = begin_authorize(first, registration["client_id"])
+        transaction = consent_transaction(authorization)
+
+    rotated, _ = make_client(oauth_database_url, api_key="new-secret")
+    with rotated:
+        response = approve(rotated, transaction, api_key="new-secret")
+
+    assert response.status_code == 400
+    assert "Invalid or expired OAuth transaction" in response.text
+
+
 def test_access_token_survives_provider_restart(oauth_database_url):
     database_url = oauth_database_url
     first, _ = make_client(database_url)
@@ -538,7 +892,7 @@ def test_access_token_survives_provider_restart(oauth_database_url):
     assert response.status_code == 200
 
 
-def test_api_key_rotation_invalidates_oauth_credentials(oauth_database_url):
+def test_api_key_change_uses_current_provider_configuration(oauth_database_url):
     first, _ = make_client(oauth_database_url)
     with first:
         registration, token = complete_flow(first)
@@ -546,88 +900,66 @@ def test_api_key_rotation_invalidates_oauth_credentials(oauth_database_url):
     rotated, _ = make_client(
         oauth_database_url,
         api_key="new-secret",
-        api_key_version=2,
     )
     with rotated:
-        response = initialize_request(
+        # API-key changes affect browser consent only. Persisted OAuth clients
+        # and already-issued credentials retain their normal lifecycle.
+        existing_token = initialize_request(
             rotated,
             bearer=token["access_token"],
         )
-        stale_client, _ = begin_authorize(
+        existing_client, _ = begin_authorize(
             rotated,
             registration["client_id"],
         )
-
-    assert response.status_code == 401
-    assert stale_client.status_code == 400
-
-
-def test_api_key_rotation_rejects_old_worker_consent(oauth_database_url):
-    old_client, _ = make_client(oauth_database_url, api_key="old-secret")
-    with old_client:
-        old_registration = register(old_client)
-
-        rotated, _ = make_client(
-            oauth_database_url,
-            api_key="new-secret",
-            api_key_version=2,
+        refreshed = rotated.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": registration["client_id"],
+                "refresh_token": token["refresh_token"],
+                "resource": "https://mcp.example.com/mcp",
+            },
         )
-        with rotated:
-            register(rotated, client_name="Rotation trigger")
 
-        replacement_registration = register(old_client, client_name="Old worker client")
+        new_registration = register(rotated, client_name="After key rotation")
         authorization, _ = begin_authorize(
-            old_client,
-            replacement_registration["client_id"],
+            rotated,
+            new_registration["client_id"],
         )
         transaction = consent_transaction(authorization)
-        response = approve(old_client, transaction, api_key="old-secret")
+        old_key = approve(rotated, transaction, api_key="correct-secret")
+        new_key = approve(rotated, transaction, api_key="new-secret")
 
-        stale_registration, _ = begin_authorize(
-            old_client,
-            old_registration["client_id"],
+    assert existing_token.status_code == 200
+    assert existing_client.status_code == 302
+    assert refreshed.status_code == 200
+    assert refreshed.json()["refresh_token"] != token["refresh_token"]
+    assert old_key.status_code == 200
+    assert "Invalid API Key" in old_key.text
+    assert new_key.status_code == 302
+
+
+def test_authorization_code_survives_api_key_change(oauth_database_url):
+    first, _ = make_client(oauth_database_url)
+    with first:
+        registration = register(first)
+        authorization, verifier = begin_authorize(first, registration["client_id"])
+        approved = approve(first, consent_transaction(authorization))
+        code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
+
+    rotated, _ = make_client(oauth_database_url, api_key="new-secret")
+    with rotated:
+        exchanged = exchange(
+            rotated,
+            registration["client_id"],
+            code,
+            verifier,
         )
 
-    assert response.status_code == 503
-    assert stale_registration.status_code == 400
-
-
-def test_same_key_version_rejects_different_api_keys(oauth_database_url):
-    first, _ = make_client(
-        oauth_database_url,
-        api_key="first-secret",
-        api_key_version=7,
-    )
-    with first:
-        register(first)
-
-    conflicting, _ = make_client(
-        oauth_database_url,
-        api_key="different-secret",
-        api_key_version=7,
-    )
-    with pytest.raises(RuntimeError, match="differs across workers"):
-        with conflicting:
-            pass
-
-
-def test_stale_key_version_cannot_replace_newer_state(oauth_database_url):
-    newer, _ = make_client(
-        oauth_database_url,
-        api_key="new-secret",
-        api_key_version=5,
-    )
-    with newer:
-        register(newer)
-
-    stale, _ = make_client(
-        oauth_database_url,
-        api_key="old-secret",
-        api_key_version=4,
-    )
-    with pytest.raises(RuntimeError, match="older than the persisted"):
-        with stale:
-            pass
+    assert exchanged.status_code == 200
+    assert exchanged.json()["access_token"]
+    assert exchanged.json()["refresh_token"]
 
 
 def test_raw_api_key_is_not_an_access_token(oauth_database_url):
@@ -663,6 +995,8 @@ def test_build_oauth_from_env(monkeypatch, oauth_database_url):
     monkeypatch.setenv("MCP_API_KEY", "correct-secret")
     monkeypatch.setenv("MCP_OAUTH_ISSUER", "https://mcp.example.com")
     monkeypatch.setenv("MCP_OAUTH_DATABASE_URL", oauth_database_url)
+    # Legacy deployments may still define this variable; it is intentionally ignored.
+    monkeypatch.setenv("MCP_OAUTH_KEY_VERSION", "not-used")
 
     provider, auth = build_oauth_from_env()
 

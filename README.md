@@ -204,10 +204,10 @@ manage. OAuth protocol handling is delegated to the MCP Python SDK
 (`mcp>=1.30.0,<2`), while ProxmoxMCP-Plus provides the API-key consent policy
 and persistent OAuth state.
 
-OAuth state is stored in PostgreSQL. This allows multiple MCP workers or hosts to
-share registered clients, authorization codes, access tokens, refresh tokens,
-refresh-token replay protection, and login-rate-limit state without relying on a
-local filesystem.
+OAuth state is stored in PostgreSQL. This allows multiple MCP server instances or
+hosts, when deployed explicitly, to share registered clients, authorization codes,
+access tokens, refresh tokens, refresh-token replay protection, and login-rate-limit
+state without relying on a local filesystem.
 
 The client starts at the SDK `/authorize` endpoint. After the SDK validates the
 client, redirect URI, scope, PKCE request, and resource, the browser is redirected
@@ -261,17 +261,19 @@ stateless. All durable OAuth state is stored in PostgreSQL.
 
 Authorization-code consumption and refresh-token rotation use PostgreSQL
 transactions. A code or refresh token is deleted and its replacement tokens are
-inserted atomically, so concurrent workers cannot successfully replay the same
-credential. Dynamic client registration capacity is also serialized with a
+inserted atomically, so concurrent server instances cannot successfully replay the
+same credential. Dynamic client registration capacity is also serialized with a
 PostgreSQL transaction-scoped advisory lock; inactive registrations are pruned
 before the configured limit is exceeded.
 
-API-key rotation is versioned for multi-worker safety. `MCP_OAUTH_KEY_VERSION`
-defaults to `1`. When changing `MCP_API_KEY`, increment the version at the same
-time on every new worker. A higher version atomically invalidates existing client
-registrations and their dependent codes/tokens. A worker with an older version is
-rejected, and workers using different keys with the same version are rejected.
-This prevents a stale worker from reversing a distributed key rotation.
+`MCP_API_KEY` is the sole source of truth for the browser consent credential.
+This runtime does not persist the key or its verifier in PostgreSQL. The server process
+validates consent directly against the value supplied in its environment. If the
+service is explicitly deployed as multiple containers or instances, configure the
+same secret for each instance. Stop all instances before changing the key, then
+restart/recreate all of them with the new value before routing traffic again.
+Existing OAuth clients and issued tokens are independent of the browser-gate key
+and remain valid until they expire or are revoked.
 
 Required when OAuth is enabled:
 
@@ -285,26 +287,40 @@ Optional OAuth environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `MCP_OAUTH_KEY_VERSION` | `1` | Monotonic API-key epoch; increment whenever `MCP_API_KEY` changes |
 | `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier; must use the issuer origin |
 | `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
 | `MCP_OAUTH_MAX_REGISTERED_CLIENTS` | `4096` | Maximum persisted DCR clients before inactive-client pruning |
-| `MCP_OAUTH_DB_POOL_MIN_SIZE` | `1` | Minimum asyncpg connections per MCP worker |
-| `MCP_OAUTH_DB_POOL_MAX_SIZE` | `10` | Maximum asyncpg connections per MCP worker |
+| `MCP_OAUTH_DB_POOL_MIN_SIZE` | `1` | Minimum asyncpg connections per MCP process |
+| `MCP_OAUTH_DB_POOL_MAX_SIZE` | `10` | Maximum asyncpg connections per MCP process |
 | `MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS` | `10` | PostgreSQL command timeout used by the OAuth store |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
 
-To rotate the browser-gate credential, deploy the new key with a higher version,
-for example:
+To rotate the browser-gate credential, stop every MCP instance using this issuer,
+update `MCP_API_KEY` in the deployment environment, and restart/recreate all
+instances with the same new key. The environment is read when the provider starts;
+editing a running container's environment does not reload its key. No OAuth
+database metadata or key-version update is required. Pending consent transactions
+created with the previous key will no longer validate after every instance has
+restarted; already issued OAuth tokens remain governed by their normal lifetime
+and revocation rules. A rolling key change leaves old instances accepting the old
+key and causes consent requests routed between different-key instances to fail.
+There is no database guard to detect or disable a stale instance. Changing the
+browser-gate key does not revoke existing access tokens, refresh tokens, or
+authorization codes; use explicit revocation for compromised OAuth credentials.
 
-```bash
-MCP_API_KEY=<new-secret>
-MCP_OAUTH_KEY_VERSION=2
-```
-
-Do not reuse a version number for a different key.
+When upgrading from an OAuth build that used `MCP_OAUTH_KEY_VERSION`, startup
+ignores the old variable and leaves `proxmox_mcp_oauth_metadata` untouched. Fresh
+databases do not create that table. Registered clients and issued OAuth credentials
+are preserved; no manual SQL migration is required. Keeping legacy metadata avoids
+breaking old workers' queries and permits rollback with the same API key and
+legacy key version. Back up the database before upgrading and stop all old
+instances before rotating the key. After a key change, the legacy metadata still
+describes the old key: rollback requires restoring the old configuration or
+following the old version's rotation procedure, which invalidates OAuth state.
+Only remove the legacy table manually once all old instances are retired and a
+rollback is no longer needed; it can still contain the previous key's verifier.
 
 The database role must be able to create and modify the
 `proxmox_mcp_oauth_*` tables in its database. The tables contain OAuth client
@@ -313,9 +329,9 @@ tokens, so the PostgreSQL database and backups must be protected as credential
 storage.
 
 If several MCP instances use the same `MCP_OAUTH_DATABASE_URL`, OAuth state and
-one-time-token enforcement are shared across them. Size the pool with the total
-number of MCP workers in mind because the configured pool limits apply per
-process.
+one-time-token enforcement are shared across them. Size the database capacity with
+the total number of MCP processes in mind because the configured pool limits apply
+per process.
 
 If the server is behind a trusted reverse proxy and per-user login rate limiting
 must use the original client address, set `MCP_OAUTH_CLIENT_IP_HEADER` to a header
