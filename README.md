@@ -267,10 +267,11 @@ PostgreSQL transaction-scoped advisory lock; inactive registrations are pruned
 before the configured limit is exceeded.
 
 `MCP_API_KEY` is the sole source of truth for the browser consent credential.
-The key and its verifier are not persisted in PostgreSQL. The server process
+This runtime does not persist the key or its verifier in PostgreSQL. The server process
 validates consent directly against the value supplied in its environment. If the
 service is explicitly deployed as multiple containers or instances, configure the
-same secret for each instance and restart/recreate them when the key changes.
+same secret for each instance. Stop all instances before changing the key, then
+restart/recreate all of them with the new value before routing traffic again.
 Existing OAuth clients and issued tokens are independent of the browser-gate key
 and remain valid until they expire or are revoked.
 
@@ -296,16 +297,30 @@ Optional OAuth environment variables:
 | `MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS` | `10` | PostgreSQL command timeout used by the OAuth store |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
 
-To rotate the browser-gate credential, update `MCP_API_KEY` in the deployment
-environment and restart/recreate the running MCP container or server instance. No OAuth
+To rotate the browser-gate credential, stop every MCP instance using this issuer,
+update `MCP_API_KEY` in the deployment environment, and restart/recreate all
+instances with the same new key. The environment is read when the provider starts;
+editing a running container's environment does not reload its key. No OAuth
 database metadata or key-version update is required. Pending consent transactions
-created with the previous key will no longer validate after the restart; already
-issued OAuth tokens remain governed by their normal lifetime and revocation rules.
+created with the previous key will no longer validate after every instance has
+restarted; already issued OAuth tokens remain governed by their normal lifetime
+and revocation rules. A rolling key change leaves old instances accepting the old
+key and causes consent requests routed between different-key instances to fail.
+There is no database guard to detect or disable a stale instance. Changing the
+browser-gate key does not revoke existing access tokens, refresh tokens, or
+authorization codes; use explicit revocation for compromised OAuth credentials.
 
 When upgrading from an OAuth build that used `MCP_OAUTH_KEY_VERSION`, startup
-automatically removes the obsolete `proxmox_mcp_oauth_metadata` table inside the
-existing initialization transaction. Registered clients and issued OAuth
-credentials are preserved; no manual SQL migration is required.
+ignores the old variable and leaves `proxmox_mcp_oauth_metadata` untouched. Fresh
+databases do not create that table. Registered clients and issued OAuth credentials
+are preserved; no manual SQL migration is required. Keeping legacy metadata avoids
+breaking old workers' queries and permits rollback with the same API key and
+legacy key version. Back up the database before upgrading and stop all old
+instances before rotating the key. After a key change, the legacy metadata still
+describes the old key: rollback requires restoring the old configuration or
+following the old version's rotation procedure, which invalidates OAuth state.
+Only remove the legacy table manually once all old instances are retired and a
+rollback is no longer needed; it can still contain the previous key's verifier.
 
 The database role must be able to create and modify the
 `proxmox_mcp_oauth_*` tables in its database. The tables contain OAuth client

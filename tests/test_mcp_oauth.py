@@ -75,7 +75,7 @@ async def test_fresh_store_never_creates_legacy_key_metadata(oauth_database_url)
 
 
 @pytest.mark.asyncio
-async def test_store_migrates_legacy_key_metadata_without_losing_oauth_state(
+async def test_store_preserves_ignored_legacy_metadata_and_oauth_state(
     oauth_database_url,
 ):
     now = time.time()
@@ -146,13 +146,20 @@ async def test_store_migrates_legacy_key_metadata_without_losing_oauth_state(
     finally:
         await conn.close()
 
-    migrated = PostgresOAuthStateStore(oauth_database_url)
-    async with migrated.lifespan():
-        pool = await migrated._get_pool()
+    restarted = PostgresOAuthStateStore(oauth_database_url)
+    async with restarted.lifespan():
+        pool = await restarted._get_pool()
         async with pool.acquire() as conn:
             assert await conn.fetchval(
                 "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
-            ) is None
+            ) == "proxmox_mcp_oauth_metadata"
+            assert dict(await conn.fetch(
+                "SELECT name, value FROM proxmox_mcp_oauth_metadata"
+            )) == {
+                "api_key_version": "not-an-integer",
+                "api_key_fingerprint": "legacy-fingerprint",
+                "unexpected_legacy_key": "ignored",
+            }
             assert await conn.fetchval(
                 """
                 SELECT payload ->> 'kind'
@@ -196,7 +203,7 @@ async def test_store_migrates_legacy_key_metadata_without_losing_oauth_state(
 
 
 @pytest.mark.asyncio
-async def test_legacy_metadata_migration_is_idempotent(oauth_database_url):
+async def test_repeated_startup_preserves_legacy_metadata(oauth_database_url):
     conn = await asyncpg.connect(oauth_database_url)
     try:
         await conn.execute(
@@ -223,11 +230,15 @@ async def test_legacy_metadata_migration_is_idempotent(oauth_database_url):
             async with pool.acquire() as conn:
                 assert await conn.fetchval(
                     "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
-                ) is None
+                ) == "proxmox_mcp_oauth_metadata"
+                assert await conn.fetchval(
+                    "SELECT value FROM proxmox_mcp_oauth_metadata "
+                    "WHERE name = 'api_key_version'"
+                ) == "1"
 
 
 @pytest.mark.asyncio
-async def test_concurrent_store_startup_serializes_legacy_metadata_migration(
+async def test_concurrent_store_startup_preserves_legacy_metadata(
     oauth_database_url,
 ):
     initial = PostgresOAuthStateStore(oauth_database_url)
@@ -266,7 +277,7 @@ async def test_concurrent_store_startup_serializes_legacy_metadata_migration(
         async with pool.acquire() as conn:
             assert await conn.fetchval(
                 "SELECT to_regclass('proxmox_mcp_oauth_metadata')"
-            ) is None
+            ) == "proxmox_mcp_oauth_metadata"
             assert await conn.fetchval(
                 """
                 SELECT COUNT(*)
@@ -281,7 +292,40 @@ async def test_concurrent_store_startup_serializes_legacy_metadata_migration(
 
 
 @pytest.mark.asyncio
-async def test_legacy_metadata_drop_rolls_back_if_schema_initialization_fails(
+async def test_startup_preserves_legacy_worker_queries_and_dependent_views(
+    oauth_database_url,
+):
+    conn = await asyncpg.connect(oauth_database_url)
+    try:
+        await conn.execute(
+            "CREATE TABLE proxmox_mcp_oauth_metadata "
+            "(name TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        await conn.executemany(
+            "INSERT INTO proxmox_mcp_oauth_metadata VALUES($1, $2)",
+            [("api_key_version", "7"), ("api_key_fingerprint", "old-verifier")],
+        )
+        await conn.execute(
+            "CREATE VIEW legacy_oauth_metadata_audit AS "
+            "SELECT name, value FROM proxmox_mcp_oauth_metadata"
+        )
+        store = PostgresOAuthStateStore(oauth_database_url)
+        async with store.lifespan():
+            # The old consent guard must remain queryable, with identical values.
+            assert dict(await conn.fetch(
+                "SELECT name, value FROM proxmox_mcp_oauth_metadata "
+                "WHERE name IN ('api_key_version', 'api_key_fingerprint')"
+            )) == {"api_key_version": "7", "api_key_fingerprint": "old-verifier"}
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM legacy_oauth_metadata_audit"
+            ) == 2
+    finally:
+        await conn.execute("DROP VIEW IF EXISTS legacy_oauth_metadata_audit")
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_schema_initialization_preserves_legacy_metadata(
     oauth_database_url,
 ):
     conn = await asyncpg.connect(oauth_database_url)
@@ -302,7 +346,7 @@ async def test_legacy_metadata_drop_rolls_back_if_schema_initialization_fails(
         )
         # Deliberately create an incompatible pre-existing relation. _initialize()
         # will skip CREATE TABLE IF NOT EXISTS for it and then fail when creating
-        # the expected two-column index. The metadata DROP must roll back too.
+        # the expected two-column index. Existing metadata must remain untouched.
         await conn.execute(
             """
             CREATE TABLE proxmox_mcp_oauth_login_failures (
@@ -797,6 +841,24 @@ def test_consent_transaction_survives_provider_restart(oauth_database_url):
 
     assert approved.status_code == 302
     assert parse_qs(urlparse(approved.headers["location"]).query)["code"]
+
+
+def test_oauth_flow_crosses_same_key_instances(oauth_database_url):
+    first, _ = make_client(oauth_database_url)
+    second, _ = make_client(oauth_database_url)
+    with first, second:
+        registration = register(first)
+        authorization, verifier = begin_authorize(first, registration["client_id"])
+        approved = approve(second, consent_transaction(authorization))
+        assert approved.status_code == 302
+        code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
+        exchanged = exchange(first, registration["client_id"], code, verifier)
+        assert exchanged.status_code == 200
+        token = exchanged.json()
+        assert initialize_request(second, bearer=token["access_token"]).status_code == 200
+        replay = exchange(second, registration["client_id"], code, verifier)
+        assert replay.status_code == 400
+        assert replay.json()["error"] == "invalid_grant"
 
 
 def test_consent_transaction_is_invalid_after_api_key_change(oauth_database_url):

@@ -12,7 +12,6 @@ import asyncpg
 _INIT_ADVISORY_LOCK = 0x4D43504F
 _REGISTER_ADVISORY_LOCK = 0x4D435052
 
-_LEGACY_METADATA = "proxmox_mcp_oauth_metadata"
 _CLIENTS = "proxmox_mcp_oauth_clients"
 _CODES = "proxmox_mcp_oauth_authorization_codes"
 _ACCESS = "proxmox_mcp_oauth_access_tokens"
@@ -108,10 +107,9 @@ class PostgresOAuthStateStore:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", _INIT_ADVISORY_LOCK)
-                # OAuth builds before this migration persisted MCP_API_KEY
-                # version/fingerprint metadata here. MCP_API_KEY is now sourced
-                # only from the process environment, so remove the obsolete table.
-                await conn.execute(f"DROP TABLE IF EXISTS {_LEGACY_METADATA}")
+                # Leave legacy key metadata untouched. Older workers query that
+                # table during consent, and same-key rollbacks still need it.
+                # This runtime neither creates nor reads/writes the legacy table.
                 await conn.execute(
                     f"""
                     CREATE TABLE IF NOT EXISTS {_CLIENTS} (
