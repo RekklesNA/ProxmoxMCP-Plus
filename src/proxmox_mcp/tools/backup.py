@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Any
 import json
 from datetime import datetime
 from mcp.types import TextContent as Content
-from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.base import ProxmoxTool, completeness_content
 
 
 def _as_list(maybe: Any) -> List:
@@ -164,7 +164,7 @@ class BackupTools(ProxmoxTool):
 
             lines.append("Use the Volume ID with restore_backup to restore.")
 
-            return [Content(type="text", text="\n".join(lines).rstrip())]
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(failures)
 
         except Exception as e:
             return self._err("list backups", e)

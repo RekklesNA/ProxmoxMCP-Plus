@@ -44,7 +44,8 @@ it does not forward individual callers' OAuth identity. Use separate instances
 and restricted child grants when distinct users require distinct bridge rights.
 These are client grants, not a claim of end-user identity verification.
 
-Command allowlist patterns match the entire command. Use anchored expressions,
+Command allowlist patterns use regex search; unanchored patterns can match a
+substring of a longer command. Use anchored expressions,
 escape regex whitespace as `\\s` in JSON, and consider shell metacharacters and
 program-specific options. A regex allowlist cannot provide a general shell sandbox.
 VM command tools accept `guest_os="posix"` (default) or `"windows"` and send explicit

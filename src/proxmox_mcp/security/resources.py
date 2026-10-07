@@ -12,6 +12,34 @@ def validate_segment(value: str) -> str:
     return value
 
 
+def validate_guest_id(value: Any) -> str:
+    """Guest IDs are positive ASCII integers, never arbitrary URL paths."""
+    text = str(value) if isinstance(value, int) else value
+    if not isinstance(text, str) or not re.fullmatch(r"[0-9]+", text) or int(text) <= 0:
+        raise ValueError("Guest ID must be a positive ASCII integer")
+    return text
+
+
+def submit_snapshot_rollback(api: Any, node: str, vmid: Any, snapname: str, vm_type: str) -> Any:
+    """Check fresh snapshot dependencies on initial submission and every retry."""
+    validate_segment(node)
+    validate_guest_id(vmid)
+    validate_segment(snapname)
+    if vm_type not in {"qemu", "lxc"}:
+        raise ValueError("Unsupported guest type")
+    guest = getattr(api.nodes(node), vm_type)(vmid)
+    inventory = guest.snapshot.get()
+    if isinstance(inventory, dict):
+        inventory = inventory.get("data")
+    if not isinstance(inventory, list) or any(not isinstance(item, dict) for item in inventory):
+        raise RuntimeError("Snapshot inventory is unavailable or incomplete")
+    children = [str(item.get("name")) for item in inventory
+                if item.get("name") != "current" and item.get("parent") == snapname]
+    if children:
+        raise ValueError(f"Refusing to rollback because snapshot '{snapname}' has newer child snapshots: {', '.join(children)}. Delete those snapshots explicitly first, then retry rollback.")
+    return guest.snapshot(snapname).rollback.post()
+
+
 def validate_volume(storage: str, volid: str) -> str:
     validate_segment(storage)
     if not isinstance(volid, str) or not volid.startswith(storage + ":"):

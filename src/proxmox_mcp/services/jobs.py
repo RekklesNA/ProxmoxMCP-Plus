@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
-from proxmox_mcp.security.resources import delete_volume, validate_segment
+from proxmox_mcp.security.resources import delete_volume, validate_segment, submit_snapshot_rollback
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled"}
@@ -838,11 +838,7 @@ class JobStore:
         )
         self.register_retry_handler(
             "snapshot.rollback",
-            lambda params: (
-                self.proxmox.nodes(params["node"]).lxc(params["vmid"]).snapshot(params["snapname"]).rollback.post()
-                if params["vm_type"] == "lxc"
-                else self.proxmox.nodes(params["node"]).qemu(params["vmid"]).snapshot(params["snapname"]).rollback.post()
-            ),
+            lambda params: submit_snapshot_rollback(self.proxmox, params["node"], params["vmid"], params["snapname"], params["vm_type"]),
         )
         self.register_retry_handler("backup.create", lambda params: self.proxmox.nodes(params["node"]).vzdump.post(**params["request"]))
         self.register_retry_handler(

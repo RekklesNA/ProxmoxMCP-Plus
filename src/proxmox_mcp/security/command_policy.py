@@ -12,9 +12,12 @@ from proxmox_mcp.config.models import CommandPolicyConfig
 
 def _tokens_match(provided: str | None, expected: str | None) -> bool:
     """Constant-time comparison guarded against None/non-str inputs."""
-    if not provided or not expected:
+    if not isinstance(provided, str) or not isinstance(expected, str) or not provided or not expected:
         return False
-    return hmac.compare_digest(provided, expected)
+    try:
+        return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
 
 
 @dataclass(frozen=True)

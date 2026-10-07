@@ -18,6 +18,11 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.27`
+
+- Repairs guest ID path validation, rollback retry dependency checks, Unicode approval comparison and partial backup metrics found during the independent review.
+- See [v0.5.27 notes](../releases/v0.5.27.md).
+
 ### Version `0.5.26`
 
 - Repairs the comprehensive project audit findings, adds bounded runtime operations and requires complete runtime statement coverage.

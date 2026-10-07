@@ -11,7 +11,7 @@ import inspect
 import time
 import anyio
 from proxmox_mcp.security.access import authorize_client, client_principal
-from proxmox_mcp.security.resources import validate_segment
+from proxmox_mcp.security.resources import validate_segment, validate_guest_id
 
 from .tool_catalog import BUILTIN_TOOL_NAMES
 
@@ -41,6 +41,9 @@ def _async_dispatch(func: Callable[..., Any], authorize: Callable[[str, dict[str
             for key in ("node", "target_node", "storage", "snapname"):
                 if arguments.get(key) is not None:
                     validate_segment(arguments[key])
+            for key in ("vmid", "source_vmid", "target_vmid"):
+                if arguments.get(key) is not None:
+                    validate_guest_id(arguments[key])
             async def invoke() -> Any:
                 if inspect.iscoroutinefunction(func):
                     return await func(*args, **kwargs)
