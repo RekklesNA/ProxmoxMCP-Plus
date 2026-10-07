@@ -555,7 +555,7 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
                 "X-Frame-Options": "DENY",
                 "Content-Security-Policy": (
                     "default-src 'none'; style-src 'unsafe-inline'; "
-                    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                    "base-uri 'none'; frame-ancestors 'none'"
                 ),
             },
         )
@@ -653,7 +653,7 @@ button{{width:100%;margin-top:18px;padding:12px 14px;border:0;border-radius:10px
         )
         return RedirectResponse(
             location,
-            status_code=302,
+            status_code=303,
             headers={"Cache-Control": "no-store"},
         )
 

@@ -508,6 +508,7 @@ def begin_authorize(
     state="state-1",
     scope="mcp",
     resource="https://mcp.example.com/mcp",
+    redirect_uri="https://client.example/callback",
 ):
     challenge = (
         base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
@@ -518,7 +519,7 @@ def begin_authorize(
         "/authorize",
         params={
             "client_id": client_id,
-            "redirect_uri": "https://client.example/callback",
+            "redirect_uri": redirect_uri,
             "response_type": "code",
             "code_challenge": challenge,
             "code_challenge_method": "S256",
@@ -565,7 +566,7 @@ def complete_flow(client):
     authorization, verifier = begin_authorize(client, registration["client_id"])
     transaction = consent_transaction(authorization)
     approved = approve(client, transaction)
-    assert approved.status_code == 302
+    assert approved.status_code == 303
     callback = urlparse(approved.headers["location"])
     query = parse_qs(callback.query)
     assert callback.netloc == "client.example"
@@ -682,6 +683,62 @@ def test_consent_displays_escaped_client_details(oauth_database_url):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
     assert "https://client.example" in page.text
     assert "<code>mcp</code>" in page.text
+
+
+def test_consent_csp_does_not_restrict_oauth_redirect_chain(oauth_database_url):
+    redirect_uri = "https://chatgpt.com/connector/oauth/callback"
+    client, _ = make_client(oauth_database_url)
+    with client:
+        registration = register(
+            client,
+            client_name="ChatGPT-like client",
+            redirect_uri=redirect_uri,
+        )
+        authorization, _ = begin_authorize(
+            client,
+            registration["client_id"],
+            redirect_uri=redirect_uri,
+        )
+        transaction = consent_transaction(authorization)
+        page = client.get(
+            "/oauth/consent",
+            params={"transaction": transaction},
+        )
+
+    assert page.status_code == 200
+    csp = page.headers["content-security-policy"]
+    assert "form-action" not in csp
+    assert "default-src 'none'" in csp
+    assert "style-src 'unsafe-inline'" in csp
+    assert "base-uri 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+def test_consent_success_redirects_to_registered_cross_origin_callback(
+    oauth_database_url,
+):
+    redirect_uri = "https://chatgpt.com/connector/oauth/callback"
+    client, _ = make_client(oauth_database_url)
+    with client:
+        registration = register(
+            client,
+            client_name="ChatGPT-like client",
+            redirect_uri=redirect_uri,
+        )
+        authorization, _ = begin_authorize(
+            client,
+            registration["client_id"],
+            redirect_uri=redirect_uri,
+        )
+        approved = approve(client, consent_transaction(authorization))
+
+    assert approved.status_code == 303
+    callback = urlparse(approved.headers["location"])
+    assert f"{callback.scheme}://{callback.netloc}{callback.path}" == redirect_uri
+    query = parse_qs(callback.query)
+    assert query["code"]
+    assert query["state"] == ["state-1"]
+    assert query["iss"] == ["https://mcp.example.com/"]
 
 
 def test_sdk_returns_scope_error_to_registered_client(oauth_database_url):
@@ -839,7 +896,7 @@ def test_consent_transaction_survives_provider_restart(oauth_database_url):
     with restarted:
         approved = approve(restarted, transaction)
 
-    assert approved.status_code == 302
+    assert approved.status_code == 303
     assert parse_qs(urlparse(approved.headers["location"]).query)["code"]
 
 
@@ -850,7 +907,7 @@ def test_oauth_flow_crosses_same_key_instances(oauth_database_url):
         registration = register(first)
         authorization, verifier = begin_authorize(first, registration["client_id"])
         approved = approve(second, consent_transaction(authorization))
-        assert approved.status_code == 302
+        assert approved.status_code == 303
         code = parse_qs(urlparse(approved.headers["location"]).query)["code"][0]
         exchanged = exchange(first, registration["client_id"], code, verifier)
         assert exchanged.status_code == 200
@@ -937,7 +994,7 @@ def test_api_key_change_uses_current_provider_configuration(oauth_database_url):
     assert refreshed.json()["refresh_token"] != token["refresh_token"]
     assert old_key.status_code == 200
     assert "Invalid API Key" in old_key.text
-    assert new_key.status_code == 302
+    assert new_key.status_code == 303
 
 
 def test_authorization_code_survives_api_key_change(oauth_database_url):
