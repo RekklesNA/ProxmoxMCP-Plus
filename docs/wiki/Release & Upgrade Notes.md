@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.25`
+
+- Release date: 2026-10-07
+- Fix Chromium OAuth consent navigation through cross-origin callback redirects (#143).
+- Successful consent POSTs return `303` and follow callbacks with GET; SDK authorization redirects remain `302`.
+- Retain the fixed same-origin form target, escaped client details, anti-framing/no-referrer protections and failed-login rate limiting.
+- Upgrade and restart the service; no configuration or database migration is needed.
+- See [v0.5.25 notes](../releases/v0.5.25.md) for browser verification and rollback behavior.
+
 ### Version `0.5.24`
 
 - Release date: 2026-10-01
