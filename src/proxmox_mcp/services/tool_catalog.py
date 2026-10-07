@@ -30,6 +30,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "poll_job",
         "cancel_job",
         "retry_job",
+        "reconcile_job",
         "get_containers",
         "start_container",
         "stop_container",

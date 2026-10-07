@@ -1,10 +1,12 @@
+from proxmox_mcp.tools.storage_selection import select_storage
 from typing import List, Dict, Optional, Tuple, Any, Union, Callable
 from proxmox_mcp.tools.guest_config import container_network
 import re
 import json
+from concurrent.futures import ThreadPoolExecutor
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
-from .base import ProxmoxTool, _log_safe
+from .base import ProxmoxTool, _log_safe, InventoryList, completeness_content
 from .console.container_manager import ContainerConsoleManager
 
 
@@ -114,7 +116,7 @@ class ContainerTools(ProxmoxTool):
             if vmid is None:
                 continue
             out.append((node_name, dict(item, vmid=vmid)))
-        return out if out else None
+        return out
 
     def _list_ct_pairs(self, node: Optional[str]) -> List[Tuple[str, Dict]]:
         """Yield (node_name, ct_dict). Coerce odd shapes into dicts with vmid."""
@@ -122,7 +124,7 @@ class ContainerTools(ProxmoxTool):
         if cluster_pairs is not None:
             return cluster_pairs
 
-        out: List[Tuple[str, Dict]] = []
+        out = InventoryList()
         if node:
             try:
                 raw = self.proxmox.nodes(node).lxc.get()
@@ -130,7 +132,7 @@ class ContainerTools(ProxmoxTool):
                 self.logger.warning(
                     "Skipping node %s while listing containers: %s", node, _log_safe(e)
                 )
-                return out
+                self._handle_error("list containers", e)
 
             for it in _as_list(raw):
                 if isinstance(it, dict):
@@ -157,6 +159,7 @@ class ContainerTools(ProxmoxTool):
                     self.logger.warning(
                         "Skipping node %s while listing containers: %s", nname, _log_safe(node_error)
                     )
+                    out.warnings.append(_log_safe(nname) + ": " + _log_safe(node_error))
                     continue
 
                 for it in _as_list(raw):
@@ -168,12 +171,14 @@ class ContainerTools(ProxmoxTool):
                             out.append((nname, {"vmid": vmid}))
                         except Exception:
                             continue
+        if not out and out.warnings:
+            raise RuntimeError("Container inventory is unavailable: " + "; ".join(out.warnings))
         return out
 
     def _rrd_last(self, node: str, vmid: int) -> Tuple[Optional[float], Optional[int], Optional[int]]:
         """Return (cpu_pct, mem_bytes, maxmem_bytes) from the most recent RRD sample."""
         try:
-            rrd = _as_list(self.proxmox.nodes(node).lxc(vmid).rrddata.get(timeframe="hour", ds="cpu,mem,maxmem"))
+            rrd = _as_list(self.proxmox.nodes(node).lxc(vmid).rrddata.get(timeframe="hour"))
             if not rrd or not isinstance(rrd[-1], dict):
                 return None, None, None
             last = rrd[-1]
@@ -186,6 +191,9 @@ class ContainerTools(ProxmoxTool):
             return None, None, None
 
     def _status_and_config(self, node: str, vmid: int) -> Tuple[Dict, Dict]:
+        return self._cached_read(f"ct:stats:{node}:{vmid}", lambda: self._read_status_and_config(node, vmid))
+
+    def _read_status_and_config(self, node: str, vmid: int) -> Tuple[Dict, Dict]:
         """Return (status_current_dict, config_dict)."""
         raw_status: Dict = {}
         raw_config: Dict = {}
@@ -249,6 +257,11 @@ class ContainerTools(ProxmoxTool):
         try:
             pairs = self._list_ct_pairs(node)
             rows: List[Dict] = []
+
+            if include_stats:
+                keys = {(name, int(ct["vmid"])) for name, ct in pairs if str(ct.get("vmid", "")).isdigit()}
+                with ThreadPoolExecutor(max_workers=4, thread_name_prefix="ct-stats") as workers:
+                    list(workers.map(lambda key: self._status_and_config(*key), keys))
 
             for nname, ct in pairs:
                 vmid_val = _get(ct, "vmid")
@@ -333,16 +346,10 @@ class ContainerTools(ProxmoxTool):
                     status_str = str(_get(raw_status, "status") or _get(ct, "status") or "").lower()
                     
                     if status_str == "stopped":
-                        try:
-                            mem_bytes = 0
-                        except Exception:
-                            mem_bytes = 0
+                        mem_bytes = 0
 
                     if (not maxmem_bytes or int(maxmem_bytes) == 0) and memory_mib and int(memory_mib) > 0:
-                        try:
-                            maxmem_bytes = int(memory_mib) * 1024 * 1024
-                        except Exception:
-                            maxmem_bytes = 0
+                        maxmem_bytes = memory_mib * 1024 * 1024
 
                     # RRD fallback if zeros
                     if (mem_bytes == 0) or (maxmem_bytes == 0) or (cpu_pct == 0.0):
@@ -354,10 +361,7 @@ class ContainerTools(ProxmoxTool):
                         if maxmem_bytes == 0 and rrd_maxmem:
                             maxmem_bytes = rrd_maxmem
                             if memory_mib == 0:
-                                try:
-                                    memory_mib = int(round(maxmem_bytes / (1024 * 1024)))
-                                except Exception:
-                                    memory_mib = 0
+                                memory_mib = (int(maxmem_bytes) + 512 * 1024) // (1024 * 1024)
 
                     rec.update({
                         "cores": cores,
@@ -381,8 +385,8 @@ class ContainerTools(ProxmoxTool):
 
             if format_style == "json":
                 # JSON path must be immune to any formatter assumptions; no raw payloads.
-                return self._json_fmt(rows)
-            return self._render_pretty(rows)
+                return self._json_fmt(rows) + completeness_content(getattr(pairs, "warnings", []))
+            return self._render_pretty(rows) + completeness_content(getattr(pairs, "warnings", []))
 
         except Exception as e:
             return self._err("Failed to list containers", e)
@@ -402,6 +406,8 @@ class ContainerTools(ProxmoxTool):
             return []
         tokens = [t.strip() for t in selector.split(",") if t.strip()]
         inventory: List[Tuple[str, Dict[str, Any]]] = self._list_ct_pairs(node=None)
+        if getattr(inventory, "warnings", []):
+            raise RuntimeError("Cannot resolve a mutation selector from an incomplete inventory")
 
         resolved: List[Tuple[str, int, str]] = []
         for tok in tokens:
@@ -458,7 +464,7 @@ class ContainerTools(ProxmoxTool):
             name = r.get("name") or f"ct-{vmid}"
             msg = r.get("message") or r.get("error") or ""
             lines.append(f"{status} {name} (ID: {vmid}, node: {node}) {('- ' + str(msg)) if msg else ''}")
-        return [Content(type="text", text="\n".join(lines).rstrip())]
+        return [Content(type="text", text="\n".join(lines).rstrip()), Content(type="text", text=json.dumps(results))]
 
     # ---------- container control tools ----------
     def start_container(self, selector: str, format_style: str = "pretty") -> List[Content]:
@@ -502,7 +508,7 @@ class ContainerTools(ProxmoxTool):
                         "job_id": job["job_id"] if job else None,
                     })
                 except Exception as e:
-                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
 
             if format_style == "json":
                 return self._json_fmt(results)
@@ -562,7 +568,7 @@ class ContainerTools(ProxmoxTool):
                         "job_id": job["job_id"] if job else None,
                     })
                 except Exception as e:
-                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
 
             if format_style == "json":
                 return self._json_fmt(results)
@@ -612,7 +618,7 @@ class ContainerTools(ProxmoxTool):
                         "job_id": job["job_id"] if job else None,
                     })
                 except Exception as e:
-                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": str(e)})
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
 
             if format_style == "json":
                 return self._json_fmt(results)
@@ -689,24 +695,8 @@ class ContainerTools(ProxmoxTool):
                     ValueError(f"Available nodes: {', '.join(node_names)}")
                 )
 
-            # Auto-detect storage if not specified
-            if not storage:
-                storage_list = _as_list(self.proxmox.storage.get())
-                # Prefer local-lvm, then any storage that supports rootdir/images
-                for s in storage_list:
-                    sname = _get(s, "storage")
-                    content = _get(s, "content", "")
-                    if sname == "local-lvm":
-                        storage = sname
-                        break
-                    if "rootdir" in content or "images" in content:
-                        storage = sname
-                if not storage:
-                    # Fallback to first storage
-                    if storage_list:
-                        storage = _get(storage_list[0], "storage", "local")
-                    else:
-                        storage = "local"
+            selected = select_storage(self.proxmox, node, "rootdir", storage, disk_size)
+            storage = selected["storage"]
 
             # Set default hostname
             if not hostname:
@@ -786,7 +776,7 @@ class ContainerTools(ProxmoxTool):
                 f"  - Start container: start_container selector='{vmid}'",
                 "  - Check status: get_containers",
             ]
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"Failed to create container {vmid}", e)
@@ -833,7 +823,9 @@ class ContainerTools(ProxmoxTool):
                             results.append(rec)
                             continue
                         # Force stop the container first
-                        self.proxmox.nodes(node).lxc(vmid).status.stop.post()
+                        stop_upid = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
+                        self._register_background_job(tool_name="stop_container", summary=f"Stop container {vmid} before deletion", node=node, upid=stop_upid)
+                        self._wait_for_task(node, stop_upid)
                         rec["message"] = "Stopped and deleted"
                     else:
                         rec["message"] = "Deleted"
@@ -862,7 +854,7 @@ class ContainerTools(ProxmoxTool):
 
                 except Exception as e:
                     rec["ok"] = False
-                    rec["error"] = str(e)
+                    rec["error"] = _log_safe(e)
 
                 results.append(rec)
 
@@ -1120,13 +1112,17 @@ class ContainerTools(ProxmoxTool):
                     if disk_gb is not None:
                         size_str = f"+{disk_gb}G"
                         # Use PUT for disk resize - some Proxmox versions reject POST
-                        self.proxmox.nodes(node).lxc(vmid).resize.put(disk=disk, size=size_str)
+                        resize_upid = self.proxmox.nodes(node).lxc(vmid).resize.put(disk=disk, size=size_str)
+                        job = self._register_background_job(tool_name="update_container_resources", summary=f"Resize container {vmid} {disk}", node=node, upid=resize_upid, metadata={"disk": disk, "increment": size_str})
+                        rec["status"] = "submitted"
+                        rec["task_id"] = resize_upid
+                        rec["job_id"] = job["job_id"] if job else None
                         changes.append(f"{disk}+={disk_gb}G")
 
                     rec["message"] = ", ".join(changes) if changes else "no changes"
                 except Exception as e:
                     rec["ok"] = False
-                    rec["error"] = str(e)
+                    rec["error"] = _log_safe(e)
 
                 results.append(rec)
 

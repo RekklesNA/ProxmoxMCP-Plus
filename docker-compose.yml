@@ -5,8 +5,10 @@ services:
       - "8811:8811"
     volumes:
       - ./proxmox-config:/app/proxmox-config:ro
+      - proxmox-jobs:/app/data
     environment:
       - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
+      - PROXMOX_JOBS_SQLITE_PATH=/app/data/proxmox-jobs.sqlite3
       # Set PROXMOX_API_KEY in your shell or .env before starting OpenAPI mode.
       - PROXMOX_API_KEY=${PROXMOX_API_KEY:?Set PROXMOX_API_KEY before starting OpenAPI mode}
       - API_HOST=0.0.0.0
@@ -28,13 +30,15 @@ services:
       - "8000:8000"
     volumes:
       - ./proxmox-config:/app/proxmox-config:ro
+      - proxmox-jobs:/app/data
     environment:
       - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
+      - PROXMOX_JOBS_SQLITE_PATH=/app/data/proxmox-jobs.sqlite3
       - PROXMOX_MCP_MODE=mcp-http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
       - MCP_TRANSPORT=STREAMABLE_HTTP
-      # Optional but strongly recommended for every remotely reachable deployment.
+      # Required unless explicitly protected by external authentication.
       - MCP_ALLOW_UNAUTHENTICATED_HTTP=${MCP_ALLOW_UNAUTHENTICATED_HTTP:-false}
       - MCP_API_KEY=${MCP_API_KEY:-}
       # Optional OAuth + PKCE browser gate implemented with the MCP Python SDK.
@@ -66,3 +70,6 @@ services:
 networks:
   proxmox-network:
     driver: bridge 
+
+volumes:
+  proxmox-jobs:

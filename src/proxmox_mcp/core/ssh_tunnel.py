@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import time
+from threading import Thread
 from typing import Any
 
 
@@ -24,6 +25,9 @@ class SSHTunnelManager:
         self.ssh_config = ssh_config
         self.logger = logging.getLogger("proxmox-mcp.ssh-tunnel")
         self._process: subprocess.Popen[str] | None = None
+        self._stderr_thread: Thread | None = None
+        self._stderr_tail = ""
+        self._retry_after = 0.0
         atexit.register(self.close)
 
     def ensure_tunnel(self) -> None:
@@ -31,6 +35,8 @@ class SSHTunnelManager:
             return
 
         assume_external = getattr(self.tunnel_config, "assume_external", False)
+        if time.monotonic() < self._retry_after:
+            raise RuntimeError("SSH tunnel reconnect is backing off after a failed connection")
 
         if self._is_local_endpoint_reachable():
             if assume_external:
@@ -64,8 +70,15 @@ class SSHTunnelManager:
                 f"api_tunnel.assume_external to let this process manage the tunnel."
             )
 
-        self._start_process()
-        self._wait_for_local_listener()
+        if self._process is not None:
+            self.close()
+        try:
+            self._start_process()
+            self._wait_for_local_listener()
+        except BaseException:
+            self._retry_after = time.monotonic() + 5.0
+            self.close()
+            raise
 
     def close(self) -> None:
         if self._process is None:
@@ -76,6 +89,10 @@ class SSHTunnelManager:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._process.kill()
+                self._process.wait(timeout=5)
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=1)
+            self._stderr_thread = None
         self._process = None
 
     def _start_process(self) -> None:
@@ -87,6 +104,9 @@ class SSHTunnelManager:
             local,
             "-o",
             "ExitOnForwardFailure=yes",
+            "-o", "BatchMode=yes",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
         ]
 
         ssh_key = getattr(self.ssh_config, "key_file", None) if self.ssh_config is not None else None
@@ -124,10 +144,25 @@ class SSHTunnelManager:
         )
         self._process = subprocess.Popen(  # noqa: S603
             command,
-            stdout=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
         )
+        self._stderr_tail = ""
+        stream = self._process.stderr
+
+        def drain() -> None:
+            if stream is None:
+                return
+            while True:
+                chunk = stream.read(4096)
+                if not isinstance(chunk, str) or not chunk:
+                    return
+                self._stderr_tail = (self._stderr_tail + chunk)[-4096:]
+
+        self._stderr_thread = Thread(target=drain, daemon=True)
+        self._stderr_thread.start()
 
     def _ssh_target(self) -> str:
         host = str(self.tunnel_config.ssh_host)
@@ -137,11 +172,14 @@ class SSHTunnelManager:
         return host
 
     def _wait_for_local_listener(self) -> None:
-        deadline = time.time() + max(int(self.tunnel_config.connect_timeout), 1)
-        while time.time() < deadline:
+        deadline = time.monotonic() + max(int(self.tunnel_config.connect_timeout), 1)
+        while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
                 stderr = ""
-                if self._process.stderr is not None:
+                if self._stderr_thread is not None:
+                    self._stderr_thread.join(timeout=0.5)
+                    stderr = self._stderr_tail
+                elif self._process.stderr is not None:
                     stderr = self._process.stderr.read().strip()
                 safe_host = _log_safe(self.tunnel_config.ssh_host)
                 safe_error = _log_safe(stderr or "ssh exited early")

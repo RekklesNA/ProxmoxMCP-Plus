@@ -16,6 +16,8 @@ The module implements a robust command execution system with:
 
 import asyncio
 import logging
+from functools import partial
+import anyio
 from typing import Dict, Any
 
 from proxmox_mcp.security.sanitization import sanitize_string
@@ -66,7 +68,7 @@ class VMConsoleManager:
         while True:
             try:
                 self.logger.debug("Getting command status for pid=%s", _log_safe(pid))
-                console = endpoint("exec-status").get(pid=pid)
+                console = await anyio.to_thread.run_sync(partial(endpoint("exec-status").get, pid=pid))
                 self.logger.debug("Raw exec-status response type: %s", type(console).__name__)
                 if not console:
                     raise RuntimeError("No response from exec-status")
@@ -74,8 +76,8 @@ class VMConsoleManager:
                     return {
                         "out-data": str(console),
                         "err-data": "",
-                        "exitcode": 0,
-                        "exited": 1,
+                        "exitcode": -1,
+                        "exited": 0,
                     }
                 last_status = console
             except Exception as e:
@@ -98,7 +100,7 @@ class VMConsoleManager:
 
             await asyncio.sleep(min(poll_interval_seconds, remaining))
 
-    async def execute_command(self, node: str, vmid: str, command: str) -> Dict[str, Any]:
+    async def execute_command(self, node: str, vmid: str, command: str, guest_os: str = "posix") -> Dict[str, Any]:
         """Execute a command in a VM's console via QEMU guest agent.
 
         Implements a two-phase command execution process:
@@ -143,7 +145,7 @@ class VMConsoleManager:
         """
         try:
             # Verify VM exists and is running
-            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            vm_status = await anyio.to_thread.run_sync(self.proxmox.nodes(node).qemu(vmid).status.current.get)
             if vm_status["status"] != "running":
                 self.logger.error("Failed to execute command on VM %s: VM is not running", _log_safe(vmid))
                 raise ValueError(f"VM {vmid} on node {node} is not running")
@@ -159,7 +161,7 @@ class VMConsoleManager:
             # Check the agent capability before attempting guest-exec. Some
             # appliances expose the QEMU guest agent for inspection only.
             try:
-                agent_info = endpoint("info").get()
+                agent_info = await anyio.to_thread.run_sync(endpoint("info").get)
                 supported = agent_info.get("supported_commands", []) if isinstance(agent_info, dict) else []
                 supported_names = {
                     item.get("name") for item in supported if isinstance(item, dict)
@@ -187,7 +189,10 @@ class VMConsoleManager:
                 self.logger.info("Starting command execution...")
                 try:
                     self.logger.debug("Executing command via guest agent for VM %s on node %s", _log_safe(vmid), _log_safe(node))
-                    exec_result = endpoint("exec").post(command=command)
+                    if guest_os not in {"posix", "windows"} or not command.strip():
+                        raise ValueError("Provide a nonempty command and a supported guest_os")
+                    argv = ["cmd.exe", "/d", "/s", "/c", command] if guest_os == "windows" else ["/bin/sh", "-c", command]
+                    exec_result = await anyio.to_thread.run_sync(partial(endpoint("exec").post, command=argv))
                     self.logger.debug("Raw exec response keys: %s", sorted(exec_result.keys()) if isinstance(exec_result, dict) else type(exec_result).__name__)
                     self.logger.info("Command started on VM %s with pid=%s", _log_safe(vmid), _log_safe(exec_result.get("pid") if isinstance(exec_result, dict) else "unknown"))
                 except Exception as e:
@@ -228,7 +233,8 @@ class VMConsoleManager:
                 # Handle exec-status response format
                 output = console.get("out-data", "")
                 error = console.get("err-data", "")
-                exit_code = console.get("exitcode", 0)
+                signal = console.get("signal")
+                exit_code = -int(signal) if signal is not None else console.get("exitcode", -1)
                 exited = console.get("exited", 0)
                 timed_out = bool(console.get("timed_out", False))
                 
@@ -241,8 +247,8 @@ class VMConsoleManager:
                 self.logger.debug("Unexpected command response type for VM %s: %s", _log_safe(vmid), type(console).__name__)
                 output = str(console)
                 error = ""
-                exit_code = 0
-                exited = 1
+                exit_code = -1
+                exited = 0
                 timed_out = False
             
             self.logger.debug("Processed command output length for VM %s: %s", _log_safe(vmid), len(str(output)))
@@ -262,6 +268,8 @@ class VMConsoleManager:
                 "exit_code": exit_code_int,
                 "exited": bool(exited),
                 "timed_out": timed_out,
+                "signal": console.get("signal") if isinstance(console, dict) else None,
+                "output_truncated": bool(console.get("out-truncated") or console.get("err-truncated")) if isinstance(console, dict) else False,
             }
 
         except ValueError:

@@ -193,6 +193,8 @@ class MCPApiKeyOAuthProvider(
         if len(parts) != 3 or parts[0] != "pmcpt2":
             return None
         body, signature = parts[1], parts[2]
+        if len(token) > 16384 or re.fullmatch(r"[A-Za-z0-9_-]+", body) is None or re.fullmatch(r"[A-Za-z0-9_-]{43}", signature) is None:
+            return None
         expected = _b64url_encode(
             hmac.new(self._signing_key, body.encode("ascii"), hashlib.sha256).digest()
         )

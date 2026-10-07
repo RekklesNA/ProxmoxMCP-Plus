@@ -16,6 +16,7 @@ from threading import Event, Timer
 from typing import Dict, Any
 
 import paramiko  # type: ignore[import-untyped]
+from proxmox_mcp.core.process import run_bounded
 
 
 def _log_safe(value: object, max_length: int = 200) -> str:
@@ -29,8 +30,9 @@ class ContainerConsoleManager:
     COMMAND_TIMEOUT = 60
     KILL_GRACE = 5
     SSH_TIMEOUT = 70
+    OUTPUT_LIMIT_BYTES = 1048576
 
-    def _timeout_result(self, output: str = "", error: str = "") -> Dict[str, Any]:
+    def _timeout_result(self, output: str = "", error: str = "", truncated: bool = False) -> Dict[str, Any]:
         return {
             "success": False,
             "code": "COMMAND_TIMEOUT",
@@ -40,36 +42,44 @@ class ContainerConsoleManager:
                      "Partial changes may have occurred; check state before retrying."
                      + (f"\n{error}" if error else ""),
             "exit_code": 124,
+            "output_truncated": truncated,
         }
 
-    def _result(self, code: int, output: str, error: str) -> Dict[str, Any]:
+    def _result(self, code: int, output: str, error: str, truncated: bool = False) -> Dict[str, Any]:
         if code in (124, 137):
-            return self._timeout_result(output, error)
-        return {"success": code == 0, "output": output, "error": error, "exit_code": code}
+            return self._timeout_result(output, error, truncated)
+        return {"success": code == 0, "output": output, "error": error, "exit_code": code, "output_truncated": truncated}
 
     def _read_channel(self, channel: Any) -> Dict[str, Any]:
         """Drain both streams fairly, with a wall-clock rather than idle timeout."""
         deadline = time.monotonic() + self.SSH_TIMEOUT
         out, err = bytearray(), bytearray()
+        truncated = False
         try:
             while time.monotonic() < deadline:
                 received = False
                 # One chunk per stream per iteration: continuously busy stdout
                 # must not starve stderr or prevent checking the deadline.
                 if channel.recv_ready():
-                    out.extend(channel.recv(65536))
+                    chunk = channel.recv(65536)
+                    capacity = max(0, self.OUTPUT_LIMIT_BYTES - len(out))
+                    truncated |= len(chunk) > capacity
+                    out.extend(chunk[:capacity])
                     received = True
                 if channel.recv_stderr_ready():
-                    err.extend(channel.recv_stderr(65536))
+                    chunk = channel.recv_stderr(65536)
+                    capacity = max(0, self.OUTPUT_LIMIT_BYTES - len(err))
+                    truncated |= len(chunk) > capacity
+                    err.extend(chunk[:capacity])
                     received = True
                 if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
                     return self._result(channel.recv_exit_status(),
                                         out.decode("utf-8", errors="replace"),
-                                        err.decode("utf-8", errors="replace"))
+                                        err.decode("utf-8", errors="replace"), truncated)
                 if not received:
                     time.sleep(0.01)
             return self._timeout_result(out.decode("utf-8", errors="replace"),
-                                        err.decode("utf-8", errors="replace"))
+                                        err.decode("utf-8", errors="replace"), truncated)
         finally:
             channel.close()
 
@@ -100,12 +110,12 @@ class ContainerConsoleManager:
         # `-o BatchMode=yes` makes OpenSSH fail immediately instead of waiting
         # for interactive input (host key confirmation, password prompts,
         # etc.) which is essential when the MCP server runs headless.
-        # `-o StrictHostKeyChecking=accept-new` silently trusts first-seen
-        # host keys so first-time connections do not block execution.
         ssh_cmd.extend([
             "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "StrictHostKeyChecking=" + ("yes" if self.ssh_cfg.strict_host_key_checking else "accept-new"),
         ])
+        if self.ssh_cfg.known_hosts_file:
+            ssh_cmd.extend(["-o", "UserKnownHostsFile=" + os.path.expanduser(self.ssh_cfg.known_hosts_file)])
         # `--` ends OpenSSH option processing so a target accidentally starting
         # with "-" (e.g. a misconfigured host_overrides value) cannot be
         # reinterpreted as a flag like -oProxyCommand=...
@@ -121,20 +131,18 @@ class ContainerConsoleManager:
         # reading from it, and the call hangs until the 70s timeout. This
         # does not reproduce on Linux where stdin behaves differently.
         try:
-            completed = subprocess.run(  # noqa: S603
+            completed = run_bounded(
                 ssh_cmd,
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
                 timeout=self.SSH_TIMEOUT,
-                check=False,
+                max_output_bytes=self.OUTPUT_LIMIT_BYTES,
             )
         except subprocess.TimeoutExpired as error:
             # subprocess.run kills and reaps the local SSH process on timeout.
             def text(value: Any) -> str:
                 return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
             return self._timeout_result(text(error.stdout), text(error.stderr))
-        return self._result(completed.returncode, completed.stdout, completed.stderr)
+        return self._result(completed.returncode, completed.stdout, completed.stderr, getattr(completed, "output_truncated", False) is True)
 
     def execute_command(self, node: str, vmid: str, command: str) -> Dict[str, Any]:
         """Execute *command* inside the LXC container identified by *vmid* on *node*.

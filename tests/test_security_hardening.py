@@ -53,6 +53,7 @@ def test_manifest_declares_all_registered_tools():
     )
     fake_server = SimpleNamespace(
         mcp=fake_mcp,
+        proxmox_managers={},
         tool_registry=tool_registry,
         config=SimpleNamespace(ssh=SimpleNamespace(user="root")),
         logger=Mock(),
@@ -167,7 +168,7 @@ def test_container_system_ssh_logging_redacts_command(caplog):
 
     caplog.set_level(logging.DEBUG, logger="proxmox-mcp.ct-console")
     with patch(
-        "proxmox_mcp.tools.console.container_manager.subprocess.run",
+        "proxmox_mcp.tools.console.container_manager.run_bounded",
         return_value=completed,
     ):
         result = manager.execute_command("pve1", "101", "echo super-secret")

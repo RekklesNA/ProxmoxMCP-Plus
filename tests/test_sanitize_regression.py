@@ -131,7 +131,9 @@ def test_retry_spec_innocent_url_persists(tmp_path):
     # persisted value intact
     import sqlite3
     import json
-    raw = sqlite3.connect(str(tmp_path / "jobs2.sqlite3")).execute("SELECT retry_spec_json FROM jobs").fetchone()[0]
+    from contextlib import closing
+    with closing(sqlite3.connect(str(tmp_path / "jobs2.sqlite3"))) as connection:
+        raw = connection.execute("SELECT retry_spec_json FROM jobs").fetchone()[0]
     loaded = json.loads(raw)
     assert loaded["params"]["request"]["url"] == url
 

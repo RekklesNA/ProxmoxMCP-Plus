@@ -31,10 +31,7 @@ class SnapshotTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        """Handle errors."""
-        if hasattr(self, "_handle_error"):
-            self._handle_error(action, e)
-        return [Content(type="text", text=f"Error: {action} - {str(e)}")]
+        self._handle_error(action, e)
 
     def list_snapshots(
         self,
@@ -176,7 +173,7 @@ class SnapshotTools(ProxmoxTool):
                 f"  - Rollback: rollback_snapshot node='{node}' vmid='{vmid}' snapname='{snapname}' vm_type='{vm_type}'",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"create snapshot '{snapname}' for {vm_type} {vmid}", e)
@@ -232,7 +229,7 @@ class SnapshotTools(ProxmoxTool):
                 f"Job ID: {job['job_id'] if job else 'n/a'}",
             ]
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"delete snapshot '{snapname}' for {vm_type} {vmid}", e)
@@ -318,7 +315,7 @@ class SnapshotTools(ProxmoxTool):
                 "The VM/container will be restored to its state at the time of the snapshot.",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"rollback to snapshot '{snapname}' for {vm_type} {vmid}", e)

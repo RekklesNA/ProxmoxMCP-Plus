@@ -150,7 +150,7 @@ def test_api_tunnel_close_kills_process_after_timeout() -> None:
     manager = SSHTunnelManager(SimpleNamespace(enabled=True))
     process = Mock()
     process.poll.return_value = None
-    process.wait.side_effect = TimeoutError()
+    process.wait.side_effect = [TimeoutError(), 0]
     manager._process = process
 
     with patch("proxmox_mcp.core.ssh_tunnel.subprocess.TimeoutExpired", TimeoutError):

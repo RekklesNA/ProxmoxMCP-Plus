@@ -30,11 +30,14 @@ class JobsTools:
             return self._json(self.job_store.poll_job(job_id))
         return self._json(self.job_store.get_job(job_id))
 
-    def poll_job(self, job_id: str) -> List[Content]:
-        return self._json(self.job_store.poll_job(job_id))
+    def poll_job(self, job_id: str, include_audit: bool = True) -> List[Content]:
+        return self._json(self.job_store.poll_job(job_id, include_audit=include_audit))
 
     def cancel_job(self, job_id: str) -> List[Content]:
         return self._json(self.job_store.cancel_job(job_id))
 
     def retry_job(self, job_id: str) -> List[Content]:
         return self._json(self.job_store.retry_job(job_id))
+
+    def reconcile_job(self, job_id: str, upid: str | None = None, confirmed_not_submitted: bool = False) -> List[Content]:
+        return self._json(self.job_store.reconcile_job(job_id, upid=upid, confirmed_not_submitted=confirmed_not_submitted))

@@ -8,6 +8,30 @@ from unittest.mock import MagicMock, patch
 from proxmox_mcp.tools.console.container_manager import ContainerConsoleManager
 
 
+@pytest.mark.parametrize('exec_failure', [False, True, 'timeout'])
+def test_watchdog_expiry_reports_timeout_and_closes_transport(manager, exec_failure):
+    import paramiko
+    client = _make_ssh_client(b'partial', b'')
+    if exec_failure == 'timeout':
+        client.connect.side_effect = TimeoutError('timed out')
+    elif exec_failure:
+        client.exec_command.side_effect = paramiko.SSHException('closed transport')
+    timer = MagicMock()
+    def start_timer(seconds, callback):
+        timer.start.side_effect = callback
+        return timer
+    with patch('proxmox_mcp.tools.console.container_manager.paramiko.SSHClient', return_value=client), \
+         patch('proxmox_mcp.tools.console.container_manager.Timer', side_effect=start_timer):
+        result = manager.execute_command('pve', '100', 'echo partial')
+    assert result['timed_out'] is True
+    assert result['exit_code'] == 124
+    if exec_failure == 'timeout':
+        client.close.assert_called_once()
+    else:
+        assert client.close.call_count >= 2
+        timer.cancel.assert_called_once()
+
+
 @pytest.mark.parametrize("busy", [False, True])
 def test_channel_wall_clock_timeout_and_cleanup(manager, monkeypatch, busy):
     channel = MagicMock()
@@ -40,7 +64,7 @@ def test_channel_drains_stderr_before_waiting_for_exit(manager):
     channel.close.assert_called_once()
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_timeout_returns_partial_output(mock_run, manager, ssh_cfg):
     import subprocess
     ssh_cfg.prefer_ssh_client = True
@@ -307,7 +331,7 @@ def test_password_auth_used_when_no_key(MockSSHClient, manager, ssh_cfg):
     assert "key_filename" not in connect_kwargs
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
     ssh_cfg.prefer_ssh_client = True
     ssh_cfg.host_overrides = {"pve1": "ahg1"}
@@ -324,7 +348,7 @@ def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
     assert ssh_command[-3] == "--"
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_uses_double_dash_for_dash_prefixed_target(mock_run, manager, ssh_cfg):
     """A host_overrides value starting with '-' must not be parsed as an SSH option."""
     ssh_cfg.prefer_ssh_client = True
@@ -346,7 +370,7 @@ def test_system_ssh_uses_double_dash_for_dash_prefixed_target(mock_run, manager,
 # Windows-compatibility regression tests (issue #100)
 # ---------------------------------------------------------------------------
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_passes_user_with_dash_l(mock_run, manager, ssh_cfg):
     """Bug 1: system SSH command must include `-l <user>` so OpenSSH does not
     fall back to the current OS user (e.g. the Windows login name on Windows).
@@ -366,7 +390,7 @@ def test_system_ssh_passes_user_with_dash_l(mock_run, manager, ssh_cfg):
     assert l_index < ssh_command.index("--")
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_omits_dash_l_when_user_unset(mock_run, manager, ssh_cfg):
     """`-l` is only added when a user is configured; never emit `-l None`."""
     ssh_cfg.prefer_ssh_client = True
@@ -380,7 +404,7 @@ def test_system_ssh_omits_dash_l_when_user_unset(mock_run, manager, ssh_cfg):
     assert "-l" not in ssh_command
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_closes_stdin(mock_run, manager, ssh_cfg):
     """Bug 2: subprocess.run must use stdin=DEVNULL so OpenSSH does not
     inherit the MCP server's stdin pipe (causes 70s hang on Windows).
@@ -396,7 +420,7 @@ def test_system_ssh_closes_stdin(mock_run, manager, ssh_cfg):
     assert mock_run.call_args.kwargs.get("stdin") == sp.DEVNULL
 
 
-@patch("proxmox_mcp.tools.console.container_manager.subprocess.run")
+@patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_system_ssh_uses_batch_mode_and_accept_new(mock_run, manager, ssh_cfg):
     """Bug 3: system SSH must pass BatchMode=yes and
     StrictHostKeyChecking=accept-new so headless MCP servers do not hang

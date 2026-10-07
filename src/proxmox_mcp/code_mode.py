@@ -87,8 +87,6 @@ class CodeMode:
             results = []
             for name, tool in tools.items():
                 item = {"name": name, "description": tool.description or ""}
-                if name not in tools:
-                    continue
                 haystack = f"{name} {item.get('description', '')}".lower()
                 if query_l and query_l not in haystack:
                     continue

@@ -7,13 +7,16 @@ import re
 import sqlite3
 import threading
 import uuid
+import weakref
 from contextlib import contextmanager
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
+from proxmox_mcp.security.resources import delete_volume, validate_segment
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled"}
@@ -138,30 +141,30 @@ class JobStore:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.RLock()
         self._retry_handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}
+        self.retry_lease_seconds = 300
         self._conn = sqlite3.connect(self.sqlite_path, check_same_thread=False, timeout=30.0)
+        self._finalizer = weakref.finalize(self, self._conn.close)
         self._conn.row_factory = sqlite3.Row
-        self._configure_connection()
-        self._init_db()
-        if self.audit_retention_days is not None:
-            self.prune_audit_events()
-        self._register_builtin_retry_handlers()
-        self._load_records()
+        try:
+            self._configure_connection()
+            self._init_db()
+            if self.audit_retention_days is not None:
+                self.prune_audit_events()
+            self._register_builtin_retry_handlers()
+            self._load_records()
+        except BaseException:
+            self.close()
+            raise
 
     def close(self) -> None:
         with self._lock:
-            self._conn.close()
+            self._finalizer()
 
     def __enter__(self) -> "JobStore":
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def register_retry_handler(self, kind: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         self._retry_handlers[kind] = handler
@@ -227,19 +230,54 @@ class JobStore:
         status: Optional[str] = None,
         tool_name: Optional[str] = None,
         limit: int = 100,
+        include_audit: bool = False,
     ) -> list[dict[str, Any]]:
         with self._lock:
-            rows = self._query_records(status=status, tool_name=tool_name, limit=limit)
+            rows = self._query_records(status=status, tool_name=tool_name, limit=limit, include_audit=include_audit)
             return [item.as_dict() for item in rows]
 
-    def get_job(self, job_id: str) -> dict[str, Any]:
+    def get_audit(self, job_id: str, *, after_id: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+        """Return a bounded, target-checked audit page with stable cursors."""
         with self._lock:
+            row = self._conn.execute("SELECT metadata_json FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if row is None or not self._target_matches(json.loads(row[0]).get("target")):
+                raise JobNotFoundError("Unknown job_id")
+            rows = self._conn.execute("SELECT id,timestamp,event,details_json FROM job_audit_events WHERE job_id = ? AND id > ? ORDER BY id LIMIT ?",
+                                      (job_id, max(0, after_id), max(1, min(limit, 500)))).fetchall()
+            return [{"id": row["id"], "timestamp": row["timestamp"], "event": row["event"], "details": _sanitize(json.loads(row["details_json"]))} for row in rows]
+
+    def get_job(self, job_id: str) -> dict[str, Any]:
+        with self._write_transaction():
             return self._load_record_from_db(job_id).as_dict()
 
-    def poll_job(self, job_id: str) -> dict[str, Any]:
+    def reconcile_job(self, job_id: str, *, upid: str | None = None, confirmed_not_submitted: bool = False) -> dict[str, Any]:
+        """Resolve an uncertain submission only with explicit operator evidence."""
+        if bool(upid) == confirmed_not_submitted:
+            raise ValueError("Provide either a verified UPID or confirmation that no task was submitted")
         with self._write_transaction():
             record = self._load_record_from_db(job_id)
-            if record.status == _RETRYING_STATUS:
+            if record.status != "needs_reconciliation":
+                raise JobConflictError("Only uncertain retries may be reconciled")
+            if upid:
+                validate_segment(upid)
+                if not upid.startswith("UPID:" + str(record.node) + ":"):
+                    raise ValueError("UPID must belong to the original node")
+                record.previous_upids.append(record.upid or "")
+                record.upid = upid
+                record.status = "running"
+                record.attempts += 1
+                record.retry_count += 1
+            else:
+                record.status = "failed"
+            record.metadata.pop("retry_lease_expires", None)
+            record.add_audit("retry_reconciled", upid=upid, confirmed_not_submitted=confirmed_not_submitted)
+            self._save_record(record)
+            return record.as_dict()
+
+    def poll_job(self, job_id: str, *, include_audit: bool = True) -> dict[str, Any]:
+        with self._write_transaction():
+            record = self._load_record_from_db(job_id, include_audit=include_audit)
+            if record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
                 return record.as_dict()
             if not record.upid or not record.node:
                 record.add_audit("poll_skipped", reason="missing_upid_or_node")
@@ -254,8 +292,8 @@ class JobStore:
         status, last_error, completed_at = self._normalize_status(status_payload)
 
         with self._write_transaction():
-            record = self._load_record_from_db(job_id)
-            if record.upid != upid or record.status == _RETRYING_STATUS:
+            record = self._load_record_from_db(job_id, include_audit=include_audit)
+            if record.upid != upid or record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
                 record.add_audit("poll_discarded", stale_upid=upid, current_upid=record.upid)
                 self._save_record(record)
                 return record.as_dict()
@@ -280,7 +318,7 @@ class JobStore:
             record = self._load_record_from_db(job_id)
             if not record.upid or not record.node:
                 raise JobConflictError(f"Job {job_id} has no task UPID to cancel")
-            if record.status in _TERMINAL_STATUSES or record.status == _RETRYING_STATUS:
+            if record.status in _TERMINAL_STATUSES or record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
                 raise JobConflictError(f"Job {job_id} cannot be cancelled while status is '{record.status}'")
             upid = record.upid
             node = record.node
@@ -297,7 +335,7 @@ class JobStore:
                 record.add_audit("cancel_discarded", stale_upid=upid, current_upid=record.upid)
                 self._save_record(record)
                 return record.as_dict()
-            if record.status in _TERMINAL_STATUSES or record.status == _RETRYING_STATUS:
+            if record.status in _TERMINAL_STATUSES or record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
                 record.add_audit("cancel_discarded", upid=upid, current_status=record.status)
                 self._save_record(record)
                 return record.as_dict()
@@ -342,13 +380,20 @@ class JobStore:
             else:
                 assert handler is not None and params is not None
                 new_upid = handler(params)
+        except (TimeoutError, ConnectionError, RequestConnectionError, RequestTimeout):
+            self._mark_retry_uncertain(job_id, original_upid)
+            raise
         except Exception as exc:
             self._rollback_retry_claim(job_id, original_upid, previous_status, exc)
+            raise
+        except BaseException:
+            self._mark_retry_uncertain(job_id, original_upid)
             raise
 
         with self._write_transaction():
             record = self._load_record_from_db(job_id)
-            if record.status != _RETRYING_STATUS or record.upid != original_upid:
+            conflict = record.status != _RETRYING_STATUS or record.upid != original_upid
+            if conflict:
                 record.add_audit(
                     "retry_result_discarded",
                     stale_upid=original_upid,
@@ -357,24 +402,37 @@ class JobStore:
                     new_upid=str(new_upid),
                 )
                 self._save_record(record)
-                raise JobConflictError(f"Job {job_id} changed while retry was running")
-            if original_upid:
-                record.previous_upids.append(original_upid)
-            record.upid = str(new_upid)
-            record.status = "running"
-            record.progress = 0
-            record.last_error = None
-            record.completed_at = None
-            record.result = None
-            record.attempts += 1
-            record.retry_count += 1
-            record.add_audit("retried", new_upid=record.upid)
+            else:
+                if original_upid:
+                    record.previous_upids.append(original_upid)
+                record.upid = str(new_upid)
+                record.status = "running"
+                record.progress = 0
+                record.last_error = None
+                record.completed_at = None
+                record.result = None
+                record.attempts += 1
+                record.retry_count += 1
+                record.add_audit("retried", new_upid=record.upid)
+                self._save_record(record)
+                result = record.as_dict()
+        if conflict:
+            raise JobConflictError(f"Job {job_id} changed while retry was running")
+        return result
+
+    def _mark_retry_uncertain(self, job_id: str, original_upid: Optional[str]) -> None:
+        """Preserve concurrent state while recording an ambiguous remote submission."""
+        with self._write_transaction():
+            record = self._load_record_from_db(job_id)
+            if record.status == _RETRYING_STATUS and record.upid == original_upid:
+                record.status = "needs_reconciliation"
+            record.add_audit("retry_interrupted", upid=original_upid)
             self._save_record(record)
-            return record.as_dict()
 
     def _claim_retry(self, record: JobRecord) -> None:
         previous_status = record.status
         record.status = _RETRYING_STATUS
+        record.metadata["retry_lease_expires"] = (datetime.now(timezone.utc) + timedelta(seconds=self.retry_lease_seconds)).isoformat()
         record.add_audit("retry_started", previous_status=previous_status, upid=record.upid)
         placeholders = ", ".join("?" for _ in _RETRYABLE_STATUSES)
         cursor = self._conn.execute(
@@ -517,27 +575,24 @@ class JobStore:
         # isolated between named targets. In legacy mode this store owns the whole
         # database and still serves those jobs, so no warning is warranted.
         if self.target_name is not None and not self.legacy_mode:
-            try:
-                count = self._conn.execute(
-                    "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
-                ).fetchone()[0]
-                if count:
-                    import logging
-                    logging.getLogger("proxmox-mcp.jobs").warning(
-                        "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
-                    )
-            except Exception:
-                pass
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
+            ).fetchone()[0]
+            if count:
+                import logging
+                logging.getLogger("proxmox-mcp.jobs").warning(
+                    "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
+                )
 
     def _load_records(self) -> None:
         with self._lock:
             for record in self._query_records(limit=500):
                 self._jobs[record.job_id] = record
 
-    def _row_to_record(self, row: sqlite3.Row) -> JobRecord:
+    def _row_to_record(self, row: sqlite3.Row, audit_rows: list[Any] | None = None) -> JobRecord:
         job_id = str(row["job_id"])
         existing = self._jobs.get(job_id)
-        audit = self._conn.execute(
+        audit = audit_rows if audit_rows is not None else self._conn.execute(
             "SELECT timestamp, event, details_json FROM job_audit_events WHERE job_id = ? ORDER BY id", (job_id,),
         ).fetchall()
         return JobRecord(
@@ -585,7 +640,7 @@ class JobStore:
             return True
         return self.legacy_mode and stored_target is None
 
-    def _load_record_from_db(self, job_id: str) -> JobRecord:
+    def _load_record_from_db(self, job_id: str, *, include_audit: bool = True) -> JobRecord:
         row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
             self._jobs.pop(job_id, None)
@@ -593,8 +648,15 @@ class JobStore:
         stored_target = json.loads(row["metadata_json"] or "{}").get("target")
         if not self._target_matches(stored_target):
             raise JobNotFoundError(f"Unknown job_id: {job_id}")
-        record = self._row_to_record(row)
+        record = self._row_to_record(row, None if include_audit else [])
+        if record.status == _RETRYING_STATUS:
+            expires = record.metadata.get("retry_lease_expires", record.updated_at)
+            if expires <= _utcnow():
+                record.status = "needs_reconciliation"
+                record.add_audit("retry_lease_expired")
+                self._save_record(record)
         self._jobs[record.job_id] = record
+        self._trim_cache()
         return record
 
     def _query_records(
@@ -603,6 +665,7 @@ class JobStore:
         status: Optional[str] = None,
         tool_name: Optional[str] = None,
         limit: int = 100,
+        include_audit: bool = True,
     ) -> list[JobRecord]:
         safe_limit = max(1, min(int(limit), 500))
         where: list[str] = []
@@ -629,12 +692,23 @@ class JobStore:
             f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
             (*params, safe_limit),
         ).fetchall()
-        records = [self._row_to_record(row) for row in rows]
+        audit_by_job: dict[str, list[Any]] = {row["job_id"]: [] for row in rows}
+        if rows and include_audit:
+            placeholders = ",".join("?" for _ in rows)
+            for event in self._conn.execute(f"SELECT job_id,timestamp,event,details_json FROM job_audit_events WHERE job_id IN ({placeholders}) ORDER BY id", tuple(audit_by_job)).fetchall():
+                audit_by_job[event["job_id"]].append(event)
+        records = [self._row_to_record(row, audit_by_job[row["job_id"]]) for row in rows]
         for record in records:
             self._jobs[record.job_id] = record
+        self._trim_cache()
         return records
 
+    def _trim_cache(self) -> None:
+        while len(self._jobs) > 500:
+            self._jobs.pop(next(iter(self._jobs)))
+
     def _save_record(self, record: JobRecord) -> None:
+        self._trim_cache()
         self._conn.execute(
             """
             INSERT OR REPLACE INTO jobs (
@@ -781,7 +855,7 @@ class JobStore:
         )
         self.register_retry_handler(
             "backup.delete",
-            lambda params: self.proxmox.nodes(params["node"]).storage(params["storage"]).content(params["volid"]).delete(),
+            lambda params: delete_volume(self.proxmox, params["node"], params["storage"], params["volid"], {"backup"}),
         )
         self.register_retry_handler(
             "iso.download",
@@ -789,5 +863,5 @@ class JobStore:
         )
         self.register_retry_handler(
             "iso.delete",
-            lambda params: self.proxmox.nodes(params["node"]).storage(params["storage"]).content(params["volid"]).delete(),
+            lambda params: delete_volume(self.proxmox, params["node"], params["storage"], params["volid"], {"iso", "vztmpl"}),
         )

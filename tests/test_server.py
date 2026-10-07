@@ -86,7 +86,11 @@ def mock_proxmox():
 @pytest.fixture
 def server(mock_env_vars, mock_proxmox):
     """Fixture to create a ProxmoxMCPServer instance."""
-    return ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
+    value = ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
+    try:
+        yield value
+    finally:
+        value.close()
 
 def test_server_initialization(server, mock_proxmox):
     """Test server initialization with environment variables."""
@@ -871,7 +875,7 @@ async def test_create_container_with_lxc_options(server, mock_proxmox):
     proxmox = mock_proxmox.return_value
     proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
     proxmox.nodes.return_value.lxc.get.return_value = []
-    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
     proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-1"
 
     response = await server.mcp.call_tool(
@@ -911,7 +915,7 @@ async def test_create_container_passes_resource_pool_to_proxmox(server, mock_pro
     proxmox = mock_proxmox.return_value
     proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
     proxmox.nodes.return_value.lxc.get.return_value = []
-    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
     proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-pool"
 
     await server.mcp.call_tool(
@@ -932,7 +936,7 @@ async def test_create_container_default_lxc_options(server, mock_proxmox):
     proxmox = mock_proxmox.return_value
     proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
     proxmox.nodes.return_value.lxc.get.return_value = []
-    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
     proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-2"
 
     await server.mcp.call_tool(

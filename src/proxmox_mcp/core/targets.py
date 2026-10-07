@@ -75,9 +75,12 @@ class TargetRegistry:
     def describe(
         self,
         discover: Callable[[ResolvedTarget], dict[str, Any]] | None = None,
+        allowed_names: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         descriptions = []
         for target in sorted(self._targets.values(), key=lambda item: item.name):
+            if allowed_names is not None and target.name not in allowed_names:
+                continue
             item = {
                 "name": target.name,
                 "kind": target.kind,
