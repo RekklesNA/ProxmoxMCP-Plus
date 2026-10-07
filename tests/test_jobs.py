@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -54,7 +55,11 @@ def mock_proxmox():
 
 @pytest.fixture
 def server(mock_env_vars, mock_proxmox):
-    return ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
+    value = ProxmoxMCPServer(os.environ["PROXMOX_MCP_CONFIG"])
+    try:
+        yield value
+    finally:
+        value.close()
 
 
 def test_job_store_register_poll_and_progress(tmp_path: Path):
@@ -462,7 +467,7 @@ def test_create_container_does_not_persist_secret_retry_spec(tmp_path: Path):
     proxmox = Mock()
     proxmox.nodes.get.return_value = [{"node": "node1", "status": "online"}]
     proxmox.nodes.return_value.lxc.get.return_value = []
-    proxmox.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
+    proxmox.nodes.return_value.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
     proxmox.nodes.return_value.lxc.create.return_value = "UPID:ct-create-secret"
 
     db_path = tmp_path / "jobs.sqlite3"
@@ -477,7 +482,8 @@ def test_create_container_does_not_persist_secret_retry_spec(tmp_path: Path):
         ssh_public_keys="ssh-ed25519 AAAA-secret-key",
     )
 
-    persisted = sqlite3.connect(db_path).execute("SELECT retry_spec_json FROM jobs").fetchone()[0]
+    with closing(sqlite3.connect(db_path)) as connection:
+        persisted = connection.execute("SELECT retry_spec_json FROM jobs").fetchone()[0]
     job = store.list_jobs()[0]
 
     assert persisted is None

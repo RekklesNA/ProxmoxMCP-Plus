@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from typing import Any, Literal, NoReturn, Optional, cast
@@ -110,6 +111,16 @@ class ProxmoxMCPServer:
 
     def __init__(self, config_path: Optional[str] = None):
         self.code_mode: CodeMode | None = None
+        self.proxmox_managers: dict[str, ProxmoxManager] = {}
+        self.target_job_stores: dict[str, JobStore] = {}
+        self.logger = logging.getLogger("proxmox-mcp.server")
+        try:
+            self._initialize(config_path)
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize(self, config_path: Optional[str]) -> None:
         self.config = load_config(config_path)
         self.tool_exposure_policy = ToolExposurePolicy(
             known_tools=BUILTIN_TOOL_NAMES,
@@ -118,16 +129,14 @@ class ProxmoxMCPServer:
         )
         self.logger = setup_logging(self.config.logging)
         self.target_registry = TargetRegistry(self.config)
-        self.proxmox_managers = {
-            name: ProxmoxManager(
+        for name in self.target_registry.names:
+            target = self.target_registry.resolve(name)
+            self.proxmox_managers[name] = ProxmoxManager(
                 target.config,
                 target.auth,
                 api_tunnel_config=target.api_tunnel,
                 ssh_config=target.ssh,
             )
-            for name in self.target_registry.names
-            for target in [self.target_registry.resolve(name)]
-        }
         self.target_command_policies = {
             name: CommandPolicyGate(
                 self.target_registry.resolve(name).command_policy or self.config.command_policy
@@ -139,7 +148,7 @@ class ProxmoxMCPServer:
         self.command_policy = CommandPolicyGate(self.config.command_policy)
         self.metrics = ToolMetrics()
 
-        self.target_job_stores: dict[str, JobStore] = {}
+        self.target_job_stores = {}
         self.target_toolsets: dict[str, SimpleNamespace] = {}
         for name, manager in self.proxmox_managers.items():
             target = self.target_registry.resolve(name)

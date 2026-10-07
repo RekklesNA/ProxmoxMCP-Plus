@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -61,6 +63,7 @@ class PostgresOAuthStateStore:
         self.command_timeout_seconds = float(command_timeout_seconds)
         self._pool: Any | None = None
         self._start_lock = asyncio.Lock()
+        self._maintenance_task: asyncio.Task[Any] | None = None
 
     async def start(self) -> None:
         if self._pool is not None:
@@ -83,12 +86,36 @@ class PostgresOAuthStateStore:
                 await pool.close()
                 raise
             self._pool = pool
+            self._maintenance_task = asyncio.create_task(self._maintain_expiry())
 
     async def close(self) -> None:
+        if self._maintenance_task is not None:
+            self._maintenance_task.cancel()
+            try:
+                await self._maintenance_task
+            except asyncio.CancelledError:
+                pass
+            self._maintenance_task = None
         pool = self._pool
         self._pool = None
         if pool is not None:
             await pool.close()
+
+    async def cleanup_expired(self, *, now: float | None = None, batch_size: int = 1000) -> None:
+        """Delete a bounded batch of expired state without touching legacy metadata."""
+        pool = await self._get_pool()
+        cutoff = time.time() if now is None else now
+        async with pool.acquire() as conn:
+            for table in (_CODES, _ACCESS, _REFRESH):
+                await conn.execute(f"DELETE FROM {table} WHERE ctid IN (SELECT ctid FROM {table} WHERE expires_at <= $1 LIMIT $2)", cutoff, max(1, min(batch_size, 10000)))
+
+    async def _maintain_expiry(self) -> None:
+        while True:
+            await asyncio.sleep(300)
+            try:
+                await self.cleanup_expired()
+            except Exception:
+                logging.getLogger(__name__).warning("OAuth expiry cleanup failed; retrying at the next interval")
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
@@ -167,6 +194,8 @@ class PostgresOAuthStateStore:
                     ON {_FAILURES}(peer_ip, occurred_at)
                     """
                 )
+                for table in (_CODES, _ACCESS, _REFRESH):
+                    await conn.execute(f"CREATE INDEX IF NOT EXISTS {table}_expires ON {table}(expires_at)")
 
     async def get_client_payload(self, client_id: str) -> str | None:
         pool = await self._get_pool()

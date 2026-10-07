@@ -73,3 +73,5 @@ proxmox-config/config.live.json
 # Build/Lock files
 uv.lock
 .agent/
+.audit/
+baseline-tests.txt

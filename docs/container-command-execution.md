@@ -239,8 +239,8 @@ to run. Example:
   "command_policy": {
     "mode": "allowlist",
     "allow_patterns": [
-      "^uname(\\s|$)",
-      "^df\\s+-h(\\s|$)",
+      "^uname(?:\\s+-a)?$",
+      "^df\\s+-h$",
       "^cat\\s+/etc/os-release$",
       "^systemctl\\s+status\\s+[a-zA-Z0-9_.@-]+$"
     ],

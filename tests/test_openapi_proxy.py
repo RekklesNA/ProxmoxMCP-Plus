@@ -255,7 +255,7 @@ class _FakeJobStore:
         tool_name = "delete_vm" if job_id == "danger" else "start_vm"
         return {"job_id": job_id, "status": "running", "tool_name": tool_name}
 
-    def poll_job(self, job_id: str):
+    def poll_job(self, job_id: str, *, include_audit: bool = True):
         return {"job_id": job_id, "status": "completed"}
 
     def cancel_job(self, job_id: str):
@@ -285,7 +285,7 @@ class _NamedFakeJobStore(_FakeJobStore):
             "tool_name": "delete_vm",
         }
 
-    def poll_job(self, job_id: str):
+    def poll_job(self, job_id: str, *, include_audit: bool = True):
         self.calls.append(("poll", job_id))
         return {"job_id": job_id, "target": self.target, "status": "completed"}
 

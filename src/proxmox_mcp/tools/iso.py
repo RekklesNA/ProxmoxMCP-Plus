@@ -2,7 +2,7 @@
 from typing import List, Dict, Optional, Any
 import json
 from mcp.types import TextContent as Content
-from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.base import ProxmoxTool, InventoryList, completeness_content, _log_safe
 
 
 def _as_list(maybe: Any) -> List:
@@ -45,22 +45,17 @@ class ISOTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        """Handle errors."""
-        if hasattr(self, "_handle_error"):
-            self._handle_error(action, e)
-        return [Content(type="text", text=f"Error: {action} - {str(e)}")]
+        self._handle_error(action, e)
 
     def _get_storage_content(
         self, content_type: str, node: Optional[str] = None, storage: Optional[str] = None
     ) -> List[Dict]:
         """Get storage content filtered by type across nodes/storages."""
-        results: List[Dict[str, Any]] = []
+        results = InventoryList()
         try:
             nodes = _as_list(self.proxmox.nodes.get())
         except Exception as e:
-            if hasattr(self, "_handle_error"):
-                self._handle_error("list nodes", e)
-            return results
+            self._handle_error("list nodes", e)
 
         for n in nodes:
             node_name = _get(n, "node")
@@ -77,6 +72,7 @@ class ISOTools(ProxmoxTool):
                     node_name,
                     node_error,
                 )
+                results.warnings.append(_log_safe(node_name) + ": " + _log_safe(node_error))
                 continue
             for s in storages:
                 storage_name = _get(s, "storage")
@@ -100,9 +96,11 @@ class ISOTools(ProxmoxTool):
                         item["_node"] = node_name
                         item["_storage"] = storage_name
                         results.append(item)
-                except Exception:
-                    continue
+                except Exception as error:
+                    results.warnings.append(_log_safe(storage_name) + ": " + _log_safe(error))
 
+        if not results and results.warnings:
+            raise RuntimeError("Storage content inventory is unavailable: " + "; ".join(results.warnings))
         return results
 
     def list_isos(
@@ -147,7 +145,7 @@ class ISOTools(ProxmoxTool):
                 lines.append(f"     Volume ID: {volid}")
                 lines.append("")
 
-            return [Content(type="text", text="\n".join(lines).rstrip())]
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(getattr(isos, "warnings", []))
 
         except Exception as e:
             return self._err("list ISOs", e)
@@ -196,7 +194,7 @@ class ISOTools(ProxmoxTool):
 
             lines.append("Use the Volume ID with create_container's ostemplate parameter.")
 
-            return [Content(type="text", text="\n".join(lines).rstrip())]
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(getattr(templates, "warnings", []))
 
         except Exception as e:
             return self._err("list templates", e)
@@ -266,7 +264,7 @@ class ISOTools(ProxmoxTool):
                 "Use list_isos to verify when complete.",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"download ISO '{filename}'", e)
@@ -290,26 +288,8 @@ class ISOTools(ProxmoxTool):
         """
         _ = approval_token
         try:
-            # Construct volume ID if just filename provided
-            if ":" not in filename:
-                # Try to find the volume ID
-                content = _as_list(
-                    self.proxmox.nodes(node).storage(storage).content.get()
-                )
-                volid = None
-                for item in content:
-                    item_volid = _get(item, "volid", "")
-                    if filename in item_volid:
-                        volid = item_volid
-                        break
-
-                if not volid:
-                    return [Content(
-                        type="text",
-                        text=f"Error: Could not find '{filename}' in {storage} on {node}"
-                    )]
-            else:
-                volid = filename
+            from proxmox_mcp.security.resources import delete_volume, resolve_volume
+            volid = resolve_volume(self.proxmox, node, storage, filename, {"iso", "vztmpl"}, filename=True)
 
             # Delete the content
             result = self.proxmox.nodes(node).storage(storage).content(volid).delete()
@@ -320,7 +300,7 @@ class ISOTools(ProxmoxTool):
                 upid=result,
                 metadata={"storage": storage, "volid": volid},
                 retry_spec={"kind": "iso.delete", "params": {"node": node, "storage": storage, "volid": volid}},
-                retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
+                retry_factory=lambda: delete_volume(self.proxmox, node, storage, volid, {"iso", "vztmpl"}),
                 cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
@@ -335,7 +315,7 @@ class ISOTools(ProxmoxTool):
             if result:
                 lines.extend(["", f"Task ID: {result}", f"Job ID: {job['job_id'] if job else 'n/a'}"])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"delete ISO/template '{filename}'", e)

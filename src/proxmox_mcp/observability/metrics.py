@@ -32,8 +32,8 @@ class ToolMetrics:
     _series: dict[tuple[str, str, str], LabeledMetricSeries] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def observe(self, tool_name: str, latency_ms: float, success: bool, target: str = "default") -> None:
-        status = "success" if success else "error"
+    def observe(self, tool_name: str, latency_ms: float, success: bool, target: str = "default", outcome: str | None = None) -> None:
+        status = outcome if outcome in {"success", "error", "denied", "partial", "submitted"} else ("success" if success else "error")
         with self._lock:
             self._entry(tool_name, status, target).observe(latency_ms)
 
@@ -100,6 +100,8 @@ class HttpRequestMetrics:
     def observe(self, route: str, method: str, status_code: int, latency_ms: float) -> None:
         route_key = route or "/"
         method_key = method.upper()
+        if method_key not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}:
+            method_key = "OTHER"
         status_key = str(status_code)
         with self._lock:
             self._entry(route_key, method_key, status_key).observe(latency_ms)

@@ -12,6 +12,8 @@ interactions, ensuring consistent connection handling and authentication
 across the MCP server.
 """
 import logging
+from functools import wraps
+from threading import RLock
 from typing import Dict, Any
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
@@ -60,10 +62,14 @@ class ProxmoxManager:
             if api_tunnel_config is not None and manage_api_tunnel
             else None
         )
-        if self.tunnel_manager is not None:
-            self.tunnel_manager.ensure_tunnel()
-        self.config = self._create_config(proxmox_config, auth_config)
-        self.api = self._setup_api()
+        try:
+            if self.tunnel_manager is not None:
+                self.tunnel_manager.ensure_tunnel()
+            self.config = self._create_config(proxmox_config, auth_config)
+            self.api = self._setup_api()
+        except BaseException:
+            self.close()
+            raise
 
     def _create_config(self, proxmox_config: ProxmoxConfig, auth_config: AuthConfig) -> Dict[str, Any]:
         """Create a configuration dictionary for ProxmoxAPI.
@@ -126,6 +132,20 @@ class ProxmoxManager:
         try:
             self.logger.info("Connecting to Proxmox host: %s", _log_safe(self.config["host"]))
             api = ProxmoxAPI(**self.config)
+            store = getattr(api, "_store", None)
+            if isinstance(store, dict) and "session" in store:
+                session = store["session"]
+                request = session.request
+                lock = RLock()
+
+                @wraps(request)
+                def synchronized_request(*args: Any, **kwargs: Any) -> Any:
+                    with lock:
+                        if self.tunnel_manager is not None:
+                            self.tunnel_manager.ensure_tunnel()
+                        return request(*args, **kwargs)
+
+                session.request = synchronized_request
             
             # Connection test removed from startup for robustness.
             # It will fail gracefully later if credentials are wrong.
@@ -152,3 +172,6 @@ class ProxmoxManager:
         """Release resources owned by the Proxmox API manager."""
         if self.tunnel_manager is not None:
             self.tunnel_manager.close()
+        store = getattr(getattr(self, "api", None), "_store", None)
+        if isinstance(store, dict) and "session" in store:
+            store["session"].close()

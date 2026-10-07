@@ -9,7 +9,7 @@ ProxmoxMCP-Plus sits between clients and the Proxmox API. The main controls are:
 - Proxmox API token authentication
 - TLS verification for Proxmox API connections
 - required API key protection for OpenAPI exposure, unless `PROXMOX_ALLOW_NO_AUTH=true` is explicitly set for local development
-- optional `MCP_API_KEY` Bearer protection for native Streamable HTTP exposure
+- default-required `MCP_API_KEY` Bearer protection for native Streamable HTTP exposure
 - MCP transport DNS rebinding protection and Host/Origin allowlists for Streamable HTTP deployments
 - command policy checks for `execute_*` tools
 - optional SSH configuration for container command execution
@@ -102,8 +102,8 @@ Set `MCP_API_KEY` to require `Authorization: Bearer <MCP_API_KEY>` on the native
 with `WWW-Authenticate: Bearer`. The token is compared in constant time. This setting is
 independent of `PROXMOX_API_KEY`, which protects only the OpenAPI service on port `8811`.
 
-For backward compatibility, leaving `MCP_API_KEY` unset keeps the native endpoint
-unauthenticated and emits a startup warning. Do not rely on Host or Origin validation as
+Leaving `MCP_API_KEY` unset blocks native HTTP startup unless
+`MCP_ALLOW_UNAUTHENTICATED_HTTP=true` explicitly delegates authentication to an external layer. Do not rely on Host or Origin validation as
 caller authentication: those settings mitigate DNS rebinding but do not identify clients.
 
 Recommended reverse proxy settings:

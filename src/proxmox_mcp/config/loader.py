@@ -53,6 +53,8 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
     """Allow deployment-specific MCP transport settings to override file config."""
+    if "PROXMOX_JOBS_SQLITE_PATH" in os.environ:
+        config_data.setdefault("jobs", {})["sqlite_path"] = os.environ["PROXMOX_JOBS_SQLITE_PATH"]
     env_map = {
         "MCP_HOST": ("host", str),
         "MCP_PORT": ("port", int),
@@ -244,15 +246,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
     try:
         config = Config.model_validate(config_data)
-        if config.targets is not None:
-            insecure = [name for name, target in config.targets.items() if not target.verify_ssl and not target.allow_insecure_tls]
-            if insecure:
-                raise ValueError(
-                    "Insecure TLS configuration blocked for target(s): "
-                    + ", ".join(insecure)
-                    + ". Set verify_ssl=true or enable allow_insecure_tls for that target."
-                )
-        elif config.proxmox is not None and not config.proxmox.verify_ssl and not config.security.dev_mode:
+        if config.targets is None and config.proxmox is not None and not config.proxmox.verify_ssl and not config.security.dev_mode:
             raise ValueError(
                 "Insecure TLS configuration blocked: set proxmox.verify_ssl=true. "
                 "Only dev_mode=true can allow verify_ssl=false."

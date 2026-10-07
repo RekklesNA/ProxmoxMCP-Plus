@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from mcpo.main import lifespan
@@ -24,7 +24,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from proxmox_mcp.observability import HttpRequestMetrics
 from proxmox_mcp.services.jobs import JobConflictError, JobNotFoundError
+from proxmox_mcp.services.tool_registry import ToolExposurePolicy
+from proxmox_mcp.services.tool_catalog import BUILTIN_TOOL_NAMES
 from proxmox_mcp.security.sanitization import sanitize_string
+from proxmox_mcp.security.access import authorize_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -157,7 +160,7 @@ class ProxyMetricsMiddleware(BaseHTTPMiddleware):
             latency_ms = (time.perf_counter() - start) * 1000.0
             status_code = response.status_code if response is not None else 500
             route = request.scope.get("route")
-            route_path = getattr(route, "path", None) or request.url.path
+            route_path = getattr(route, "path", None) or "unmatched"
             metrics.observe(route_path, request.method, status_code, latency_ms)
 
 
@@ -247,6 +250,8 @@ def create_app(
     command_policy: Any | None = None,
     command_policies: dict[str, Any] | None = None,
     target_readonly: dict[str, bool] | None = None,
+    tool_exposure_policy: Any | None = None,
+    client_permissions: dict[str, Any] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app that mirrors mcpo behavior and adds ops routes."""
     api_dependency = _get_verify_api_key(api_key) if api_key else None
@@ -386,6 +391,11 @@ def create_app(
             media_type="text/plain; version=0.0.4",
         )
 
+    def _authorize_job(tool: str, target: str) -> None:
+        authorize_client(client_permissions or {}, "_api_key" if api_key else "_anonymous", tool, target)
+        if tool_exposure_policy is not None and not tool_exposure_policy.allows(tool):
+            raise PermissionError("The operation is disabled")
+
     def _require_job_store(target: Optional[str]) -> tuple[str, Any]:
         stores = getattr(app.state, "job_stores", {})
         if not stores:
@@ -423,11 +433,12 @@ def create_app(
         job_id: str,
         approval_token: Optional[str],
     ) -> None:
+        job = job_store_local.get_job(job_id)
+        operation_name = str(job.get("tool_name") or "")
+        _authorize_job(operation_name, target)
         policy = getattr(app.state, "command_policies", {}).get(target)
         if policy is None:
             return
-        job = job_store_local.get_job(job_id)
-        operation_name = str(job.get("tool_name") or "")
         decision = policy.evaluate_operation(
             operation_name,
             approval_token=approval_token,
@@ -444,41 +455,66 @@ def create_app(
             raise PermissionError(decision.message)
 
     @app.get("/jobs", dependencies=job_auth_dependencies)
-    async def list_jobs(
+    def list_jobs(
         status: Optional[str] = None,
         tool_name: Optional[str] = None,
         limit: int = 100,
         target: Optional[str] = None,
     ) -> JSONResponse:
         try:
-            _, job_store_local = _require_job_store(target)
+            target_name, job_store_local = _require_job_store(target)
+            _authorize_job('list_jobs', target_name)
             payload = job_store_local.list_jobs(status=status, tool_name=tool_name, limit=limit)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
-    @app.get("/jobs/{job_id}", dependencies=job_auth_dependencies)
-    async def get_job(job_id: str, refresh: bool = False, target: Optional[str] = None) -> JSONResponse:
+    @app.get("/jobs/{job_id}/audit", dependencies=job_auth_dependencies)
+    def get_job_audit(job_id: str, after_id: int = 0, limit: int = 100, target: str | None = None) -> JSONResponse:
         try:
-            _, job_store_local = _require_job_store(target)
+            name, store = _require_job_store(target)
+            _authorize_job('get_job', name)
+            return JSONResponse(content=store.get_audit(job_id, after_id=after_id, limit=limit))
+        except Exception as exc:
+            return _job_error_response(exc)
+
+    @app.post("/jobs/{job_id}/reconcile", dependencies=job_auth_dependencies)
+    def reconcile_job(job_id: str, upid: str | None = Body(default=None), confirmed_not_submitted: bool = Body(default=False),
+                      target: str | None = None, approval_token: str | None = Header(default=None, alias="X-Approval-Token")) -> JSONResponse:
+        try:
+            name, store = _require_job_store(target)
+            _authorize_job('reconcile_job', name)
+            _enforce_target_mutation(name)
+            _enforce_job_retry_policy(name, store, job_id, approval_token)
+            return JSONResponse(content=store.reconcile_job(job_id, upid=upid, confirmed_not_submitted=confirmed_not_submitted))
+        except Exception as exc:
+            return _job_error_response(exc)
+
+    @app.get("/jobs/{job_id}", dependencies=job_auth_dependencies)
+    def get_job(job_id: str, refresh: bool = False, target: Optional[str] = None) -> JSONResponse:
+        try:
+            target_name, job_store_local = _require_job_store(target)
+            _authorize_job('get_job', target_name)
             payload = job_store_local.poll_job(job_id) if refresh else job_store_local.get_job(job_id)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/poll", dependencies=job_auth_dependencies)
-    async def poll_job(job_id: str, target: Optional[str] = None) -> JSONResponse:
+    def poll_job(job_id: str, target: Optional[str] = None, include_audit: bool = True) -> JSONResponse:
         try:
-            _, job_store_local = _require_job_store(target)
-            payload = job_store_local.poll_job(job_id)
+            target_name, job_store_local = _require_job_store(target)
+            _authorize_job('poll_job', target_name)
+            payload = job_store_local.poll_job(job_id, include_audit=include_audit)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/cancel", dependencies=job_auth_dependencies)
-    async def cancel_job(job_id: str, target: Optional[str] = None) -> JSONResponse:
+    def cancel_job(job_id: str, target: Optional[str] = None) -> JSONResponse:
         try:
             target_name, job_store_local = _require_job_store(target)
+            _authorize_job('cancel_job', target_name)
             _enforce_target_mutation(target_name)
             payload = job_store_local.cancel_job(job_id)
             return JSONResponse(status_code=202, content=payload)
@@ -486,15 +522,17 @@ def create_app(
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/retry", dependencies=job_auth_dependencies)
-    async def retry_job(
+    def retry_job(
         job_id: str,
         approval_token: Optional[str] = None,
         target: Optional[str] = None,
+        approval_header: Optional[str] = Header(default=None, alias="X-Approval-Token"),
     ) -> JSONResponse:
         try:
             target_name, job_store_local = _require_job_store(target)
+            _authorize_job('retry_job', target_name)
             _enforce_target_mutation(target_name)
-            _enforce_job_retry_policy(target_name, job_store_local, job_id, approval_token)
+            _enforce_job_retry_policy(target_name, job_store_local, job_id, approval_header or approval_token)
             payload = job_store_local.retry_job(job_id)
             return JSONResponse(status_code=202, content=payload)
         except Exception as exc:  # noqa: BLE001
@@ -656,6 +694,8 @@ def main() -> None:
             rate_limit_rpm=args.rate_limit_rpm,
             command_policies=command_policies,
             target_readonly=target_readonly,
+            client_permissions=config.mcp.client_permissions if config is not None else None,
+            tool_exposure_policy=ToolExposurePolicy(known_tools=BUILTIN_TOOL_NAMES, allowlist=config.mcp.tool_allowlist, denylist=config.mcp.tool_denylist) if config is not None else None,
         )
         uvicorn.run(app, host=args.host, port=args.port)
     finally:

@@ -57,7 +57,7 @@ replace Proxmox RBAC. See the [Operator Guide](Operator-Guide) for exact configu
 ### Authentication and Authorization
 
 - Proxmox API access requires valid legacy `proxmox` and `auth` sections or a named `targets` configuration.
-- Native MCP Streamable HTTP access optionally requires `Authorization: Bearer <MCP_API_KEY>` when `MCP_API_KEY` is configured.
+- Native MCP Streamable HTTP requires `Authorization: Bearer <MCP_API_KEY>` by default; explicitly delegate authentication with `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` only behind an external access control layer.
 - OpenAPI access requires `Authorization: Bearer <PROXMOX_API_KEY>` by default. Startup without an API key requires the explicit local-development override `PROXMOX_ALLOW_NO_AUTH=true`.
 - SSH-backed container command workflows require a valid `ssh` configuration.
 - Command-execution tools are subject to command-policy checks. Depending on policy, a request can be allowed, denied, or require an `approval_token`.

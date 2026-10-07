@@ -43,17 +43,12 @@ def test_delete_backup_refuses_protected_backup():
     proxmox = Mock()
     storage_api = proxmox.nodes.return_value.storage.return_value
     storage_api.content.get.return_value = [
-        {"volid": "local:backup/vzdump-qemu-100.vma.zst", "protected": 1}
+        {"volid": "local:backup/vzdump-qemu-100.vma.zst", "content": "backup", "protected": 1}
     ]
     tools = BackupTools(proxmox)
 
-    response = tools.delete_backup(
-        "pve1",
-        "local",
-        "local:backup/vzdump-qemu-100.vma.zst",
-    )
-
-    assert "protected" in response[0].text
+    with pytest.raises(ValueError, match="protected"):
+        tools.delete_backup("pve1", "local", "local:backup/vzdump-qemu-100.vma.zst")
     storage_api.content.return_value.delete.assert_not_called()
 
 
@@ -65,9 +60,8 @@ def test_delete_iso_missing_filename_does_not_delete():
     ]
     tools = ISOTools(proxmox)
 
-    response = tools.delete_iso("pve1", "local", "ubuntu.iso")
-
-    assert "Could not find" in response[0].text
+    with pytest.raises(ValueError, match="not found"):
+        tools.delete_iso("pve1", "local", "ubuntu.iso")
     storage_api.content.return_value.delete.assert_not_called()
 
 

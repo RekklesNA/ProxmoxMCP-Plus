@@ -157,7 +157,15 @@ class JobsConfig(BaseModel):
     sqlite_path: str = "proxmox-jobs.sqlite3"
     audit_retention_days: Optional[int] = Field(default=None, ge=1)
 
+class ClientPermissions(BaseModel):
+    """An explicit OAuth client or shared transport principal grant."""
+
+    tools: List[str] = Field(default_factory=list)
+    targets: List[str] = Field(default_factory=list)
+
+
 class MCPConfig(BaseModel):
+    worker_limit: int = Field(default=8, ge=1, le=128, description="Maximum concurrent tool calls per target")
     """Model for MCP server configuration.
 
     Defines transport-specific settings for running the MCP server.
@@ -174,6 +182,7 @@ class MCPConfig(BaseModel):
     # Opt-in: legacy full catalog remains the default for existing clients.
     code_mode: bool = False
     code_mode_pool_reuse: bool = False
+    client_permissions: Dict[str, ClientPermissions] = Field(default_factory=dict)
 
     @field_validator("transport", mode="before")
     @classmethod

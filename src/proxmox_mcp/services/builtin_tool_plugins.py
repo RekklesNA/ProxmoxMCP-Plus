@@ -64,6 +64,10 @@ from proxmox_mcp.tools.definitions import (
     UPDATE_VM_CONFIG_DESC,
 )
 from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
+from proxmox_mcp.services.tool_registry import approval_context
+from proxmox_mcp.models.tooling import result_succeeded, result_status
+from proxmox_mcp.security.access import authorize_client, client_principal, permitted_targets
+from proxmox_mcp.tools.base import ProxmoxTool
 
 
 def _log_safe(value: object, max_length: int = 200) -> str:
@@ -101,8 +105,6 @@ class RegistryPluginBase(ToolRegistryPlugin):
         high_risk: bool,
         resolved_target: Any,
     ) -> None:
-        if not high_risk:
-            return
         policy = server.target_command_policies[resolved_target.name]
         decision = policy.evaluate_operation(
             tool_name,
@@ -125,6 +127,9 @@ class RegistryPluginBase(ToolRegistryPlugin):
         job_store = server.target_job_stores[resolved_target.name]
         job = job_store.get_job(job_id)
         operation_name = str(job.get("tool_name") or "")
+        authorize_client(server.config.mcp.client_permissions, client_principal(server.config.mcp.transport), operation_name, resolved_target.name)
+        if not server.tool_exposure_policy.allows(operation_name):
+            raise ValueError("The original operation is disabled by the current tool exposure policy")
         policy = server.target_command_policies[resolved_target.name]
         decision = policy.evaluate_operation(
             operation_name,
@@ -152,8 +157,9 @@ class RegistryPluginBase(ToolRegistryPlugin):
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             success = False
+            outcome = "error"
             target = kwargs.pop("target", None)
-            approval_token = kwargs.get("approval_token")
+            approval_token = kwargs.get("approval_token") or approval_context.get()
             resolved_target = None
             try:
                 resolved_target = server.target_registry.resolve(target)
@@ -169,7 +175,7 @@ class RegistryPluginBase(ToolRegistryPlugin):
                     high_risk=high_risk,
                     resolved_target=resolved_target,
                 )
-                if tool_name == "retry_job":
+                if tool_name in {"retry_job", "reconcile_job"}:
                     # Enforce retry policy using SAME resolved target before dispatch.
                     job_id = kwargs.get("job_id")
                     if job_id is None and args:
@@ -182,14 +188,15 @@ class RegistryPluginBase(ToolRegistryPlugin):
                     )
                 toolset = server.target_tools(resolved_target.name)
                 handler = handler_factory(toolset)
-                if tool_name == "retry_job":
+                if tool_name in {"retry_job", "reconcile_job"}:
                     kwargs.pop("approval_token", None)
                 result = handler(*args, **kwargs)
-                success = True
+                success = result_succeeded(result)
+                outcome = result_status(result)
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved", outcome=outcome)
 
         return wrapped
 
@@ -204,8 +211,9 @@ class RegistryPluginBase(ToolRegistryPlugin):
         async def wrapped(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             success = False
+            outcome = "error"
             target = kwargs.pop("target", None)
-            approval_token = kwargs.get("approval_token")
+            approval_token = kwargs.get("approval_token") or approval_context.get()
             resolved_target = None
             try:
                 resolved_target = server.target_registry.resolve(target)
@@ -224,17 +232,19 @@ class RegistryPluginBase(ToolRegistryPlugin):
                 toolset = server.target_tools(resolved_target.name)
                 handler = handler_factory(toolset)
                 result = await handler(*args, **kwargs)
-                success = True
+                success = result_succeeded(result)
+                outcome = result_status(result)
                 return result
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
+                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved", outcome=outcome)
 
         return wrapped
 
 
 class CoreToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        probes = {name: ProxmoxTool(manager.get_api()) for name, manager in server.proxmox_managers.items()}
         @server.tool_registry.tool(
             description="List configured Proxmox targets without exposing credentials. "
             "A target name is required for other tools when multiple targets are configured."
@@ -243,7 +253,8 @@ class CoreToolsPlugin(RegistryPluginBase):
             start = time.perf_counter()
             try:
                 def discover(target: Any) -> dict[str, Any]:
-                    nodes = server.proxmox_managers[target.name].get_api().nodes.get()
+                    probe = probes[target.name]
+                    nodes = probe._cached_read("health:nodes", lambda: probe.proxmox.nodes.get())
                     return {
                         "reachable": True,
                         "nodes": [
@@ -253,7 +264,8 @@ class CoreToolsPlugin(RegistryPluginBase):
                         ],
                     }
 
-                result = server.target_registry.describe(discover=discover)
+                allowed = permitted_targets(server.config.mcp.client_permissions, client_principal(server.config.mcp.transport))
+                result = server.target_registry.describe(discover=discover, allowed_names=allowed)
                 server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, True, target="all")
                 return result
             except Exception:
@@ -299,6 +311,12 @@ class CoreToolsPlugin(RegistryPluginBase):
 
 class JobsToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        @server.tool_registry.tool(description="Reconcile an interrupted retry after verifying its remote task or confirming that no task was submitted. Never submits a new operation.")
+        def reconcile_job(job_id: str, upid: str | None = None, confirmed_not_submitted: bool = False,
+                          approval_token: str | None = None, target: str | None = None) -> Any:
+            return self._wrap_sync(server, "reconcile_job", lambda ts: ts.jobs_tools.reconcile_job)(
+                job_id=job_id, upid=upid, confirmed_not_submitted=confirmed_not_submitted, approval_token=approval_token, target=target)
+
         @server.tool_registry.tool(description=LIST_JOBS_DESC)
         def list_jobs(
             status: Annotated[Optional[str], Field(description="Optional status filter", default=None)] = None,
@@ -329,8 +347,9 @@ class JobsToolsPlugin(RegistryPluginBase):
         def poll_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            include_audit: Annotated[bool, Field(description="Include historical audit events; disable for bounded polling", default=True)] = True,
         ) -> Any:
-            return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target)
+            return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target, include_audit=include_audit)
 
         @server.tool_registry.tool(description=CANCEL_JOB_DESC)
         def cancel_job(
@@ -507,6 +526,7 @@ class VMToolsPlugin(RegistryPluginBase):
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
             command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
+            guest_os: Literal["posix", "windows"] = "posix",
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return await self._wrap_async(server, "execute_vm_command", lambda ts: ts.vm_tools.execute_command)(
@@ -514,6 +534,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 vmid,
                 command,
                 approval_token,
+                guest_os=guest_os,
                 target=target,
             )
 

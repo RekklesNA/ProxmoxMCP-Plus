@@ -18,6 +18,11 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.5.26`
+
+- Repairs the comprehensive project audit findings, adds bounded runtime operations and requires complete runtime statement coverage.
+- See [v0.5.26 notes](../releases/v0.5.26.md) and [runtime operations](../runtime-safety-and-operations.md) for upgrade and authorization details.
+
 ### Version `0.5.25`
 
 - Release date: 2026-10-07

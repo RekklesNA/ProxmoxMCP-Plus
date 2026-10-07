@@ -193,15 +193,16 @@ class ProxmoxTemplates:
         for store in storage:
             used = store.get("used", 0)
             total = store.get("total", 0)
-            percent = (used / total * 100) if total > 0 else 0
+            percent = (used / total * 100) if used is not None and total is not None and total > 0 else 0
             
+            usage = "Unknown" if used is None or total is None else (f"{ProxmoxFormatters.format_bytes(used)} / "
+                    f"{ProxmoxFormatters.format_bytes(total)} ({percent:.1f}%)")
             result.extend([
                 "",  # Empty line between storage pools
                 f"{ProxmoxTheme.RESOURCES['storage']} {store['storage']}",
                 f"  - Status: {store.get('status', 'unknown').upper()}",
                 f"  - Type: {store['type']}",
-                f"  - Usage: {ProxmoxFormatters.format_bytes(used)} / "
-                f"{ProxmoxFormatters.format_bytes(total)} ({percent:.1f}%)"
+                f"  - Usage: {usage}"
             ])
             
         return "\n".join(result)

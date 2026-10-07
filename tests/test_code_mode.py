@@ -104,6 +104,23 @@ async def test_requests_do_not_share_globals_or_approval(mode):
 
 
 @pytest.mark.asyncio
+async def test_category_search_and_oversized_tool_result(mode):
+    result = await protocol_call(mode, 'proxmox_code_search', {'query': '', 'category': 'get_'})
+    assert 'protected_action' not in result.content[0].text
+    async def oversized(name, arguments):
+        return 'x' * 1_000_001
+    mode._dispatch = oversized
+    assert not (await mode.execute('await call_tool("get_nodes", {})'))['success']
+
+
+@pytest.mark.asyncio
+async def test_missing_sandbox_dependency_returns_safe_error(mode, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, 'pydantic_monty', None)
+    assert not (await mode.execute('1 + 1'))['success']
+
+
+@pytest.mark.asyncio
 async def test_cancelled_execution_releases_worker(mode):
     started = asyncio.Event()
 

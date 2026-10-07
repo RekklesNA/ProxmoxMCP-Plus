@@ -9,14 +9,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml setup.py README.md LICENSE ./
 COPY src ./src
+COPY requirements/runtime.lock ./requirements/runtime.lock
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir . \
+    && python -m pip install --no-cache-dir --require-hashes -r requirements/runtime.lock \
+    && python -m pip install --no-cache-dir --no-deps . \
     && python -m pip uninstall --yes pip setuptools wheel
 
 COPY . .
 
 RUN useradd --create-home --shell /usr/sbin/nologin proxmoxmcp \
+    && mkdir -p /app/data \
     && chown -R proxmoxmcp:proxmoxmcp /app
 
 USER proxmoxmcp
