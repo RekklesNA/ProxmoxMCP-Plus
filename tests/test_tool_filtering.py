@@ -20,7 +20,7 @@ from proxmox_mcp.services.tool_catalog import BUILTIN_TOOL_NAMES
 from proxmox_mcp.services.tool_registry import ToolExposurePolicy, ToolRegistry
 
 ROOT = Path(__file__).resolve().parent.parent
-SSH_ONLY_TOOLS = {"execute_container_command", "update_container_ssh_keys"}
+SSH_ONLY_TOOLS = {"execute_container_command", "update_container_ssh_keys", "execute_node_command"}
 
 
 @pytest.fixture(autouse=True)
