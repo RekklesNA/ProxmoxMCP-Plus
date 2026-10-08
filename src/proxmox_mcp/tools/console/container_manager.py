@@ -173,6 +173,38 @@ class ContainerConsoleManager:
                f"/usr/bin/timeout --signal=TERM --kill-after={self.KILL_GRACE}s "
                f"{self.COMMAND_TIMEOUT}s sh -c {shlex.quote(command)}")
         self.logger.info("Executing command on CT %s@%s", _log_safe(vmid), _log_safe(node))
+        return self._run_ssh(node, cmd)
+
+    def execute_node_command(self, node: str, command: str) -> Dict[str, Any]:
+        """Execute a bounded shell command on an explicitly allowed Proxmox node.
+
+        This is deliberately a separate opt-in from container console access.
+        Resolve the node against the authenticated Proxmox API before using
+        host_overrides, so callers cannot select arbitrary SSH destinations.
+        """
+        if not getattr(self.ssh_cfg, "allow_node_commands", False):
+            raise PermissionError("Host SSH commands are disabled for this target")
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError("Command cannot be empty")
+        if len(command) > 8192:
+            raise ValueError("Host command exceeds the 8192-character limit")
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("Proxmox node is required")
+
+        nodes = self.proxmox.nodes.get()
+        if not any(isinstance(item, dict) and item.get("node") == node for item in nodes):
+            raise ValueError(f"Unknown Proxmox node: {node}")
+
+        prefix = "sudo -n " if self.ssh_cfg.use_sudo else ""
+        cmd = (
+            f"{prefix}/usr/bin/timeout --signal=TERM --kill-after={self.KILL_GRACE}s "
+            f"{self.COMMAND_TIMEOUT}s /bin/sh -c {shlex.quote(command)}"
+        )
+        self.logger.info("Executing SSH command on Proxmox node %s", _log_safe(node))
+        return self._run_ssh(node, cmd)
+
+    def _run_ssh(self, node: str, cmd: str) -> Dict[str, Any]:
+        """Use the same SSH transport, timeouts, and output caps for host and CT."""
         target = self._ssh_host(node)
 
         if self._use_system_ssh():
