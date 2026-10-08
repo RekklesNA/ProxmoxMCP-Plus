@@ -338,3 +338,39 @@ async def test_code_mode_search_schema_and_execution_obey_allowlist(tmp_path):
             assert data["success"] is False
     finally:
         server.close()
+
+
+@pytest.mark.asyncio
+async def test_host_command_not_registered_without_ssh_opt_in(tmp_path):
+    server = _create_server(_write_config(tmp_path, ssh={"user": "root"}))
+    try:
+        assert "execute_container_command" in await _tool_names(server)
+        assert "execute_node_command" not in await _tool_names(server)
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_host_command_registered_and_dispatched_when_enabled(tmp_path):
+    from mcp.types import TextContent
+
+    server = _create_server(_write_config(
+        tmp_path,
+        ssh={"user": "root", "allow_node_commands": True},
+        mcp={"tool_allowlist": ["execute_node_command"]},
+    ))
+    try:
+        assert await _tool_names(server) == {"execute_node_command"}
+        with patch.object(
+            server.target_toolsets["default"].container_tools,
+            "execute_node_command",
+            return_value=[TextContent(type="text", text='{"success":true}')],
+        ) as execute:
+            await server.mcp.call_tool("execute_node_command", {"node": "pve1", "command": "id"})
+        execute.assert_called_once_with(
+            node="pve1",
+            command="id",
+            approval_token=None,
+        )
+    finally:
+        server.close()
