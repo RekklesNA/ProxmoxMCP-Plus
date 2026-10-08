@@ -82,3 +82,39 @@ def test_target_specific_host_opt_in_is_not_derived_from_other_target():
     with patch.object(allowed, "_run_ssh", return_value={"success": True}) as ssh:
         allowed.execute_node_command("ichi", "id")
     ssh.assert_called_once()
+
+
+def test_host_command_requires_ssh_configuration():
+    tools = ContainerTools(MagicMock())
+    with pytest.raises(RuntimeError, match="SSH is not configured"):
+        tools.execute_node_command("ichi", "id")
+
+
+def test_container_tools_execute_host_command_and_format_result():
+    import json
+
+    policy = CommandPolicyGate(CommandPolicyConfig(mode="allowlist", allow_patterns=[r"^id$"]))
+    tools = ContainerTools(MagicMock(), SSHConfig(allow_node_commands=True), command_policy=policy)
+    with patch.object(
+        tools.console_manager,
+        "execute_node_command",
+        return_value={"success": True, "output": "uid=0", "exit_code": 0},
+    ) as execute:
+        result = tools.execute_node_command("ichi", "id")
+    execute.assert_called_once_with("ichi", "id")
+    assert json.loads(result[0].text) == {
+        "success": True,
+        "output": "uid=0",
+        "exit_code": 0,
+    }
+
+
+def test_container_tools_report_host_command_failure():
+    tools = ContainerTools(MagicMock(), SSHConfig(allow_node_commands=True))
+    with patch.object(
+        tools.console_manager,
+        "execute_node_command",
+        side_effect=RuntimeError("SSH connection failed"),
+    ):
+        with pytest.raises(RuntimeError, match="SSH connection failed"):
+            tools.execute_node_command("ichi", "id")
