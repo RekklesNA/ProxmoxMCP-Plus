@@ -55,7 +55,7 @@ def test_manifest_declares_all_registered_tools():
         mcp=fake_mcp,
         proxmox_managers={},
         tool_registry=tool_registry,
-        config=SimpleNamespace(ssh=SimpleNamespace(user="root")),
+        config=SimpleNamespace(ssh=SimpleNamespace(user="root", allow_node_commands=True)),
         logger=Mock(),
     )
     for plugin in (
