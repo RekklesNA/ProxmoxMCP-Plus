@@ -223,6 +223,10 @@
             "description": "Execute a shell command inside an LXC container via SSH"
         },
         {
+            "name": "execute_node_command",
+            "description": "Execute an authorized shell command on a Proxmox node via SSH"
+        },
+        {
             "name": "update_container_ssh_keys",
             "description": "Update root authorized_keys inside an LXC container"
         },
