@@ -797,13 +797,15 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 ), limiter=console_limiter)
 
             host_command_targets = tuple(
-                name for name in configured_names
-                if bool(getattr(
-                    server.target_registry.resolve(name).ssh
-                    if name != "default" or not server.target_registry.is_legacy
-                    else server.config.ssh,
-                    "allow_node_commands", False,
-                ))
+                name
+                for name in configured_names
+                if getattr(
+                    server.config.ssh
+                    if target_registry is None or target_registry.is_legacy
+                    else target_registry.resolve(name).ssh,
+                    "allow_node_commands",
+                    False,
+                )
             )
             if host_command_targets:
                 @server.tool_registry.tool(description=EXECUTE_NODE_COMMAND_DESC)
