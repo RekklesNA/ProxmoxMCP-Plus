@@ -116,7 +116,6 @@ class SSHConfig(BaseModel):
     known_hosts_file: Optional[str] = None
     strict_host_key_checking: bool = True
     prefer_ssh_client: bool = False
-    # Host shell is more privileged than pct exec; it must be opted into per SSH target.
     allow_node_commands: StrictBool = False
 
 
