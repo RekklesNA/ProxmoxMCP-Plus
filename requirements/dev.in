@@ -4,7 +4,7 @@
 # Testing
 pytest>=9.0.3,<10.0.0
 pytest-asyncio>=1.4.0,<2.0.0
-pytest-cov>=4.1.0,<7.0.0
+pytest-cov>=4.1.0,<8.0.0
 httpx2>=2.0.0,<3.0.0
 
 # Code quality

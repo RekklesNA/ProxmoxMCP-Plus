@@ -31,7 +31,7 @@ setup(
     extras_require={
         "dev": [
             "pytest>=9.0.3,<10.0.0",
-            "pytest-cov>=4.1.0,<7.0.0",
+            "pytest-cov>=4.1.0,<8.0.0",
             "httpx2>=2.0.0,<3.0.0",
             "black>=24.3.0,<27.0.0",
             "mypy>=1.0.0,<2.0.0",
