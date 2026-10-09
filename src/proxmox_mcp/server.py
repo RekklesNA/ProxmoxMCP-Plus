@@ -129,6 +129,7 @@ class ProxmoxMCPServer:
         )
         self.logger = setup_logging(self.config.logging)
         self.target_registry = TargetRegistry(self.config)
+        self.metrics = ToolMetrics()
         for name in self.target_registry.names:
             target = self.target_registry.resolve(name)
             self.proxmox_managers[name] = ProxmoxManager(
@@ -136,6 +137,7 @@ class ProxmoxMCPServer:
                 target.auth,
                 api_tunnel_config=target.api_tunnel,
                 ssh_config=target.ssh,
+                metrics=self.metrics, target_name=name,
             )
         self.target_command_policies = {
             name: CommandPolicyGate(
@@ -146,7 +148,6 @@ class ProxmoxMCPServer:
         # Retain the legacy policy attribute for compatibility; wrappers always
         # select from target_command_policies using the resolved target.
         self.command_policy = CommandPolicyGate(self.config.command_policy)
-        self.metrics = ToolMetrics()
 
         self.target_job_stores = {}
         self.target_toolsets: dict[str, SimpleNamespace] = {}
@@ -159,7 +160,7 @@ class ProxmoxMCPServer:
                 path = base_path
             else:
                 path = target_job_sqlite_path(base_path, name)
-            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default, audit_retention_days=self.config.jobs.audit_retention_days)
+            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default, audit_retention_days=self.config.jobs.audit_retention_days, poll_cache_ttl=self.config.jobs.poll_cache_ttl)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
                 node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),

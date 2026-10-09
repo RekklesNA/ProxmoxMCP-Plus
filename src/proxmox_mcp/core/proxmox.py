@@ -12,12 +12,14 @@ interactions, ensuring consistent connection handling and authentication
 across the MCP server.
 """
 import logging
+import time
 from functools import wraps
 from threading import RLock
 from typing import Dict, Any
 from proxmoxer import ProxmoxAPI
 from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
 from proxmox_mcp.core.ssh_tunnel import SSHTunnelManager
+from proxmox_mcp.core.session_pool import SessionPool, close_sessions
 
 
 def _log_safe(value: object, max_length: int = 200) -> str:
@@ -45,6 +47,8 @@ class ProxmoxManager:
         api_tunnel_config: Any | None = None,
         ssh_config: Any | None = None,
         manage_api_tunnel: bool = True,
+        metrics: Any | None = None,
+        target_name: str = "default",
     ):
         """Initialize the Proxmox API manager.
 
@@ -56,6 +60,15 @@ class ProxmoxManager:
                 endpoint with the owning MCP server.
         """
         self.logger = logging.getLogger("proxmox-mcp.proxmox")
+        self.metrics = metrics
+        self.target_name = target_name
+        self._sessions: list[Any] = []
+        self._pool: SessionPool | None = None
+        self._close_lock = RLock()
+        self._request_lock = RLock()
+        self._closed = False
+        self._pool_size = proxmox_config.session_pool_size
+        self._pool_timeout = proxmox_config.session_pool_timeout
         self.api_tunnel_config = api_tunnel_config
         self.tunnel_manager = (
             SSHTunnelManager(api_tunnel_config, ssh_config)
@@ -135,15 +148,34 @@ class ProxmoxManager:
             store = getattr(api, "_store", None)
             if isinstance(store, dict) and "session" in store:
                 session = store["session"]
+                self._sessions.append(session)
+                if self._pool_size > 1:
+                    for _ in range(self._pool_size - 1):
+                        companion = ProxmoxAPI(**self.config)
+                        self._sessions.append(companion._store["session"])
+                    self._pool = SessionPool(self._sessions, self._pool_timeout,
+                                             self._ensure_tunnel, self._observe)
+                    store["session"] = self._pool
+                    return api
                 request = session.request
-                lock = RLock()
+                lock = self._request_lock
 
                 @wraps(request)
                 def synchronized_request(*args: Any, **kwargs: Any) -> Any:
+                    start = time.perf_counter()
                     with lock:
-                        if self.tunnel_manager is not None:
-                            self.tunnel_manager.ensure_tunnel()
-                        return request(*args, **kwargs)
+                        if self._closed:
+                            raise RuntimeError("Proxmox API manager is closed")
+                        self._observe("api_queue", (time.perf_counter() - start) * 1000, True)
+                        start = time.perf_counter()
+                        success = False
+                        try:
+                            self._ensure_tunnel()
+                            result = request(*args, **kwargs)
+                            success = getattr(result, "status_code", 200) < 400
+                            return result
+                        finally:
+                            self._observe("api_request", (time.perf_counter() - start) * 1000, success)
 
                 session.request = synchronized_request
             
@@ -170,8 +202,27 @@ class ProxmoxManager:
 
     def close(self) -> None:
         """Release resources owned by the Proxmox API manager."""
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                if self._pool is not None:
+                    self._pool.close()
+                else:
+                    with self._request_lock:
+                        try:
+                            close_sessions(self._sessions)
+                        finally:
+                            self._sessions.clear()
+            finally:
+                if self.tunnel_manager is not None:
+                    self.tunnel_manager.close()
+
+    def _ensure_tunnel(self) -> None:
         if self.tunnel_manager is not None:
-            self.tunnel_manager.close()
-        store = getattr(getattr(self, "api", None), "_store", None)
-        if isinstance(store, dict) and "session" in store:
-            store["session"].close()
+            self.tunnel_manager.ensure_tunnel()
+
+    def _observe(self, name: str, latency_ms: float, success: bool) -> None:
+        if self.metrics is not None:
+            self.metrics.observe(name, latency_ms, success, target=self.target_name)

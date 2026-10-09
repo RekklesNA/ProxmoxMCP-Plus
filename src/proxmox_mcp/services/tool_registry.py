@@ -8,12 +8,12 @@ from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from functools import partial, wraps
 import inspect
-import time
 import anyio
 from proxmox_mcp.security.access import authorize_client, client_principal
 from proxmox_mcp.security.resources import validate_segment, validate_guest_id
 
 from .tool_catalog import BUILTIN_TOOL_NAMES
+from .dispatch import DispatchGate
 
 ToolFunction = TypeVar("ToolFunction", bound=Callable[..., Any])
 approval_context: ContextVar[str | None] = ContextVar("operation_approval", default=None)
@@ -124,7 +124,7 @@ class ToolRegistry:
         self.declared_tools: set[str] = set()
         self.registered_tools: set[str] = set()
         self._server: Any = None
-        self._limiters: dict[str, anyio.CapacityLimiter] = {}
+        self._limiters: dict[str, DispatchGate] = {}
 
     @asynccontextmanager
     async def _acquire(self, tool: str, arguments: dict[str, Any]) -> Any:
@@ -133,10 +133,10 @@ class ToolRegistry:
             return
         server = self._server
         target = "all" if tool == "list_targets" else server.target_registry.resolve(arguments.get("target")).name
-        limiter = self._limiters.setdefault(target, anyio.CapacityLimiter(server.config.mcp.worker_limit))
-        start = time.perf_counter()
-        async with limiter:
-            server.metrics.observe("dispatch_queue", (time.perf_counter() - start) * 1000, True, target=target)
+        if target not in self._limiters:
+            self._limiters[target] = DispatchGate(server.config.mcp.worker_limit,
+                                                   server.config.mcp.queue_limit, server.config.mcp.queue_timeout)
+        async with self._limiters[target].acquire(server.metrics, target):
             yield
 
     def _authorize(self, tool: str, arguments: dict[str, Any]) -> None:

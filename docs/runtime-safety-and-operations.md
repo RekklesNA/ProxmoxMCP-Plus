@@ -114,3 +114,56 @@ Runtime dependencies are pinned with hashes in `requirements/runtime.lock`.
 CI publishes coverage, resolved dependency evidence and a CycloneDX SBOM. Container
 publication includes provenance and SBOM attestations. Release verification includes
 the built package, PyPI, MCP Registry and native ARM64 container health.
+
+## Polling and bounded admission (v0.6.1)
+
+Server polling uses `jobs.poll_cache_ttl` (default 1 second, range 0-60); zero
+disables the TTL. Direct JobStore embeddings retain a zero TTL default.
+Terminal tasks reuse persisted results. `poll_job(force=true)` on MCP or
+`POST /jobs/{job_id}/poll?force=true` bypasses both fast paths. Cache hits re-read
+persisted state, check target ownership and add no audit events. Fresh successful
+polls with `include_audit=false` return only newly added events. Same-job polling
+is serialized within each store/process, without a distributed lease.
+
+`mcp.queue_limit` bounds waiting calls (default 64 per target, range 0-4096; zero
+rejects waiting immediately). `mcp.queue_timeout` bounds waiting (default 30
+seconds, greater than zero to 300). Overflow and timeout return retry-later errors
+before execution. Cancelled waits and handler failures release slots. Overrides:
+`MCP_WORKER_LIMIT`, `MCP_QUEUE_LIMIT`, `MCP_QUEUE_TIMEOUT`,
+`PROXMOX_JOBS_POLL_CACHE_TTL`.
+
+## Independent API sessions and latency distribution (v0.6.1)
+
+Opt into independent sessions with `proxmox.session_pool_size` or a named target's
+`session_pool_size` (default 1, range 1-32). `session_pool_timeout` bounds pooled
+waiting (default 30 seconds, greater than zero to 300). Each session owns a
+separate Proxmoxer auth object and is leased exclusively. The manager retains
+tunnel ownership and waits for active requests before shutdown. There is no
+automatic mutation retry. Measure your workload before increasing pool size.
+
+Existing count/average/max metrics remain available. New cumulative
+`proxmox_mcp_tool_latency_seconds` and `proxmox_mcp_http_latency_seconds`
+histograms use fixed buckets with bounded storage per series. Tool metric labels
+`dispatch_queue`, `api_queue` and `api_request` distinguish waiting from backend
+requests and actual tool execution. JSON p95/p99 are approximate bucket-derived
+values over the process lifetime; empty/overflow quantiles are null.
+For a rolling p95 across workers, aggregate the histogram:
+
+```promql
+histogram_quantile(0.95, sum by (le, tool, target) (
+  rate(proxmox_mcp_tool_latency_seconds_bucket[5m])
+))
+```
+
+Use `0.99` for p99, or filter `tool="dispatch_queue"` / `tool="api_request"` to
+locate delays. Derive alert thresholds from your baseline. See the
+[Prometheus histogram guidance](https://prometheus.io/docs/practices/histograms/).
+
+With `PYTHONPATH=src`, run `python scripts/benchmark_runtime.py` for reproducible
+synthetic baselines. Set `PROXMOX_READONLY_TEST_CONFIG` to a current configuration
+and run `python -m pytest tests/integration/test_readonly_performance.py -q` for
+GET-only live verification. The test compares version/node inventory with one
+and four independent sessions using eight calling threads. Destructive live
+integration remains separately opt-in. CI measures statement and branch coverage
+and requires complete statement coverage plus every branch in nine critical
+runtime modules.

@@ -53,6 +53,7 @@ class TargetRegistry:
         proxmox = ProxmoxConfig(
             host=target.host, port=target.port, timeout=target.timeout,
             verify_ssl=target.verify_ssl, service=target.service,
+            session_pool_size=target.session_pool_size, session_pool_timeout=target.session_pool_timeout,
         )
         return ResolvedTarget(
             name=name, config=proxmox, auth=target.auth, kind=target.kind,

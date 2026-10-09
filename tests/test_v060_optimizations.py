@@ -37,7 +37,7 @@ def test_summary_startup_preserves_history_and_later_poll_events(tmp_path):
             assert reopened.get_job(job["job_id"])["audit_log"] == [
                 {key: value for key, value in event.items() if key != "id"} for event in history
             ]
-            reopened.poll_job(job["job_id"], include_audit=False)
+            reopened.poll_job(job["job_id"], include_audit=False, force=True)
             page = reopened.get_audit(job["job_id"])
             assert [item["event"] for item in page] == ["created", "polled", "polled"]
             assert len({item["id"] for item in page}) == 3

@@ -18,6 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.1`
+
+- Adds polling reuse, bounded tool waiting, latency histograms and opt-in independent API sessions.
+- Separates policy and persistence modules and requires complete critical branch coverage.
+- See [v0.6.1 notes](../releases/v0.6.1.md).
+
 ### Version `0.6.0`
 
 - Adds opt-in guarded node SSH commands, lazy startup audit loading, client-specific Code Mode discovery and verified publication retries.

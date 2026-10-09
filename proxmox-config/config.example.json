@@ -3,7 +3,9 @@
         "host": "your-proxmox-host-ip",
         "port": 8006,
         "verify_ssl": true,
-        "service": "PVE"
+        "service": "PVE",
+        "session_pool_size": 1,
+        "session_pool_timeout": 30
     },
     "api_tunnel": {
         "enabled": false,
@@ -32,13 +34,17 @@
         "allowed_hosts": [],
         "allowed_origins": [],
         "tool_allowlist": null,
-        "tool_denylist": null
+        "tool_denylist": null,
+        "worker_limit": 8,
+        "queue_limit": 64,
+        "queue_timeout": 30
     },
     "security": {
         "dev_mode": false
     },
     "jobs": {
-        "sqlite_path": "proxmox-jobs.sqlite3"
+        "sqlite_path": "proxmox-jobs.sqlite3",
+        "poll_cache_ttl": 1
     },
     "command_policy": {
         "mode": "deny_all",

@@ -51,8 +51,8 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=100
-        python scripts/check_coverage.py coverage.json
+        pytest -q --cov=proxmox_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=0
+        python scripts/check_coverage.py coverage.json --require-branches
 
     - name: Ruff
       run: |
@@ -104,4 +104,4 @@ jobs:
         python -m pip install --require-hashes -r requirements/runtime.lock
         python -m pip install -r requirements/dev.in
     - name: Verify platform-independent command and HTTP contracts
-      run: python -m pytest tests/test_project_audit_fixes.py tests/test_project_audit_edges.py tests/test_container_console.py tests/test_tool_filtering.py -q
+      run: python -m pytest tests/test_project_audit_fixes.py tests/test_project_audit_edges.py tests/test_container_console.py tests/test_tool_filtering.py tests/test_runtime_performance.py -q
