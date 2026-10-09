@@ -1,6 +1,7 @@
 """Concurrent polling, bounded admission, session ownership and tail metrics."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -114,11 +115,17 @@ def test_poll_failures_are_not_cached_and_other_jobs_can_progress(tmp_path):
         JobStore(api, ":memory:", poll_cache_ttl=-1)
 
 
-def test_delayed_poll_cannot_reopen_a_task_completed_by_another_store(tmp_path):
+@pytest.mark.parametrize("same_timestamp", [False, True])
+def test_delayed_poll_cannot_reopen_a_task_completed_by_another_store(tmp_path, same_timestamp):
     api = task_api()
     completed_api = task_api("stopped", "OK")
     path = str(tmp_path / "jobs.db")
-    with JobStore(api, path) as first, JobStore(completed_api, path) as second:
+    with ExitStack() as stack:
+        if same_timestamp:
+            stack.enter_context(patch("proxmox_mcp.services.job_models._utcnow", return_value="2026-10-10T00:00:00+00:00"))
+            stack.enter_context(patch("proxmox_mcp.services.jobs._utcnow", return_value="2026-10-10T00:00:00+00:00"))
+        first = stack.enter_context(JobStore(api, path))
+        second = stack.enter_context(JobStore(completed_api, path))
         job_id = new_job(first)
         def delayed_status():
             assert second.poll_job(job_id)["status"] == "completed"
