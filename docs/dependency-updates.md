@@ -49,3 +49,44 @@ the affected dependency is transitive.
 
 Check update status and errors on the
 [Dependabot page](https://github.com/RekklesNA/ProxmoxMCP-Plus/network/updates).
+
+## Required Dependency Checks
+
+The [Dependency Security workflow](../.github/workflows/dependency-review.yml)
+runs on every pull request, including documentation-only changes. Dependency
+Review blocks newly introduced high or critical vulnerabilities in runtime,
+development, and unknown dependency scopes. It uses GitHub's dependency graph;
+it does not replace a runtime lock refresh.
+
+Separate Linux and Windows jobs audit `requirements/runtime.lock` using
+`pip-audit --require-hashes --disable-pip --strict`. They inspect exact pinned
+versions without installing PR dependencies, cover platform-specific markers,
+and fail on any known runtime vulnerability or dependency collection error.
+Each job uploads its JSON audit report even when vulnerabilities are found.
+
+The default branch requires these three dependency checks and the existing
+`validate (3.11)`, `validate (3.12)`, and `windows-contracts` checks. The branch
+must be up to date before merging. These requirements have no bypass actors;
+the existing pull-request and CodeQL rules remain in force.
+
+## Actions and Release Protection
+
+Repository Actions settings require external actions to use full commit SHAs.
+Keep the human-readable release version in a comment and review Dependabot's
+SHA updates before merging.
+
+An active tag ruleset protects `v*` release tags from updates and deletion,
+without bypass actors. Creation of new release tags remains allowed. Correct a
+bad release with a new version rather than moving an existing tag.
+
+The `pypi` environment accepts only tags matching `v*`; branches cannot deploy
+to it. Release events use the release tag automatically. For a manual publish
+retry, select the existing release tag, for example:
+
+```bash
+gh workflow run publish-pypi.yml --ref v0.6.1
+```
+
+These settings are managed in GitHub rather than by the workflow files. Check
+the repository's rulesets, Actions permissions, and `pypi` environment if a
+deployment or merge is unexpectedly blocked.
