@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Australia/Brisbane"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      python-compatible:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # The generated requirements/runtime.lock needs a reviewed refresh.
+    # See docs/dependency-updates.md before merging Python updates.
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:15"
+      timezone: "Australia/Brisbane"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions-compatible:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:30"
+      timezone: "Australia/Brisbane"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+    # Keep the base image on the Python 3.11 line tested by this runtime.
+    # Digest and patch updates remain enabled.
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.12"]
