@@ -1,0 +1,18 @@
+title = "ProxmoxMCP-Plus secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "database-connection-string"
+description = "Database connection URL containing a password"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?)://[^\s:/@'"<>]+:([^\s/@'"<>]+)@[^\s'"<>]+'''
+secretGroup = 1
+keywords = ["postgres", "mysql", "mongodb"]
+
+[[rules.allowlists]]
+description = "Disposable local PostgreSQL service used by CI"
+condition = "AND"
+paths = ['''(?:^|[/\\])\.github[/\\]workflows[/\\]ci\.yml$''']
+regexTarget = "match"
+regexes = ['''^[p]ostgresql://postgres:postgres@127\.0\.0\.1:5432/proxmox_mcp_test$''']
