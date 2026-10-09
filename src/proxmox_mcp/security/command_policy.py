@@ -44,10 +44,20 @@ class CommandPolicyGate:
         return compiled
 
     @staticmethod
-    def _matches_any(command: str, patterns: list[Pattern[str]]) -> bool:
+    def _matches_any(
+        command: str, patterns: list[Pattern[str]], *, full_match: bool = False
+    ) -> bool:
+        if full_match:
+            return any(pattern.fullmatch(command) for pattern in patterns)
         return any(pattern.search(command) for pattern in patterns)
 
-    def evaluate(self, command: str, approval_token: str | None = None) -> CommandPolicyDecision:
+    def evaluate(
+        self,
+        command: str,
+        approval_token: str | None = None,
+        *,
+        full_match_allow_patterns: bool = False,
+    ) -> CommandPolicyDecision:
         if not command or not command.strip():
             return CommandPolicyDecision(False, "CMD_POLICY_EMPTY", "Command cannot be empty")
 
@@ -59,7 +69,11 @@ class CommandPolicyGate:
             )
 
         mode = self.config.mode
-        if mode in {"deny_all", "allowlist"} and not self._matches_any(command, self.allow_patterns):
+        if mode in {"deny_all", "allowlist"} and not self._matches_any(
+            command,
+            self.allow_patterns,
+            full_match=full_match_allow_patterns,
+        ):
             return CommandPolicyDecision(
                 False,
                 "CMD_POLICY_NOT_ALLOWLISTED",

@@ -918,6 +918,31 @@ class ContainerTools(ProxmoxTool):
         except Exception as e:
             return self._err("execute_command", e)
 
+    def execute_node_command(
+        self, node: str, command: str, approval_token: Optional[str] = None
+    ) -> List[Content]:
+        """Run a command on an allowed Proxmox host through the SSH console."""
+        if self.console_manager is None:
+            return self._err("execute_node_command", RuntimeError("SSH is not configured for this target"))
+        try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(
+                    command,
+                    approval_token=approval_token,
+                    full_match_allow_patterns=True,
+                )
+                if not decision.allowed:
+                    return self._json_fmt(ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Host command execution blocked by policy",
+                        data={"reason": decision.message},
+                    ).model_dump())
+            result = self.console_manager.execute_node_command(node, command)
+            return self._json_fmt(result)
+        except Exception as error:
+            return self._err("execute_node_command", error)
+
     def get_container_config(self, node: str, vmid: str) -> List[Content]:
         """Return the full configuration of an LXC container.
 

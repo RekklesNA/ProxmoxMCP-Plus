@@ -23,6 +23,7 @@ from proxmox_mcp.tools.definitions import (
     DELETE_VM_DESC,
     DOWNLOAD_ISO_DESC,
     EXECUTE_CONTAINER_COMMAND_DESC,
+    EXECUTE_NODE_COMMAND_DESC,
     EXECUTE_VM_COMMAND_DESC,
     GET_JOB_DESC,
     GET_CLUSTER_LOG_DESC,
@@ -794,6 +795,33 @@ class ContainerToolsPlugin(RegistryPluginBase):
                     approval_token=approval_token,
                     target=target,
                 ), limiter=console_limiter)
+
+            host_command_targets = tuple(
+                name
+                for name in configured_names
+                if getattr(
+                    server.config.ssh
+                    if target_registry is None or target_registry.is_legacy
+                    else target_registry.resolve(name).ssh,
+                    "allow_node_commands",
+                    False,
+                )
+            )
+            if host_command_targets:
+                @server.tool_registry.tool(description=EXECUTE_NODE_COMMAND_DESC)
+                async def execute_node_command(
+                    node: Annotated[str, Field(description="Exact Proxmox cluster node name")],
+                    command: Annotated[str, Field(description="Shell command to run on the physical node (max 8192 characters)")],
+                    approval_token: Annotated[Optional[str], Field(description="Optional approval token for command and high-risk policy", default=None)] = None,
+                    target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+                ) -> Any:
+                    return await anyio.to_thread.run_sync(partial(
+                        self._wrap_sync(server, "execute_node_command", lambda ts: ts.container_tools.execute_node_command, high_risk=True),
+                        node=node,
+                        command=command,
+                        approval_token=approval_token,
+                        target=target,
+                    ), limiter=console_limiter)
 
             @server.tool_registry.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
             async def update_container_ssh_keys(

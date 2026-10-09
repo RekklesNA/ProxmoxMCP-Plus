@@ -20,7 +20,7 @@ from proxmox_mcp.services.tool_catalog import BUILTIN_TOOL_NAMES
 from proxmox_mcp.services.tool_registry import ToolExposurePolicy, ToolRegistry
 
 ROOT = Path(__file__).resolve().parent.parent
-SSH_ONLY_TOOLS = {"execute_container_command", "update_container_ssh_keys"}
+SSH_ONLY_TOOLS = {"execute_container_command", "update_container_ssh_keys", "execute_node_command"}
 
 
 @pytest.fixture(autouse=True)
@@ -336,5 +336,41 @@ async def test_code_mode_search_schema_and_execution_obey_allowlist(tmp_path):
             result = await server.mcp.call_tool(name, args)
             data = json.loads(result[0][0].text) if isinstance(result, tuple) else json.loads(result[0].text)
             assert data["success"] is False
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_host_command_not_registered_without_ssh_opt_in(tmp_path):
+    server = _create_server(_write_config(tmp_path, ssh={"user": "root"}))
+    try:
+        assert "execute_container_command" in await _tool_names(server)
+        assert "execute_node_command" not in await _tool_names(server)
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_host_command_registered_and_dispatched_when_enabled(tmp_path):
+    from mcp.types import TextContent
+
+    server = _create_server(_write_config(
+        tmp_path,
+        ssh={"user": "root", "allow_node_commands": True},
+        mcp={"tool_allowlist": ["execute_node_command"]},
+    ))
+    try:
+        assert await _tool_names(server) == {"execute_node_command"}
+        with patch.object(
+            server.target_toolsets["default"].container_tools,
+            "execute_node_command",
+            return_value=[TextContent(type="text", text='{"success":true}')],
+        ) as execute:
+            await server.mcp.call_tool("execute_node_command", {"node": "pve1", "command": "id"})
+        execute.assert_called_once_with(
+            node="pve1",
+            command="id",
+            approval_token=None,
+        )
     finally:
         server.close()
