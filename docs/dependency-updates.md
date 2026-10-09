@@ -67,13 +67,21 @@ Each job uploads its JSON audit report even when vulnerabilities are found.
 The default branch requires these three dependency checks and the existing
 `validate (3.11)`, `validate (3.12)`, and `windows-contracts` checks. The branch
 must be up to date before merging. These requirements have no bypass actors;
-the existing pull-request and CodeQL rules remain in force.
+the existing pull-request and CodeQL rules remain in force. `Secret Scan` is
+also required before merging.
 
 ## Actions and Release Protection
 
 Repository Actions settings require external actions to use full commit SHAs.
 Keep the human-readable release version in a comment and review Dependabot's
 SHA updates before merging.
+
+Actions permissions also use an explicit allowlist of the current checkout,
+Python setup, artifact, dependency review, CodeQL, Docker, and PyPA actions.
+GitHub-owned and Marketplace-verified actions are not automatically trusted.
+Adding an action requires reviewing its source, updating the repository
+allowlist, and pinning its full commit SHA. SHA updates to an already allowed
+action do not require expanding the allowlist.
 
 An active tag ruleset protects `v*` release tags from updates and deletion,
 without bypass actors. Creation of new release tags remains allowed. Correct a
@@ -90,3 +98,28 @@ gh workflow run publish-pypi.yml --ref v0.6.1
 These settings are managed in GitHub rather than by the workflow files. Check
 the repository's rulesets, Actions permissions, and `pypi` environment if a
 deployment or merge is unexpectedly blocked.
+
+## Generic Secret Scanning
+
+GitHub's provider secret scanning and push protection remain enabled. Its
+native generic-pattern feature is unavailable for this personally owned
+repository: GitHub requires an organization repository with Secret Protection.
+The [Secret Scanning workflow](../.github/workflows/secret-scan.yml) supplies a
+free CI check using checksum-pinned Gitleaks instead. It does not enable the
+unavailable GitHub setting or add generic secrets to GitHub's push protection.
+
+The workflow scans every tracked file and every commit introduced by a pull
+request, including secrets added and then removed before the final commit.
+It extends Gitleaks' default provider and private-key rules with password-bearing
+PostgreSQL, MySQL, and MongoDB URLs. Reports are redacted. The only additional
+exception is the exact disposable local PostgreSQL URL in the CI service;
+tests and documentation are not excluded as directories. Inline
+`gitleaks:allow` comments cannot suppress CI findings.
+
+Run `gitleaks dir PATH --config .gitleaks.toml --redact --ignore-gitleaks-allow`
+locally before pushing.
+Resolve findings rather than suppressing entire files or directories. Any
+necessary exception must identify a reviewed test value and its specific path.
+
+Merged head branches are deleted automatically by GitHub. This applies to future
+merges and does not remove historical branches retroactively.

@@ -225,7 +225,8 @@ Required OAuth settings:
 
 ```bash
 export MCP_API_KEY="$(openssl rand -hex 32)"
-export MCP_OAUTH_DATABASE_URL='postgresql://proxmox_oauth:secret@postgres.example:5432/proxmox_oauth'
+# Replace <password> with the database user's password.
+export MCP_OAUTH_DATABASE_URL='postgresql://proxmox_oauth:<password>@postgres.example:5432/proxmox_oauth'
 ```
 
 Example server:
