@@ -120,8 +120,9 @@ the built package, PyPI, MCP Registry and native ARM64 container health.
 Server polling uses `jobs.poll_cache_ttl` (default 1 second, range 0-60); zero
 disables the TTL. Direct JobStore embeddings retain a zero TTL default.
 Terminal tasks reuse persisted results. `poll_job(force=true)` on MCP or
-`POST /jobs/{job_id}/poll?force=true` bypasses both fast paths. Cache hits re-read
-persisted state, check target ownership and add no audit events. Fresh successful
+`POST /jobs/{job_id}/poll?force=true` bypasses both fast paths.
+`get_job(refresh=true)` also bypasses both caches for immediate backend refresh.
+Cache hits re-read persisted state, check target ownership and add no audit events. Fresh successful
 polls with `include_audit=false` return only newly added events. Same-job polling
 is serialized within each store/process, without a distributed lease.
 
