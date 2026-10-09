@@ -30,8 +30,8 @@ class JobsTools:
             return self._json(self.job_store.poll_job(job_id))
         return self._json(self.job_store.get_job(job_id))
 
-    def poll_job(self, job_id: str, include_audit: bool = True) -> List[Content]:
-        return self._json(self.job_store.poll_job(job_id, include_audit=include_audit))
+    def poll_job(self, job_id: str, include_audit: bool = True, force: bool = False) -> List[Content]:
+        return self._json(self.job_store.poll_job(job_id, include_audit=include_audit, **({'force': True} if force else {})))
 
     def cancel_job(self, job_id: str) -> List[Content]:
         return self._json(self.job_store.cancel_job(job_id))

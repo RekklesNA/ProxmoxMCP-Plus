@@ -501,11 +501,11 @@ def create_app(
             return _job_error_response(exc)
 
     @app.post("/jobs/{job_id}/poll", dependencies=job_auth_dependencies)
-    def poll_job(job_id: str, target: Optional[str] = None, include_audit: bool = True) -> JSONResponse:
+    def poll_job(job_id: str, target: Optional[str] = None, include_audit: bool = True, force: bool = False) -> JSONResponse:
         try:
             target_name, job_store_local = _require_job_store(target)
             _authorize_job('poll_job', target_name)
-            payload = job_store_local.poll_job(job_id, include_audit=include_audit)
+            payload = job_store_local.poll_job(job_id, include_audit=include_audit, **({'force': True} if force else {}))
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
@@ -666,6 +666,7 @@ def main() -> None:
                     target_name=target_name,
                     legacy_mode=target_registry.is_legacy,
                     audit_retention_days=config.jobs.audit_retention_days,
+                    poll_cache_ttl=config.jobs.poll_cache_ttl,
                 )
                 command_policies[target_name] = CommandPolicyGate(
                     target.command_policy or config.command_policy

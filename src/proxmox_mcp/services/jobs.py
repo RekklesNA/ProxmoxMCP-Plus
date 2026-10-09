@@ -8,15 +8,19 @@ import sqlite3
 import threading
 import uuid
 import weakref
-from contextlib import contextmanager
-from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
-from proxmox_mcp.security.sanitization import is_secret_key, sanitize_string, sanitize_value
 from proxmox_mcp.security.resources import delete_volume, validate_segment, submit_snapshot_rollback
+from .job_models import (
+    JobRecord as JobRecord, JobAuditEvent as JobAuditEvent,
+    JobConflictError as JobConflictError, JobNotFoundError as JobNotFoundError,
+    _sanitize as _sanitize, _utcnow as _utcnow,
+    _is_secret_key as _is_secret_key, _sanitize_string as _sanitize_string,
+)
+from .job_persistence import JobPersistence
+from .job_polling import PollCoordinator
 
 _PROGRESS_RE = re.compile(r"(?P<value>\d{1,3})%")
 _RETRYABLE_STATUSES = {"failed", "cancelled"}
@@ -30,106 +34,15 @@ def target_job_sqlite_path(base_path: str, target_name: str) -> str:
     return str(base.with_name(f"{base.name}.target-{target_name}"))
 
 
-def _is_secret_key(key: str) -> bool:
-    return is_secret_key(key)
-
-
-def _sanitize_string(text: str) -> str:
-    return sanitize_string(text)
-
-
-def _sanitize(value: Any) -> Any:
-    """Outbound-only sanitization — redacts secrets for API responses/logs.
-    Uses regex sweeps so innocent URLs are not re-encoded or corrupted.
-    Persisted retry_spec is handled separately (see register_task)."""
-    return sanitize_value(value)
-
-
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-class JobNotFoundError(ValueError):
-    """Raised when a job_id does not exist."""
-
-
-class JobConflictError(ValueError):
-    """Raised when a requested job operation is not currently valid."""
-
-
-@dataclass
-class JobAuditEvent:
-    timestamp: str
-    event: str
-    details: dict[str, Any] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "timestamp": self.timestamp,
-            "event": self.event,
-            "details": _sanitize(self.details),
-        }
-
-
-@dataclass
-class JobRecord:
-    job_id: str
-    tool_name: str
-    summary: str
-    node: Optional[str]
-    upid: Optional[str]
-    created_at: str
-    updated_at: str
-    status: str = "running"
-    progress: Optional[int] = None
-    attempts: int = 1
-    retry_count: int = 0
-    last_error: Optional[str] = None
-    completed_at: Optional[str] = None
-    result: Optional[dict[str, Any]] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-    previous_upids: list[str] = field(default_factory=list)
-    audit_log: list[JobAuditEvent] = field(default_factory=list)
-    retry_spec: Optional[dict[str, Any]] = None
-    retry_spec_redacted: bool = False
-    _persisted_audit_count: int = field(default=0, repr=False)
-    retry_factory: Optional[Callable[[], Any]] = field(default=None, repr=False)
-    cancel_factory: Optional[Callable[[str], Any]] = field(default=None, repr=False)
-
-    def add_audit(self, event: str, **details: Any) -> None:
-        self.audit_log.append(JobAuditEvent(timestamp=_utcnow(), event=event, details=details))
-        self.updated_at = _utcnow()
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "job_id": self.job_id,
-            "tool_name": self.tool_name,
-            "summary": self.summary,
-            "node": self.node,
-            "upid": self.upid,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "completed_at": self.completed_at,
-            "status": self.status,
-            "progress": self.progress,
-            "attempts": self.attempts,
-            "retry_count": self.retry_count,
-            "last_error": _sanitize(self.last_error),
-            "result": _sanitize(self.result),
-            "metadata": _sanitize(self.metadata),
-            "previous_upids": self.previous_upids,
-            "audit_log": [item.as_dict() for item in self.audit_log],
-            "retry_spec": _sanitize(self.retry_spec),
-            "retry_spec_redacted": self.retry_spec_redacted,
-        }
-
-
-class JobStore:
+class JobStore(JobPersistence):
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
-    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False, audit_retention_days: int | None = None) -> None:
+    def __init__(self, proxmox_api: Any, sqlite_path: str = "proxmox-jobs.sqlite3", target_name: str | None = None, legacy_mode: bool = False, audit_retention_days: int | None = None, poll_cache_ttl: float = 0.0) -> None:
         if audit_retention_days is not None and audit_retention_days < 1:
             raise ValueError("audit_retention_days must be positive")
+        if not 0 <= poll_cache_ttl <= 60:
+            raise ValueError('poll_cache_ttl must be between 0 and 60 seconds')
+        self._polling = PollCoordinator(poll_cache_ttl)
         self.audit_retention_days = audit_retention_days
         self.proxmox = proxmox_api
         self.target_name = target_name
@@ -274,10 +187,16 @@ class JobStore:
             self._save_record(record)
             return record.as_dict()
 
-    def poll_job(self, job_id: str, *, include_audit: bool = True) -> dict[str, Any]:
+    def poll_job(self, job_id: str, *, include_audit: bool = True, force: bool = False) -> dict[str, Any]:
+        with self._polling.serialize(job_id):
+            return self._poll_job(job_id, include_audit=include_audit, force=force)
+
+    def _poll_job(self, job_id: str, *, include_audit: bool, force: bool) -> dict[str, Any]:
         with self._write_transaction():
             record = self._load_record_from_db(job_id, include_audit=include_audit)
             if record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
+                return record.as_dict()
+            if not force and (self._polling.fresh(record) or (record.status in _TERMINAL_STATUSES and record.result is not None)):
                 return record.as_dict()
             if not record.upid or not record.node:
                 record.add_audit("poll_skipped", reason="missing_upid_or_node")
@@ -285,6 +204,7 @@ class JobStore:
                 return record.as_dict()
             upid = record.upid
             node = record.node
+            observed_state = (record.status, record.updated_at, record.result)
 
         status_payload = self.proxmox.nodes(node).tasks(upid).status.get()
         log_payload = self.proxmox.nodes(node).tasks(upid).log.get()
@@ -293,7 +213,9 @@ class JobStore:
 
         with self._write_transaction():
             record = self._load_record_from_db(job_id, include_audit=include_audit)
-            if record.upid != upid or record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
+            if (record.upid != upid or record.status in {_RETRYING_STATUS, "needs_reconciliation"}
+                    or (record.status in _TERMINAL_STATUSES
+                        and (record.status, record.updated_at, record.result) != observed_state)):
                 record.add_audit("poll_discarded", stale_upid=upid, current_upid=record.upid)
                 self._save_record(record)
                 return record.as_dict()
@@ -311,6 +233,7 @@ class JobStore:
                 exitstatus=record.result.get("exitstatus") if record.result else None,
             )
             self._save_record(record)
+            self._polling.remember(record)
             return record.as_dict()
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:
@@ -485,273 +408,6 @@ class JobStore:
             return self._jobs[job_id]
         except KeyError as exc:
             raise JobNotFoundError(f"Unknown job_id: {job_id}") from exc
-
-    @contextmanager
-    def _write_transaction(self) -> Iterator[None]:
-        # Never hold this transaction during network I/O.
-        with self._lock, self._conn:
-            self._conn.execute("BEGIN IMMEDIATE")
-            yield
-
-    def _configure_connection(self) -> None:
-        self._conn.execute("PRAGMA busy_timeout = 5000")
-        self._conn.execute("PRAGMA journal_mode = WAL")
-        self._conn.execute("PRAGMA synchronous = NORMAL")
-        self._conn.execute("PRAGMA foreign_keys = ON")
-
-    def _init_db(self) -> None:
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT NOT NULL
-            )
-            """
-        )
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS jobs (
-                job_id TEXT PRIMARY KEY,
-                tool_name TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                node TEXT,
-                upid TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                status TEXT NOT NULL,
-                progress INTEGER,
-                attempts INTEGER NOT NULL,
-                retry_count INTEGER NOT NULL,
-                last_error TEXT,
-                completed_at TEXT,
-                result_json TEXT,
-                metadata_json TEXT NOT NULL,
-                previous_upids_json TEXT NOT NULL,
-                audit_log_json TEXT NOT NULL,
-                retry_spec_json TEXT,
-                retry_spec_redacted INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        try:
-            self._conn.execute("ALTER TABLE jobs ADD COLUMN retry_spec_redacted INTEGER NOT NULL DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)")
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs (status, created_at DESC)")
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tool_created_at ON jobs (tool_name, created_at DESC)")
-        self._conn.execute(
-            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            (1, _utcnow()),
-        )
-        self._conn.commit()
-        with self._write_transaction():
-            self._conn.execute("""
-                CREATE TABLE IF NOT EXISTS job_audit_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    event TEXT NOT NULL,
-                    details_json TEXT NOT NULL
-                )
-            """)
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_job_audit_job_time "
-                "ON job_audit_events(job_id, timestamp)"
-            )
-            for row in self._conn.execute(
-                "SELECT job_id, audit_log_json FROM jobs WHERE audit_log_json != '[]'"
-            ).fetchall():
-                for item in json.loads(row["audit_log_json"] or "[]"):
-                    self._conn.execute(
-                        "INSERT INTO job_audit_events(job_id, timestamp, event, details_json) VALUES (?, ?, ?, ?)",
-                        (row["job_id"], item["timestamp"], item["event"], json.dumps(_sanitize(item.get("details", {})))),
-                    )
-                self._conn.execute("UPDATE jobs SET audit_log_json = '[]' WHERE job_id = ?", (row["job_id"],))
-            self._conn.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", (2, _utcnow()),
-            )
-        # Migration warning: legacy jobs without target metadata cannot be safely
-        # isolated between named targets. In legacy mode this store owns the whole
-        # database and still serves those jobs, so no warning is warranted.
-        if self.target_name is not None and not self.legacy_mode:
-            count = self._conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE json_extract(metadata_json, '$.target') IS NULL"
-            ).fetchone()[0]
-            if count:
-                import logging
-                logging.getLogger("proxmox-mcp.jobs").warning(
-                    "Job DB contains %s legacy jobs without target metadata; run migration or clear DB", count
-                )
-
-    def _load_records(self) -> None:
-        with self._lock:
-            for record in self._query_records(limit=500, include_audit=False):
-                self._jobs[record.job_id] = record
-
-    def _row_to_record(self, row: sqlite3.Row, audit_rows: list[Any] | None = None) -> JobRecord:
-        job_id = str(row["job_id"])
-        existing = self._jobs.get(job_id)
-        audit = audit_rows if audit_rows is not None else self._conn.execute(
-            "SELECT timestamp, event, details_json FROM job_audit_events WHERE job_id = ? ORDER BY id", (job_id,),
-        ).fetchall()
-        return JobRecord(
-            job_id=job_id,
-            tool_name=str(row["tool_name"]),
-            summary=str(row["summary"]),
-            node=row["node"],
-            upid=row["upid"],
-            created_at=str(row["created_at"]),
-            updated_at=str(row["updated_at"]),
-            status=str(row["status"]),
-            progress=row["progress"],
-            attempts=int(row["attempts"]),
-            retry_count=int(row["retry_count"]),
-            last_error=row["last_error"],
-            completed_at=row["completed_at"],
-            result=json.loads(row["result_json"]) if row["result_json"] else None,
-            metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
-            previous_upids=json.loads(row["previous_upids_json"]) if row["previous_upids_json"] else [],
-            audit_log=[
-                JobAuditEvent(
-                    timestamp=item["timestamp"],
-                    event=item["event"],
-                    details=json.loads(item["details_json"]),
-                )
-                for item in audit
-            ],
-            _persisted_audit_count=len(audit),
-            retry_spec=json.loads(row["retry_spec_json"]) if row["retry_spec_json"] else None,
-            retry_spec_redacted=bool(row["retry_spec_redacted"]) if "retry_spec_redacted" in row.keys() else False,
-            retry_factory=existing.retry_factory if existing is not None else None,
-            cancel_factory=existing.cancel_factory if existing is not None else None,
-        )
-
-    def _target_matches(self, stored_target: Any) -> bool:
-        """Whether a stored job belongs to this store's target.
-
-        In legacy mode the store owns the entire database, so jobs written
-        before target metadata existed (stored_target is None) remain visible.
-        Named targets never inherit untargeted jobs.
-        """
-        if self.target_name is None:
-            return True
-        if stored_target == self.target_name:
-            return True
-        return self.legacy_mode and stored_target is None
-
-    def _load_record_from_db(self, job_id: str, *, include_audit: bool = True) -> JobRecord:
-        row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
-        if row is None:
-            self._jobs.pop(job_id, None)
-            raise JobNotFoundError(f"Unknown job_id: {job_id}")
-        stored_target = json.loads(row["metadata_json"] or "{}").get("target")
-        if not self._target_matches(stored_target):
-            raise JobNotFoundError(f"Unknown job_id: {job_id}")
-        record = self._row_to_record(row, None if include_audit else [])
-        if record.status == _RETRYING_STATUS:
-            expires = record.metadata.get("retry_lease_expires", record.updated_at)
-            if expires <= _utcnow():
-                record.status = "needs_reconciliation"
-                record.add_audit("retry_lease_expired")
-                self._save_record(record)
-        self._jobs[record.job_id] = record
-        self._trim_cache()
-        return record
-
-    def _query_records(
-        self,
-        *,
-        status: Optional[str] = None,
-        tool_name: Optional[str] = None,
-        limit: int = 100,
-        include_audit: bool = True,
-    ) -> list[JobRecord]:
-        safe_limit = max(1, min(int(limit), 500))
-        where: list[str] = []
-        params: list[Any] = []
-        if status:
-            where.append("status = ?")
-            params.append(status)
-        if tool_name:
-            where.append("tool_name = ?")
-            params.append(tool_name)
-        if self.target_name is not None:
-            if self.legacy_mode:
-                # Legacy upgrade: this store owns the database, so also surface
-                # jobs recorded before target metadata was introduced.
-                where.append(
-                    "(json_extract(metadata_json, '$.target') = ? "
-                    "OR json_extract(metadata_json, '$.target') IS NULL)"
-                )
-            else:
-                where.append("json_extract(metadata_json, '$.target') = ?")
-            params.append(self.target_name)
-        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
-        rows = self._conn.execute(
-            f"SELECT * FROM jobs {where_clause} ORDER BY created_at DESC LIMIT ?",
-            (*params, safe_limit),
-        ).fetchall()
-        audit_by_job: dict[str, list[Any]] = {row["job_id"]: [] for row in rows}
-        if rows and include_audit:
-            placeholders = ",".join("?" for _ in rows)
-            for event in self._conn.execute(f"SELECT job_id,timestamp,event,details_json FROM job_audit_events WHERE job_id IN ({placeholders}) ORDER BY id", tuple(audit_by_job)).fetchall():
-                audit_by_job[event["job_id"]].append(event)
-        records = [self._row_to_record(row, audit_by_job[row["job_id"]]) for row in rows]
-        for record in records:
-            self._jobs[record.job_id] = record
-        self._trim_cache()
-        return records
-
-    def _trim_cache(self) -> None:
-        while len(self._jobs) > 500:
-            self._jobs.pop(next(iter(self._jobs)))
-
-    def _save_record(self, record: JobRecord) -> None:
-        self._trim_cache()
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO jobs (
-                job_id, tool_name, summary, node, upid, created_at, updated_at, status,
-                progress, attempts, retry_count, last_error, completed_at, result_json,
-                metadata_json, previous_upids_json, audit_log_json, retry_spec_json, retry_spec_redacted
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record.job_id,
-                record.tool_name,
-                record.summary,
-                record.node,
-                record.upid,
-                record.created_at,
-                record.updated_at,
-                record.status,
-                record.progress,
-                record.attempts,
-                record.retry_count,
-                _sanitize(record.last_error),
-                record.completed_at,
-                json.dumps(_sanitize(record.result), sort_keys=True) if record.result is not None else None,
-                json.dumps(_sanitize(record.metadata), sort_keys=True),
-                json.dumps(record.previous_upids),
-                "[]",
-                json.dumps(record.retry_spec, sort_keys=True) if record.retry_spec is not None else None,
-                int(record.retry_spec_redacted),
-            ),
-        )
-        for event in record.audit_log[record._persisted_audit_count:]:
-            self._conn.execute(
-                "INSERT INTO job_audit_events(job_id, timestamp, event, details_json) VALUES (?, ?, ?, ?)",
-                (record.job_id, event.timestamp, event.event, json.dumps(_sanitize(event.details))),
-            )
-        record._persisted_audit_count = len(record.audit_log)
-        if self.audit_retention_days is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.audit_retention_days)).isoformat()
-            self._conn.execute(
-                "DELETE FROM job_audit_events WHERE job_id = ? AND timestamp < ?", (record.job_id, cutoff),
-            )
-            record.audit_log = [event for event in record.audit_log if event.timestamp >= cutoff]
-            record._persisted_audit_count = len(record.audit_log)
 
     def _extract_progress(self, log_payload: Any) -> Optional[int]:
         max_progress: Optional[int] = None

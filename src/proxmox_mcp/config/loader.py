@@ -55,10 +55,15 @@ def _apply_mcp_env_overrides(config_data: Dict[str, Any]) -> None:
     """Allow deployment-specific MCP transport settings to override file config."""
     if "PROXMOX_JOBS_SQLITE_PATH" in os.environ:
         config_data.setdefault("jobs", {})["sqlite_path"] = os.environ["PROXMOX_JOBS_SQLITE_PATH"]
+    if "PROXMOX_JOBS_POLL_CACHE_TTL" in os.environ:
+        config_data.setdefault("jobs", {})["poll_cache_ttl"] = float(os.environ["PROXMOX_JOBS_POLL_CACHE_TTL"])
     env_map = {
         "MCP_HOST": ("host", str),
         "MCP_PORT": ("port", int),
         "MCP_TRANSPORT": ("transport", str),
+        "MCP_WORKER_LIMIT": ("worker_limit", int),
+        "MCP_QUEUE_LIMIT": ("queue_limit", int),
+        "MCP_QUEUE_TIMEOUT": ("queue_timeout", float),
     }
     overrides = {
         key: (coerce(os.environ[env_name]) if coerce is not str else os.environ[env_name])

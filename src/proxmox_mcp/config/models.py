@@ -49,6 +49,8 @@ class ProxmoxConfig(BaseModel):
     timeout: int = 30  # Optional: API timeout in seconds (default: 30)
     verify_ssl: StrictBool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
+    session_pool_size: int = Field(default=1, ge=1, le=32)
+    session_pool_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
 
 
 class APITunnelConfig(BaseModel):
@@ -83,6 +85,8 @@ class TargetConfig(BaseModel):
     verify_ssl: StrictBool = True
     allow_insecure_tls: StrictBool = False
     service: str = "PVE"
+    session_pool_size: int = Field(default=1, ge=1, le=32)
+    session_pool_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
     auth: AuthConfig
     kind: Literal["cluster", "standalone"] = "standalone"
     readonly: StrictBool = False
@@ -158,6 +162,7 @@ class JobsConfig(BaseModel):
 
     sqlite_path: str = "proxmox-jobs.sqlite3"
     audit_retention_days: Optional[int] = Field(default=None, ge=1)
+    poll_cache_ttl: float = Field(default=1.0, ge=0, le=60, allow_inf_nan=False)
 
 class ClientPermissions(BaseModel):
     """An explicit OAuth client or shared transport principal grant."""
@@ -168,6 +173,8 @@ class ClientPermissions(BaseModel):
 
 class MCPConfig(BaseModel):
     worker_limit: int = Field(default=8, ge=1, le=128, description="Maximum concurrent tool calls per target")
+    queue_limit: int = Field(default=64, ge=0, le=4096, description="Maximum waiting tool calls per target")
+    queue_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
     """Model for MCP server configuration.
 
     Defines transport-specific settings for running the MCP server.

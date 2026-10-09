@@ -220,7 +220,9 @@ def test_api_tunnel_wait_returns_when_listener_becomes_reachable() -> None:
 
 
 def test_proxmox_manager_close_releases_tunnel_manager() -> None:
-    manager = object.__new__(ProxmoxManager)
+    from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI", return_value=Mock()):
+        manager = ProxmoxManager(ProxmoxConfig(host="pve.invalid"), AuthConfig(user="u", token_name="n", token_value="v"))
     manager.tunnel_manager = Mock()
 
     manager.close()
@@ -229,8 +231,9 @@ def test_proxmox_manager_close_releases_tunnel_manager() -> None:
 
 
 def test_proxmox_manager_close_without_tunnel_is_noop() -> None:
-    manager = object.__new__(ProxmoxManager)
-    manager.tunnel_manager = None
+    from proxmox_mcp.config.models import ProxmoxConfig, AuthConfig
+    with patch("proxmox_mcp.core.proxmox.ProxmoxAPI", return_value=Mock()):
+        manager = ProxmoxManager(ProxmoxConfig(host="pve.invalid"), AuthConfig(user="u", token_name="n", token_value="v"))
 
     manager.close()
 
@@ -242,6 +245,8 @@ def test_proxmox_manager_can_use_tunnel_endpoint_without_owning_process() -> Non
         timeout=30,
         verify_ssl=True,
         service="PVE",
+        session_pool_size=1,
+        session_pool_timeout=30,
     )
     auth_config = SimpleNamespace(
         user="root@pam",
