@@ -113,9 +113,11 @@ request, including secrets added and then removed before the final commit.
 It extends Gitleaks' default provider and private-key rules with password-bearing
 PostgreSQL, MySQL, and MongoDB URLs. Reports are redacted. The only additional
 exception is the exact disposable local PostgreSQL URL in the CI service;
-tests and documentation are not excluded as directories.
+tests and documentation are not excluded as directories. Inline
+`gitleaks:allow` comments cannot suppress CI findings.
 
-Run `gitleaks dir PATH --config .gitleaks.toml --redact` locally before pushing.
+Run `gitleaks dir PATH --config .gitleaks.toml --redact --ignore-gitleaks-allow`
+locally before pushing.
 Resolve findings rather than suppressing entire files or directories. Any
 necessary exception must identify a reviewed test value and its specific path.
 
