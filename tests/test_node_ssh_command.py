@@ -118,3 +118,38 @@ def test_container_tools_report_host_command_failure():
     ):
         with pytest.raises(RuntimeError, match="SSH connection failed"):
             tools.execute_node_command("ichi", "id")
+
+
+@pytest.mark.parametrize("command", [
+    "id && whoami",
+    "id; whoami",
+    "id | whoami",
+    "id$(whoami)",
+    "printf id",
+    "id\\nwhoami",
+    "id -u",
+])
+def test_host_allowlist_rejects_partial_pattern_matches(command):
+    policy = CommandPolicyGate(CommandPolicyConfig(
+        mode="allowlist", allow_patterns=[r"^id"],
+    ))
+    tools = ContainerTools(MagicMock(), SSHConfig(allow_node_commands=True), command_policy=policy)
+    with patch.object(tools.console_manager, "execute_node_command") as execute:
+        result = tools.execute_node_command("ichi", command)
+    assert "CMD_POLICY_NOT_ALLOWLISTED" in result[0].text
+    execute.assert_not_called()
+
+
+def test_host_allowlist_permits_complete_pattern_match():
+    policy = CommandPolicyGate(CommandPolicyConfig(
+        mode="allowlist", allow_patterns=[r"^id"],
+    ))
+    tools = ContainerTools(MagicMock(), SSHConfig(allow_node_commands=True), command_policy=policy)
+    with patch.object(
+        tools.console_manager,
+        "execute_node_command",
+        return_value={"success": True},
+    ) as execute:
+        result = tools.execute_node_command("ichi", "id")
+    assert '"success": true' in result[0].text
+    execute.assert_called_once_with("ichi", "id")
