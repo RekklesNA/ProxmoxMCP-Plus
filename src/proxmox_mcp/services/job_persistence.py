@@ -286,4 +286,3 @@ class JobPersistence:
             )
             record.audit_log = [event for event in record.audit_log if event.timestamp >= cutoff]
             record._persisted_audit_count = len(record.audit_log)
-

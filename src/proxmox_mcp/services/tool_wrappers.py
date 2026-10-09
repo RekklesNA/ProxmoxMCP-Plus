@@ -167,5 +167,3 @@ class RegistryPluginBase(ToolRegistryPlugin):
                 server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved", outcome=outcome)
 
         return wrapped
-
-

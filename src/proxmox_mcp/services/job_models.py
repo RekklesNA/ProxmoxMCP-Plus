@@ -97,5 +97,3 @@ class JobRecord:
             "retry_spec": _sanitize(self.retry_spec),
             "retry_spec_redacted": self.retry_spec_redacted,
         }
-
-
