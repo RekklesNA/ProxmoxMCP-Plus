@@ -126,7 +126,7 @@ def test_container_tools_report_host_command_failure():
     "id | whoami",
     "id$(whoami)",
     "printf id",
-    "id\\nwhoami",
+    "id\nwhoami",
     "id -u",
 ])
 def test_host_allowlist_rejects_partial_pattern_matches(command):
