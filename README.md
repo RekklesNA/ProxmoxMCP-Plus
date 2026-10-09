@@ -27,7 +27,12 @@
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![ProxmoxMCP-Plus architecture](docs/assets/proxmoxmcp-nature-architecture.svg)
+[![Architecture: MCP and OpenAPI entry points, guarded target-aware tools, Proxmox VE, and persistent jobs](docs/assets/proxmoxmcp-nature-architecture.svg)](docs/assets/proxmoxmcp-nature-architecture.svg)
+
+MCP and OpenAPI are alternative entry points into the same workflows and may
+run in separate processes. Solid arrows show requests and execution; dashed arrows
+show persisted job and audit state. Approval gates, SSH execution and MCP HTTP
+OAuth depend on configuration. Select the diagram to view it at full size.
 
 ## Why ProxmoxMCP-Plus
 
