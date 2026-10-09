@@ -22,6 +22,8 @@ from proxmox_mcp.services.dispatch import DispatchGate
 from proxmox_mcp.services.jobs import JobStore, JobConflictError, JobNotFoundError
 from proxmox_mcp.services.job_polling import PollCoordinator
 from proxmox_mcp.server import ProxmoxMCPServer
+from proxmox_mcp.openapi_proxy import create_app
+from proxmox_mcp.tools.jobs import JobsTools
 
 AUTH = AuthConfig(user="root@pam", token_name="test", token_value="fixture")
 
@@ -373,5 +375,32 @@ async def test_force_poll_public_mcp_schema_and_dispatch(tmp_path):
         assert json.loads(result[0].text)["status"] == "running"
         schema = next(t.inputSchema for t in await server.mcp.list_tools() if t.name == "poll_job")
         assert "force" in schema["properties"]
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_point", ["library", "mcp", "openapi"])
+async def test_explicit_get_job_refresh_bypasses_poll_cache(tmp_path, entry_point):
+    api = task_api()
+    config = Config(proxmox=ProxmoxConfig(host="pve.invalid"), auth=AUTH,
+                    jobs=JobsConfig(sqlite_path=str(tmp_path / "jobs.db"), poll_cache_ttl=60))
+    with patch("proxmox_mcp.server.load_config", return_value=config), patch("proxmox_mcp.core.proxmox.ProxmoxAPI", return_value=api):
+        server = ProxmoxMCPServer()
+    try:
+        job_id = new_job(server.job_store)
+        server.job_store.poll_job(job_id)
+        api.nodes.return_value.tasks.return_value.status.get.return_value = {"status": "stopped", "exitstatus": "OK"}
+        if entry_point == "library":
+            result = json.loads(JobsTools(server.job_store).get_job(job_id, refresh=True)[0].text)
+        elif entry_point == "mcp":
+            result = json.loads((await server.mcp.call_tool("get_job", {"job_id": job_id, "refresh": True}))[0].text)
+        else:
+            app = create_app(server_command=["unused"], api_key=None, strict_auth=False,
+                             cors_allow_origins=[], job_store=server.job_store)
+            endpoint = next(route.endpoint for route in app.router.routes if getattr(route, "path", None) == "/jobs/{job_id}")
+            result = json.loads(endpoint(job_id, refresh=True).body)
+        assert result["status"] == "completed"
+        assert api.nodes.return_value.tasks.return_value.status.get.call_count == 2
     finally:
         server.close()

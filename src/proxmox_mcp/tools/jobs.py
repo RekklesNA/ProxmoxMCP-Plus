@@ -27,7 +27,7 @@ class JobsTools:
 
     def get_job(self, job_id: str, refresh: bool = False) -> List[Content]:
         if refresh:
-            return self._json(self.job_store.poll_job(job_id))
+            return self._json(self.job_store.poll_job(job_id, force=True))
         return self._json(self.job_store.get_job(job_id))
 
     def poll_job(self, job_id: str, include_audit: bool = True, force: bool = False) -> List[Content]:

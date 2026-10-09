@@ -495,7 +495,7 @@ def create_app(
         try:
             target_name, job_store_local = _require_job_store(target)
             _authorize_job('get_job', target_name)
-            payload = job_store_local.poll_job(job_id) if refresh else job_store_local.get_job(job_id)
+            payload = job_store_local.poll_job(job_id, force=True) if refresh else job_store_local.get_job(job_id)
             return JSONResponse(status_code=200, content=payload)
         except Exception as exc:  # noqa: BLE001
             return _job_error_response(exc)
