@@ -46,6 +46,7 @@ What you get:
 - ISO download and cleanup
 - node, storage, and cluster inspection
 - SSH-backed container command execution with guardrails
+- opt-in guarded [Proxmox node SSH commands](docs/node-command-execution.md)
 - persistent job tracking for async Proxmox tasks
 
 ## What Makes It Different

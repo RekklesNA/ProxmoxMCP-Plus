@@ -18,6 +18,11 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.0`
+
+- Adds opt-in guarded node SSH commands, lazy startup audit loading, client-specific Code Mode discovery and verified publication retries.
+- See [v0.6.0 notes](../releases/v0.6.0.md).
+
 ### Version `0.5.27`
 
 - Repairs guest ID path validation, rollback retry dependency checks, Unicode approval comparison and partial backup metrics found during the independent review.

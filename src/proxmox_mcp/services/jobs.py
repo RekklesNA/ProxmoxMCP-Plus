@@ -586,7 +586,7 @@ class JobStore:
 
     def _load_records(self) -> None:
         with self._lock:
-            for record in self._query_records(limit=500):
+            for record in self._query_records(limit=500, include_audit=False):
                 self._jobs[record.job_id] = record
 
     def _row_to_record(self, row: sqlite3.Row, audit_rows: list[Any] | None = None) -> JobRecord:

@@ -44,7 +44,11 @@ it does not forward individual callers' OAuth identity. Use separate instances
 and restricted child grants when distinct users require distinct bridge rights.
 These are client grants, not a claim of end-user identity verification.
 
-Command allowlist patterns use regex search; unanchored patterns can match a
+Code Mode discovery is filtered per request by client tool and target grants;
+execution still enforces the selected target and operation policy.
+
+Optional [node SSH commands](node-command-execution.md) require a per-target opt-in
+and a full allow-pattern match. Guest command allowlist patterns use regex search; unanchored patterns can match a
 substring of a longer command. Use anchored expressions,
 escape regex whitespace as `\\s` in JSON, and consider shell metacharacters and
 program-specific options. A regex allowlist cannot provide a general shell sandbox.
@@ -73,7 +77,8 @@ or explicitly confirm no task was submitted. A concurrent state change is preser
 and the discarded submission UPID remains in the audit log.
 
 Configure `jobs.audit_retention_days` to bound audit retention; the default preserves
-all history. The in-memory job cache is capped at 500 entries. Recipes containing
+all history. The in-memory job cache is capped at 500 entries and loads summaries at startup;
+audit history is fetched on demand without deleting persisted events. Recipes containing
 secrets are redacted on disk and can be retried only while their original in-process
 callback is retained. Restart or cache eviction requires a new explicitly authorized
 operation. Docker Compose persists SQLite in the `proxmox-jobs` volume at `/app/data`;

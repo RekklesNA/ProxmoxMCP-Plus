@@ -48,7 +48,7 @@ tools accept an optional `target` argument; it is required when multiple targets
 Target configuration owns the API/SSH connections, job store, read-only setting, and
 command policy. Direct OpenAPI `/jobs` routes use the `target` query parameter.
 
-The complete catalog has 55 tools. Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
+The catalog includes optional [node SSH commands](../node-command-execution.md). Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
 settings filter tools before MCP registration and OpenAPI route generation, including
 `list_targets`. The default exposes every available tool; SSH-only tools still require
 SSH configuration. Filtering does not disable direct operational OpenAPI routes or
