@@ -114,6 +114,20 @@ def test_poll_failures_are_not_cached_and_other_jobs_can_progress(tmp_path):
         JobStore(api, ":memory:", poll_cache_ttl=-1)
 
 
+def test_delayed_poll_cannot_reopen_a_task_completed_by_another_store(tmp_path):
+    api = task_api()
+    completed_api = task_api("stopped", "OK")
+    path = str(tmp_path / "jobs.db")
+    with JobStore(api, path) as first, JobStore(completed_api, path) as second:
+        job_id = new_job(first)
+        def delayed_status():
+            assert second.poll_job(job_id)["status"] == "completed"
+            return {"status": "running"}
+        api.nodes.return_value.tasks.return_value.status.get.side_effect = delayed_status
+        assert first.poll_job(job_id)["status"] == "completed"
+        assert [item["event"] for item in first.get_audit(job_id)] == ["created", "polled", "poll_discarded"]
+
+
 def test_poll_coordinator_is_bounded_and_fingerprint_sensitive():
     cache = PollCoordinator(60)
     for i in range(501):

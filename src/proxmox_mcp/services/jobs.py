@@ -204,6 +204,7 @@ class JobStore(JobPersistence):
                 return record.as_dict()
             upid = record.upid
             node = record.node
+            observed_updated_at = record.updated_at
 
         status_payload = self.proxmox.nodes(node).tasks(upid).status.get()
         log_payload = self.proxmox.nodes(node).tasks(upid).log.get()
@@ -212,7 +213,8 @@ class JobStore(JobPersistence):
 
         with self._write_transaction():
             record = self._load_record_from_db(job_id, include_audit=include_audit)
-            if record.upid != upid or record.status in {_RETRYING_STATUS, "needs_reconciliation"}:
+            if (record.upid != upid or record.status in {_RETRYING_STATUS, "needs_reconciliation"}
+                    or (record.status in _TERMINAL_STATUSES and record.updated_at != observed_updated_at)):
                 record.add_audit("poll_discarded", stale_upid=upid, current_upid=record.upid)
                 self._save_record(record)
                 return record.as_dict()
