@@ -926,7 +926,11 @@ class ContainerTools(ProxmoxTool):
             return self._err("execute_node_command", RuntimeError("SSH is not configured for this target"))
         try:
             if self.command_policy is not None:
-                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                decision = self.command_policy.evaluate(
+                    command,
+                    approval_token=approval_token,
+                    full_match_allow_patterns=True,
+                )
                 if not decision.allowed:
                     return self._json_fmt(ToolResult(
                         success=False,
