@@ -235,6 +235,9 @@ EXECUTE_NODE_COMMAND_DESC = """Execute a bounded shell command directly on a Pro
 This tool is disabled unless the selected target explicitly sets
 ssh.allow_node_commands=true. Requires configured SSH credentials, a node
 present in the authenticated Proxmox node inventory, and command_policy approval.
+Host command allow_patterns must match the entire command, not just a prefix or
+substring. Use narrowly scoped expressions; permissive wildcards may still
+allow unintended shell operations.
 It is classified as a high-risk operation and respects target and client grants.
 
 Parameters:
