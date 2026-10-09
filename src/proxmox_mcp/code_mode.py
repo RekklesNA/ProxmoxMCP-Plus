@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic_core import to_jsonable_python
+from proxmox_mcp.security.access import authorize_client, client_principal, permitted_targets
 
 _SOURCE_LIMIT = 64_000
 
@@ -109,7 +110,26 @@ class CodeMode:
         self._guard_dispatch()
 
     def _runtime_tools(self) -> dict[str, Any]:
-        return self.domain_tools
+        """Discover only tools usable by this request's client on a granted target."""
+        config = getattr(getattr(self.server, "config", None), "mcp", None)
+        policies = getattr(config, "client_permissions", {})
+        if config is None or not policies:
+            return self.domain_tools
+        principal = client_principal(config.transport)
+        allowed = permitted_targets(policies, principal)
+        targets = [name for name in self.server.target_registry.names
+                   if allowed is None or name in allowed]
+        visible = {}
+        for name, tool in self.domain_tools.items():
+            candidates = [None] if name == "list_targets" else targets
+            for target in candidates:
+                try:
+                    authorize_client(policies, principal, name, target)
+                except PermissionError:
+                    continue
+                visible[name] = tool
+                break
+        return visible
 
     def _guard_dispatch(self) -> None:
         mcp = self.server.mcp
