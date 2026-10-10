@@ -123,3 +123,17 @@ necessary exception must identify a reviewed test value and its specific path.
 
 Merged head branches are deleted automatically by GitHub. This applies to future
 merges and does not remove historical branches retroactively.
+
+## Permanent Branches
+
+`main` and `dev` are the permanent branches. `dev` mirrors `main`; it is not a
+separate integration branch. The [Synchronize dev workflow](../.github/workflows/sync-dev.yml)
+fast-forwards it after each push to `main`, and also supports manual dispatch.
+Synchronization is serialized and fetches the latest references before pushing.
+It refuses to overwrite commits unique to `dev`; review and merge those commits
+through the normal checks before retrying. Both permanent branches are protected
+against deletion and force pushes.
+
+Temporary PR branches, including Dependabot update branches, can exist while
+work is reviewed and are deleted after merging. Repository cleanup removes old
+branches without changing the enabled dependency-update schedule.
