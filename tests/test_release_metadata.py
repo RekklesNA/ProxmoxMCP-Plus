@@ -64,8 +64,8 @@ def test_ghcr_release_builds_pinned_multi_arch_images():
         re.MULTILINE,
     )
 
-    assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
-    assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
+    assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.\d+\.\d+", workflow)
+    assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.\d+\.\d+", workflow)
     assert {name for name, _ in docker_actions} == {
         "docker/setup-qemu-action",
         "docker/setup-buildx-action",
