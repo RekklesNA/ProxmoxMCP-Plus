@@ -189,7 +189,7 @@ class CodeMode:
         try:
             streams = CollectStreams(max_bytes=16_000)
             async with self._execution_slots, asyncio.timeout(30), self._execution_pool() as pool:
-                async with pool.checkout(limits={"max_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
+                async with pool.checkout(limits={"max_feed_duration_secs": 30, "max_turn_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
                     result = await session.feed_run(code, external_lookup={"call_tool": call_tool}, print_callback=streams)
             if len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 16_000:
                 return {"success": False, "error": "Code Mode execution exceeded a configured safety limit."}
