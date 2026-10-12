@@ -18,6 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.2`
+
+- Updates Monty to 1.1.0 with compatible sandbox duration limits and a synchronized dependency lock.
+- Updates pinned GitHub and Docker Actions and keeps immutable-pin validation compatible with patch updates.
+- See [v0.6.2 notes](../releases/v0.6.2.md).
+
 ### Version `0.6.1`
 
 - Adds polling reuse, bounded tool waiting, latency histograms and opt-in independent API sessions.
