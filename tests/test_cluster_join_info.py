@@ -33,3 +33,22 @@ def test_join_info_surfaces_hostname_resolution_error():
     tool._call_with_retry = lambda label, fn: fn()
     with pytest.raises(RuntimeError, match="hostname lookup"):
         tool.get_cluster_join_info()
+
+
+def test_cluster_join_info_registry_dispatches_correct_target():
+    from types import SimpleNamespace
+    from proxmox_mcp.services.builtin_tool_plugins import CoreToolsPlugin
+
+    registered = {}
+    def register(**kwargs):
+        def decorator(fn):
+            registered[fn.__name__] = fn
+            return fn
+        return decorator
+
+    server = SimpleNamespace(proxmox_managers={}, tool_registry=SimpleNamespace(tool=register))
+    plugin = CoreToolsPlugin()
+    plugin._wrap_sync = MagicMock(return_value=lambda **kwargs: kwargs)
+    plugin.register(server)
+    assert registered["get_cluster_join_info"](target="prod") == {"target": "prod"}
+    assert plugin._wrap_sync.call_args.args[1] == "get_cluster_join_info"
