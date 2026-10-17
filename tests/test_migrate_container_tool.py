@@ -73,3 +73,84 @@ def test_missing_backup_blocks_before_post():
     with pytest.raises(ValueError, match="backup"):
         ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
     api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
+
+@pytest.mark.parametrize("node,vmid,destination,restart,local,expect", [
+    ("sam", "115", "sam", False, True, "distinct"),
+    ("sam", "oops", "six", False, True, "numeric"),
+    ("sam", "115", "six", False, False, "with_local_disks"),
+])
+def test_migration_rejects_unsafe_arguments(node, vmid, destination, restart, local, expect):
+    api = migration_api()
+    with pytest.raises(ValueError, match=expect):
+        ContainerTools(api).migrate_container(
+            node, vmid, destination, restart=restart, with_local_disks=local, confirm_migration=True
+        )
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
+
+
+def test_migration_fails_if_destination_offline():
+    api = migration_api()
+    api.nodes.get.return_value[1]["status"] = "offline"
+    with pytest.raises(ValueError, match="online"):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+
+
+@pytest.mark.parametrize("config,expected", [
+    ({"rootfs": "invalid"}, "rootfs"),
+    ({"rootfs": "local-lvm:vm-115-disk-0,size=40G", "lock": "backup"}, "locked"),
+    ({"rootfs": "local-lvm:vm-115-disk-0,size=40G", "mp0": "/host,mp=/data"}, "mounts"),
+    ({"rootfs": "local-lvm:vm-115-disk-0"}, "size"),
+])
+def test_migration_rejects_problematic_guest_config(config, expected):
+    api = migration_api()
+    api.nodes.return_value.lxc.return_value.config.get.return_value = config
+    with pytest.raises(ValueError, match=expected):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
+
+
+def test_migration_rejects_unknown_runtime():
+    api = migration_api()
+    api.nodes.return_value.lxc.return_value.status.current.get.return_value = {}
+    with pytest.raises(ValueError, match="runtime status"):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+
+
+def test_migration_rejects_incompatible_destination():
+    api = migration_api()
+    api.nodes.return_value.storage.return_value.status.get.return_value["content"] = "images"
+    with pytest.raises(ValueError, match="incompatible"):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+
+
+def test_migration_skips_non_backup_storage():
+    api = migration_api()
+    api.nodes.return_value.storage.get.return_value = [
+        None, {"storage": "local", "content": "images"},
+        {"storage": "backup", "content": "backup"},
+    ]
+    result = json.loads(ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)[0].text)
+    assert result["status"] == "submitted"
+
+
+def test_migration_mcp_registry_dispatch_and_policy():
+    from types import SimpleNamespace
+    from proxmox_mcp.services.builtin_tool_plugins import ContainerToolsPlugin
+
+    registered = {}
+    def register(**kwargs):
+        def decorator(fn):
+            registered[fn.__name__] = fn
+            return fn
+        return decorator
+    server = SimpleNamespace(tool_registry=SimpleNamespace(tool=register),
+                             config=SimpleNamespace(ssh=None), logger=MagicMock())
+    plugin = ContainerToolsPlugin()
+    plugin._wrap_sync = MagicMock(return_value=lambda **kwargs: kwargs)
+    plugin.register(server)
+    dispatched = registered["migrate_container"](
+        node="sam", vmid="115", destination="six",
+        restart=True, confirm_migration=True, confirm_downtime=True, target="default")
+    assert dispatched["destination"] == "six"
+    assert dispatched["confirm_downtime"] is True
+    assert plugin._wrap_sync.call_args.kwargs.get("high_risk") is True
