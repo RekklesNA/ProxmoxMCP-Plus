@@ -219,6 +219,10 @@
             "description": "Delete LXC containers"
         },
         {
+            "name": "migrate_container",
+            "description": "Submit an explicitly confirmed LXC migration and track its task"
+        },
+        {
             "name": "execute_container_command",
             "description": "Execute a shell command inside an LXC container via SSH"
         },
