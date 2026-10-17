@@ -142,6 +142,12 @@ class CoreToolsPlugin(RegistryPluginBase):
                 target=target
             )
 
+        @server.tool_registry.tool(description="Read cluster join metadata and certificate fingerprint; authentication credentials are not returned. Hostname lookup errors from Proxmox are reported.")
+        def get_cluster_join_info(
+            target: Annotated[Optional[str], Field(description="Configured target name", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_cluster_join_info", lambda ts: ts.cluster_tools.get_cluster_join_info)(target=target)
+
 
 class JobsToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:

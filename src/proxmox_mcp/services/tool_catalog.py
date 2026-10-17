@@ -25,6 +25,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "delete_vm",
         "get_storage",
         "get_cluster_status",
+        "get_cluster_join_info",
         "list_jobs",
         "get_job",
         "poll_job",
