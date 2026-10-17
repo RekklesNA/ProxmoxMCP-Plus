@@ -192,3 +192,13 @@ class NodeTools(ProxmoxTool):
                 break
 
             self._handle_error(f"get status for node {node}", e)
+
+    def get_node_time(self, node: str) -> List[Content]:
+        """Return node-local time for PVE ticket skew diagnosis."""
+        if not node or not node.strip():
+            raise ValueError("node must be non-empty")
+        try:
+            result = self._call_with_retry(f"get time on node {node}", lambda: self.proxmox.nodes(node).time.get())
+            return self._format_response({"node": node, **result})
+        except Exception as error:
+            self._handle_error(f"get time on node {node}", error)
