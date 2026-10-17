@@ -171,6 +171,10 @@
             "description": "Get overall cluster status and health"
         },
         {
+            "name": "get_cluster_join_info",
+            "description": "Read cluster join information and certificate fingerprint with credential redaction"
+        },
+        {
             "name": "list_jobs",
             "description": "List persistent Proxmox task jobs"
         },
