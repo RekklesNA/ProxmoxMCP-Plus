@@ -107,6 +107,10 @@
             "description": "Get detailed status of a specific node"
         },
         {
+            "name": "get_node_diagnostics",
+            "description": "Read per-node CPU, memory, storage and recent disk/network metrics"
+        },
+        {
             "name": "get_vms",
             "description": "List all virtual machines across the cluster"
         },
