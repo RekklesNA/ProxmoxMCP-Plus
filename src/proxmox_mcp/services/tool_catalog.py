@@ -32,6 +32,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "retry_job",
         "reconcile_job",
         "get_containers",
+        "preflight_container_migration",
         "start_container",
         "stop_container",
         "restart_container",
