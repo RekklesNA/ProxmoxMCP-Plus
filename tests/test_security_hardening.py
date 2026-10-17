@@ -53,8 +53,9 @@ def test_manifest_declares_all_registered_tools():
     )
     fake_server = SimpleNamespace(
         mcp=fake_mcp,
+        proxmox_managers={},
         tool_registry=tool_registry,
-        config=SimpleNamespace(ssh=SimpleNamespace(user="root")),
+        config=SimpleNamespace(ssh=SimpleNamespace(user="root", allow_node_commands=True)),
         logger=Mock(),
     )
     for plugin in (
@@ -124,6 +125,11 @@ def test_container_command_logging_redacts_command(caplog):
     stdout = MagicMock()
     stdout.read.return_value = b"secret-output\n"
     stdout.channel.recv_exit_status.return_value = 0
+    chunks = [b"secret-output\n"]
+    stdout.channel.recv_ready.side_effect = lambda: bool(chunks)
+    stdout.channel.recv.side_effect = lambda size: chunks.pop(0)
+    stdout.channel.recv_stderr_ready.return_value = False
+    stdout.channel.exit_status_ready.return_value = True
     stderr = MagicMock()
     stderr.read.return_value = b""
     client = MagicMock()
@@ -162,7 +168,7 @@ def test_container_system_ssh_logging_redacts_command(caplog):
 
     caplog.set_level(logging.DEBUG, logger="proxmox-mcp.ct-console")
     with patch(
-        "proxmox_mcp.tools.console.container_manager.subprocess.run",
+        "proxmox_mcp.tools.console.container_manager.run_bounded",
         return_value=completed,
     ):
         result = manager.execute_command("pve1", "101", "echo super-secret")

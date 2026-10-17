@@ -1,0 +1,33 @@
+name: Synchronize dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synchronize-dev
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    name: Synchronize dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Fast-forward dev to the latest main
+        run: |
+          git fetch origin main dev
+          if ! git merge-base --is-ancestor origin/dev origin/main; then
+            echo "::error::dev contains commits absent from main. Review and merge them before synchronizing."
+            exit 1
+          fi
+          git push origin refs/remotes/origin/main:refs/heads/dev

@@ -29,6 +29,13 @@ class NodeTools(ProxmoxTool):
     node information might be temporarily unavailable.
     """
 
+    def list_bridges(self, node: str) -> List[Content]:
+        """Read bridge records visible to this token, including OVS and SDN."""
+        try:
+            return self._format_response(self.proxmox.nodes(node).network.get(type="any_bridge"))
+        except Exception as error:
+            self._handle_error(f"list bridges for node {node}", error)
+
     def get_nodes(self) -> List[Content]:
         """List all nodes in the Proxmox cluster with detailed status.
 
@@ -194,11 +201,21 @@ class NodeTools(ProxmoxTool):
             self._handle_error(f"get status for node {node}", e)
 
     def get_node_time(self, node: str) -> List[Content]:
-        """Return node-local time for PVE ticket skew diagnosis."""
-        if not node or not node.strip():
-            raise ValueError("node must be non-empty")
+        """Read the node clock using Proxmox's read-only /nodes/{node}/time endpoint."""
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("node must be a non-empty name")
         try:
-            result = self._call_with_retry(f"get time on node {node}", lambda: self.proxmox.nodes(node).time.get())
-            return self._format_response({"node": node, **result})
+            data = self._call_with_retry(
+                f"get time on node {node}",
+                lambda: self.proxmox.nodes(node).time.get(),
+            )
+            if not isinstance(data, dict) or not isinstance(data.get("time"), int):
+                raise RuntimeError("Node time response did not contain an epoch timestamp")
+            return self._format_response({
+                "node": node,
+                "time": data["time"],
+                "localtime": data.get("localtime"),
+                "timezone": data.get("timezone"),
+            })
         except Exception as error:
             self._handle_error(f"get time on node {node}", error)
