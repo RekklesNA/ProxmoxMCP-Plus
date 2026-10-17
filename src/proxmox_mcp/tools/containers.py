@@ -1158,3 +1158,24 @@ class ContainerTools(ProxmoxTool):
             payload["digest"] = current["digest"]
         self.proxmox.nodes(node).lxc(vmid).config.put(**payload)
         return self._json_fmt({"node": node, "vmid": vmid, "applied": {interface: network}})
+
+    def migrate_container(self, node: str, vmid: str, destination: str,
+                          restart: bool = True, with_local_disks: bool = True,
+                          approval_token: str | None = None):
+        """Submit Proxmox LXC migration (returns UPID; does not wait for completion)."""
+        if not node or not destination or node == destination:
+            raise ValueError("Source and destination must be distinct, non-empty nodes")
+        if not str(vmid).isdigit():
+            raise ValueError("vmid must be numeric")
+        try:
+            # Do not silently power off a running service; restart=True permits
+            # controlled stop/start migration when local disks are involved.
+            params = {"target": destination, "restart": int(restart),
+                      "with-local-disks": int(with_local_disks)}
+            upid = self.proxmox.nodes(node).lxc(vmid).migrate.post(**params)
+            return self._format_response({
+                "source_node": node, "destination_node": destination,
+                "vmid": vmid, "upid": upid, "status": "submitted",
+            })
+        except Exception as error:
+            self._handle_error(f"migrate container {vmid} from {node} to {destination}", error)
