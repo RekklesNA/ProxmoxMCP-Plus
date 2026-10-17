@@ -92,3 +92,14 @@ class ClusterTools(ProxmoxTool):
             return self._format_response(status, "cluster")
         except Exception as e:
             self._handle_error("get cluster status", e)
+
+    def get_cluster_join_info(self) -> List[Content]:
+        """Return join information or propagate Proxmox's hostname resolution error."""
+        try:
+            result = self._call_with_retry(
+                "get cluster join information",
+                lambda: self.proxmox.cluster.config.join.get(),
+            )
+            return self._format_response(result)
+        except Exception as error:
+            self._handle_error("get cluster join information", error)
