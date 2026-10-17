@@ -70,7 +70,7 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 
 _READ_ONLY_TOOLS = {
-    "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
+    "list_targets", "get_nodes", "get_node_status", "get_node_diagnostics", "get_storage", "get_cluster_status",
     "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
     "get_next_vmid", "get_containers",
     "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
@@ -271,6 +271,13 @@ class CoreToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_node_status", lambda ts: ts.node_tools.get_node_status)(
                 node, target=target
             )
+
+        @server.tool_registry.tool(description="Read CPU, load, memory, swap, rootfs and storage metrics from one node without shell access.")
+        def get_node_diagnostics(
+            node: Annotated[str, Field(description="Node name")],
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_diagnostics", lambda ts: ts.node_tools.get_node_diagnostics)(node=node, target=target)
 
         @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
