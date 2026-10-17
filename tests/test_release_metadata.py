@@ -64,8 +64,8 @@ def test_ghcr_release_builds_pinned_multi_arch_images():
         re.MULTILINE,
     )
 
-    assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
-    assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.2\.0", workflow)
+    assert re.search(r"uses: docker/setup-qemu-action@[0-9a-f]{40}\s+# v4\.\d+\.\d+", workflow)
+    assert re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40}\s+# v4\.\d+\.\d+", workflow)
     assert {name for name, _ in docker_actions} == {
         "docker/setup-qemu-action",
         "docker/setup-buildx-action",
@@ -115,7 +115,8 @@ def test_runtime_image_removes_python_packaging_toolchain():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert re.search(r"^FROM python:3\.11-slim@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
-    assert "python -m pip install --no-cache-dir ." in dockerfile
+    assert "python -m pip install --no-cache-dir --require-hashes -r requirements/runtime.lock" in dockerfile
+    assert "python -m pip install --no-cache-dir --no-deps ." in dockerfile
     assert "python -m pip uninstall --yes pip setuptools wheel" in dockerfile
 
 

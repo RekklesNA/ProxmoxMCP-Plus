@@ -49,6 +49,8 @@ class ProxmoxConfig(BaseModel):
     timeout: int = 30  # Optional: API timeout in seconds (default: 30)
     verify_ssl: StrictBool = True  # Optional: SSL verification (default: True)
     service: str = "PVE"  # Optional: Service type (default: PVE)
+    session_pool_size: int = Field(default=1, ge=1, le=32)
+    session_pool_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
 
 
 class APITunnelConfig(BaseModel):
@@ -83,6 +85,8 @@ class TargetConfig(BaseModel):
     verify_ssl: StrictBool = True
     allow_insecure_tls: StrictBool = False
     service: str = "PVE"
+    session_pool_size: int = Field(default=1, ge=1, le=32)
+    session_pool_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
     auth: AuthConfig
     kind: Literal["cluster", "standalone"] = "standalone"
     readonly: StrictBool = False
@@ -116,6 +120,7 @@ class SSHConfig(BaseModel):
     known_hosts_file: Optional[str] = None
     strict_host_key_checking: bool = True
     prefer_ssh_client: bool = False
+    allow_node_commands: StrictBool = False
 
 
 class SecurityConfig(BaseModel):
@@ -128,7 +133,7 @@ class CommandPolicyConfig(BaseModel):
     mode: Literal["deny_all", "allowlist", "audit_only"] = "deny_all"
     allow_patterns: List[str] = Field(default_factory=list)
     deny_patterns: List[str] = Field(
-        default_factory=lambda: [r"(^|\\s)rm\\s+-rf(\\s|$)", r":\\(\\)\\{:\\|:\\&\\};:"]
+        default_factory=lambda: [r"(^|\s)rm\s+-rf(\s|$)", r":\(\)\{:\|:\&\};:"]
     )
     require_approval_token: bool = False
     approval_token: Optional[str] = None
@@ -145,6 +150,7 @@ class CommandPolicyConfig(BaseModel):
             "update_container_ssh_keys",
             "update_vm_config",
             "update_container_network",
+            "execute_node_command",
         ]
     )
     high_risk_require_approval_token: bool = False
@@ -155,8 +161,20 @@ class JobsConfig(BaseModel):
     """Persistent job tracking configuration."""
 
     sqlite_path: str = "proxmox-jobs.sqlite3"
+    audit_retention_days: Optional[int] = Field(default=None, ge=1)
+    poll_cache_ttl: float = Field(default=1.0, ge=0, le=60, allow_inf_nan=False)
+
+class ClientPermissions(BaseModel):
+    """An explicit OAuth client or shared transport principal grant."""
+
+    tools: List[str] = Field(default_factory=list)
+    targets: List[str] = Field(default_factory=list)
+
 
 class MCPConfig(BaseModel):
+    worker_limit: int = Field(default=8, ge=1, le=128, description="Maximum concurrent tool calls per target")
+    queue_limit: int = Field(default=64, ge=0, le=4096, description="Maximum waiting tool calls per target")
+    queue_timeout: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
     """Model for MCP server configuration.
 
     Defines transport-specific settings for running the MCP server.
@@ -172,6 +190,8 @@ class MCPConfig(BaseModel):
     allow_unauthenticated_http: bool = False
     # Opt-in: legacy full catalog remains the default for existing clients.
     code_mode: bool = False
+    code_mode_pool_reuse: bool = False
+    client_permissions: Dict[str, ClientPermissions] = Field(default_factory=dict)
 
     @field_validator("transport", mode="before")
     @classmethod

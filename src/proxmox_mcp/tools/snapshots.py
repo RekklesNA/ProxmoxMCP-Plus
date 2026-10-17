@@ -3,6 +3,7 @@ from typing import List, Dict, Optional, Any
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.security.resources import submit_snapshot_rollback
 
 
 def _as_list(maybe: Any) -> List:
@@ -31,10 +32,7 @@ class SnapshotTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        """Handle errors."""
-        if hasattr(self, "_handle_error"):
-            self._handle_error(action, e)
-        return [Content(type="text", text=f"Error: {action} - {str(e)}")]
+        self._handle_error(action, e)
 
     def list_snapshots(
         self,
@@ -151,7 +149,7 @@ class SnapshotTools(ProxmoxTool):
                     if vm_type == "lxc"
                     else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot.post(**params))
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -176,7 +174,7 @@ class SnapshotTools(ProxmoxTool):
                 f"  - Rollback: rollback_snapshot node='{node}' vmid='{vmid}' snapname='{snapname}' vm_type='{vm_type}'",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"create snapshot '{snapname}' for {vm_type} {vmid}", e)
@@ -218,7 +216,7 @@ class SnapshotTools(ProxmoxTool):
                     if vm_type == "lxc"
                     else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot(snapname).delete())
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -232,7 +230,7 @@ class SnapshotTools(ProxmoxTool):
                 f"Job ID: {job['job_id'] if job else 'n/a'}",
             ]
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"delete snapshot '{snapname}' for {vm_type} {vmid}", e)
@@ -263,28 +261,7 @@ class SnapshotTools(ProxmoxTool):
         """
         _ = approval_token
         try:
-            if vm_type == "lxc":
-                snapshots = _as_list(self.proxmox.nodes(node).lxc(vmid).snapshot.get())
-            else:
-                snapshots = _as_list(self.proxmox.nodes(node).qemu(vmid).snapshot.get())
-
-            child_snaps = []
-            for snap in snapshots:
-                parent = _get(snap, "parent", "")
-                snap_name = _get(snap, "name", "")
-                if snap_name != "current" and parent == snapname:
-                    child_snaps.append(str(snap_name))
-            if child_snaps:
-                raise ValueError(
-                    "Refusing to rollback because snapshot "
-                    f"'{snapname}' has newer child snapshots: {', '.join(child_snaps)}. "
-                    "Delete those snapshots explicitly first, then retry rollback."
-                )
-
-            if vm_type == "lxc":
-                result = self.proxmox.nodes(node).lxc(vmid).snapshot(snapname).rollback.post()
-            else:
-                result = self.proxmox.nodes(node).qemu(vmid).snapshot(snapname).rollback.post()
+            result = submit_snapshot_rollback(self.proxmox, node, vmid, snapname, vm_type)
             job = self._register_background_job(
                 tool_name="rollback_snapshot",
                 summary=f"Rollback to snapshot {snapname} for {vm_type} {vmid} on {node}",
@@ -292,12 +269,8 @@ class SnapshotTools(ProxmoxTool):
                 upid=result,
                 metadata={"vmid": vmid, "snapname": snapname, "vm_type": vm_type},
                 retry_spec={"kind": "snapshot.rollback", "params": {"node": node, "vmid": vmid, "vm_type": vm_type, "snapname": snapname}},
-                retry_factory=(
-                    (lambda: self.proxmox.nodes(node).lxc(vmid).snapshot(snapname).rollback.post())
-                    if vm_type == "lxc"
-                    else (lambda: self.proxmox.nodes(node).qemu(vmid).snapshot(snapname).rollback.post())
-                ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                retry_factory=lambda: submit_snapshot_rollback(self.proxmox, node, vmid, snapname, vm_type),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -318,7 +291,7 @@ class SnapshotTools(ProxmoxTool):
                 "The VM/container will be restored to its state at the time of the snapshot.",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"rollback to snapshot '{snapname}' for {vm_type} {vmid}", e)

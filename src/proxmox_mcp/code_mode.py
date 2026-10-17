@@ -4,10 +4,13 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic_core import to_jsonable_python
+from proxmox_mcp.security.access import authorize_client, client_principal, permitted_targets
 
 _SOURCE_LIMIT = 64_000
 
@@ -50,6 +53,29 @@ class CodeMode:
         self.domain_tools = dict(server.mcp._tool_manager._tools)
         self._dispatch = server.mcp.call_tool
         self._execution_slots = asyncio.Semaphore(2)
+        self._pool: Any | None = None
+
+    @asynccontextmanager
+    async def pool_lifespan(self) -> AsyncIterator[None]:
+        """Reuse workers, but create a fresh sandbox session for every request."""
+        from pydantic_monty import AsyncMonty
+
+        async with AsyncMonty(min_processes=1, max_processes=2, max_checkouts_per_worker=100, request_timeout=30) as pool:
+            self._pool = pool
+            try:
+                yield
+            finally:
+                self._pool = None
+
+    @asynccontextmanager
+    async def _execution_pool(self) -> AsyncIterator[Any]:
+        if self._pool is not None:
+            yield self._pool
+        else:
+            from pydantic_monty import AsyncMonty
+
+            async with AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
+                yield pool
 
     def register(self) -> None:
         mcp = self.server.mcp
@@ -62,8 +88,6 @@ class CodeMode:
             results = []
             for name, tool in tools.items():
                 item = {"name": name, "description": tool.description or ""}
-                if name not in tools:
-                    continue
                 haystack = f"{name} {item.get('description', '')}".lower()
                 if query_l and query_l not in haystack:
                     continue
@@ -86,7 +110,26 @@ class CodeMode:
         self._guard_dispatch()
 
     def _runtime_tools(self) -> dict[str, Any]:
-        return self.domain_tools
+        """Discover only tools usable by this request's client on a granted target."""
+        config = getattr(getattr(self.server, "config", None), "mcp", None)
+        policies = getattr(config, "client_permissions", {})
+        if config is None or not policies:
+            return self.domain_tools
+        principal = client_principal(config.transport)
+        allowed = permitted_targets(policies, principal)
+        targets = [name for name in self.server.target_registry.names
+                   if allowed is None or name in allowed]
+        visible = {}
+        for name, tool in self.domain_tools.items():
+            candidates = [None] if name == "list_targets" else targets
+            for target in candidates:
+                try:
+                    authorize_client(policies, principal, name, target)
+                except PermissionError:
+                    continue
+                visible[name] = tool
+                break
+        return visible
 
     def _guard_dispatch(self) -> None:
         mcp = self.server.mcp
@@ -119,7 +162,7 @@ class CodeMode:
         if not isinstance(code, str) or len(code) > _SOURCE_LIMIT or not _source_allowed(code):
             return {"success": False, "error": "Code Mode source is invalid or exceeds the configured limit."}
         try:
-            from pydantic_monty import AsyncMonty, CollectStreams
+            from pydantic_monty import CollectStreams
         except Exception:
             return _safe_error()
         calls = 0
@@ -145,8 +188,8 @@ class CodeMode:
 
         try:
             streams = CollectStreams(max_bytes=16_000)
-            async with self._execution_slots, asyncio.timeout(30), AsyncMonty(min_processes=1, max_processes=1, max_checkouts_per_worker=1, request_timeout=30) as pool:
-                async with pool.checkout(limits={"max_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
+            async with self._execution_slots, asyncio.timeout(30), self._execution_pool() as pool:
+                async with pool.checkout(limits={"max_feed_duration_secs": 30, "max_turn_duration_secs": 30, "max_memory": 100_000_000, "max_recursion_depth": 100, "max_suspensions": 128}) as session:
                     result = await session.feed_run(code, external_lookup={"call_tool": call_tool}, print_callback=streams)
             if len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 16_000:
                 return {"success": False, "error": "Code Mode execution exceeded a configured safety limit."}

@@ -11,12 +11,13 @@ from setuptools import setup, find_packages
 
 setup(
     name="proxmox-mcp-plus",
-    version="0.5.20",
+    version="0.6.2",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.11",
     install_requires=[
-        "mcp>=1.8.0,<2.0.0",
+        "mcp>=1.30.0,<2.0.0",
+        "asyncpg>=0.30.0,<1.0.0",
         "proxmoxer>=2.0.1,<3.0.0",
         "requests>=2.31.0,<3.0.0",
         "pydantic>=2.0.0,<3.0.0",
@@ -25,7 +26,7 @@ setup(
         "mcpo>=0.0.17",
         "paramiko>=5.0.0,<6.0.0",
         "anyio>=4.0.0",
-        "pydantic-monty==0.0.22",
+        "pydantic-monty==1.1.0",
     ],
     extras_require={
         "dev": [
