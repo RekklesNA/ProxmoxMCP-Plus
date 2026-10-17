@@ -29,6 +29,13 @@ class NodeTools(ProxmoxTool):
     node information might be temporarily unavailable.
     """
 
+    def list_bridges(self, node: str) -> List[Content]:
+        """Read bridge records visible to this token, including OVS and SDN."""
+        try:
+            return self._format_response(self.proxmox.nodes(node).network.get(type="any_bridge"))
+        except Exception as error:
+            self._handle_error(f"list bridges for node {node}", error)
+
     def get_nodes(self) -> List[Content]:
         """List all nodes in the Proxmox cluster with detailed status.
 
@@ -194,22 +201,46 @@ class NodeTools(ProxmoxTool):
             self._handle_error(f"get status for node {node}", e)
 
     def get_node_diagnostics(self, node: str) -> List[Content]:
-        """Return scoped, read-only diagnostics without SSH or arbitrary commands."""
-        if not node or not node.strip():
-            raise ValueError("node must be non-empty")
+        """Read bounded node diagnostics, preserving partial results on optional API errors."""
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("node must be a non-empty name")
         try:
-            status = self.proxmox.nodes(node).status.get()
-            storage = self.proxmox.nodes(node).storage.get()
+            status = self._call_with_retry(
+                f"get diagnostics for node {node}", lambda: self.proxmox.nodes(node).status.get()
+            )
+            if not isinstance(status, dict):
+                raise RuntimeError("Node status endpoint returned an invalid response")
+            warnings = []
+            storage = None
+            recent_io = None
+            try:
+                storage = self.proxmox.nodes(node).storage.get()
+                if not isinstance(storage, list):
+                    raise ValueError("Unexpected storage response")
+            except Exception:
+                warnings.append("Node storage diagnostics unavailable")
+            try:
+                samples = self.proxmox.nodes(node).rrddata.get(timeframe="hour")
+                if not isinstance(samples, list):
+                    raise ValueError("Unexpected RRD response")
+                usable = [s for s in samples if isinstance(s, dict) and s.get("time") is not None]
+                if usable:
+                    latest = max(usable, key=lambda s: s["time"])
+                    recent_io = {k: latest.get(k) for k in
+                                 ("time", "diskread", "diskwrite", "netin", "netout", "iowait")}
+            except Exception:
+                warnings.append("Node RRD I/O metrics unavailable")
             return self._format_response({
-                "node": node,
-                "cpu": status.get("cpu"),
-                "loadavg": status.get("loadavg"),
-                "memory": status.get("memory"),
-                "swap": status.get("swap"),
+                "node": node, "uptime": status.get("uptime"),
+                "cpu_fraction": status.get("cpu"),
+                "io_wait_fraction": status.get("wait"),
+                "load_average": status.get("loadavg"),
+                "cpuinfo": status.get("cpuinfo"),
+                "memory": status.get("memory"), "swap": status.get("swap"),
                 "rootfs": status.get("rootfs"),
-                "uptime": status.get("uptime"),
-                "storage": storage,
-                "scope": "PVE node status and node storage API; no host process list",
+                "storage": storage, "latest_rrd_io": recent_io,
+                "process_list_available": False,
+                "warnings": warnings, "complete": not warnings,
             })
         except Exception as error:
             self._handle_error(f"get diagnostics for node {node}", error)

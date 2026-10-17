@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any, Awaitable, Callable, Literal, Optional
+from functools import partial
+from typing import Annotated, Any, Literal, Optional
 
+import anyio
 from pydantic import BaseModel, Field
 
 from proxmox_mcp.tools.definitions import (
@@ -21,6 +23,7 @@ from proxmox_mcp.tools.definitions import (
     DELETE_VM_DESC,
     DOWNLOAD_ISO_DESC,
     EXECUTE_CONTAINER_COMMAND_DESC,
+    EXECUTE_NODE_COMMAND_DESC,
     EXECUTE_VM_COMMAND_DESC,
     GET_JOB_DESC,
     GET_CLUSTER_LOG_DESC,
@@ -61,22 +64,9 @@ from proxmox_mcp.tools.definitions import (
     UPDATE_CONTAINER_SSH_KEYS_DESC,
     UPDATE_VM_CONFIG_DESC,
 )
-from proxmox_mcp.services.tool_registry import ToolRegistryPlugin
-
-
-def _log_safe(value: object, max_length: int = 200) -> str:
-    text = str(value).replace("\r", "").replace("\n", "")
-    return text[:max_length]
-
-
-_READ_ONLY_TOOLS = {
-    "list_targets", "get_nodes", "get_node_status", "get_node_diagnostics", "get_storage", "get_cluster_status",
-    "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
-    "get_next_vmid", "get_containers",
-    "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
-    "list_backups", "get_node_syslog", "get_task_log", "get_cluster_log", "get_node_firewall_log",
-    "get_guest_firewall_log",
-}
+from proxmox_mcp.security.access import client_principal, permitted_targets
+from proxmox_mcp.tools.base import ProxmoxTool
+from .tool_wrappers import RegistryPluginBase as RegistryPluginBase, _READ_ONLY_TOOLS as _READ_ONLY_TOOLS, _log_safe as _log_safe
 
 
 class GetContainersPayload(BaseModel):
@@ -86,152 +76,9 @@ class GetContainersPayload(BaseModel):
     format_style: Literal["pretty", "json"] = Field("pretty", description="'pretty' or 'json'")
 
 
-class RegistryPluginBase(ToolRegistryPlugin):
-    """Shared wrappers for metrics and operation policy."""
-
-    def _enforce_operation_policy(
-        self,
-        server: Any,
-        tool_name: str,
-        approval_token: str | None,
-        *,
-        high_risk: bool,
-        resolved_target: Any,
-    ) -> None:
-        if not high_risk:
-            return
-        policy = server.target_command_policies[resolved_target.name]
-        decision = policy.evaluate_operation(
-            tool_name,
-            approval_token=approval_token,
-        )
-        if decision.code == "OP_POLICY_AUDIT_ALLOW":
-            server.logger.warning("High-risk tool invoked in audit-only mode: %s", _log_safe(tool_name))
-        if not decision.allowed:
-            raise ValueError(decision.message)
-
-    def _enforce_job_retry_policy(
-        self,
-        server: Any,
-        job_id: str,
-        approval_token: str | None,
-        *,
-        resolved_target: Any,
-    ) -> None:
-        # Use target-isolated job store; provably same target as readonly/policy check.
-        job_store = server.target_job_stores[resolved_target.name]
-        job = job_store.get_job(job_id)
-        operation_name = str(job.get("tool_name") or "")
-        policy = server.target_command_policies[resolved_target.name]
-        decision = policy.evaluate_operation(
-            operation_name,
-            approval_token=approval_token,
-        )
-        if decision.code == "OP_POLICY_AUDIT_ALLOW":
-            safe_job_id = _log_safe(job_id)
-            safe_operation_name = _log_safe(operation_name)
-            server.logger.warning(
-                "Retrying high-risk job in audit-only mode: %s (%s)",
-                safe_job_id,
-                safe_operation_name,
-            )
-        if not decision.allowed:
-            raise ValueError(decision.message)
-
-    def _wrap_sync(
-        self,
-        server: Any,
-        tool_name: str,
-        handler_factory: Callable[[Any], Callable[..., Any]],
-        *,
-        high_risk: bool = False,
-    ) -> Callable[..., Any]:
-        def wrapped(*args: Any, **kwargs: Any) -> Any:
-            start = time.perf_counter()
-            success = False
-            target = kwargs.pop("target", None)
-            approval_token = kwargs.get("approval_token")
-            resolved_target = None
-            try:
-                resolved_target = server.target_registry.resolve(target)
-                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
-                    raise ValueError(
-                        f"Target '{resolved_target.name}' is configured read-only; "
-                        f"tool '{tool_name}' is not permitted"
-                    )
-                self._enforce_operation_policy(
-                    server,
-                    tool_name,
-                    approval_token if isinstance(approval_token, str) else None,
-                    high_risk=high_risk,
-                    resolved_target=resolved_target,
-                )
-                if tool_name == "retry_job":
-                    # Enforce retry policy using SAME resolved target before dispatch.
-                    job_id = kwargs.get("job_id")
-                    if job_id is None and args:
-                        job_id = args[0]
-                    self._enforce_job_retry_policy(
-                        server,
-                        str(job_id) if job_id is not None else "",
-                        approval_token if isinstance(approval_token, str) else None,
-                        resolved_target=resolved_target,
-                    )
-                toolset = server.target_tools(resolved_target.name)
-                handler = handler_factory(toolset)
-                if tool_name == "retry_job":
-                    kwargs.pop("approval_token", None)
-                result = handler(*args, **kwargs)
-                success = True
-                return result
-            finally:
-                latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
-
-        return wrapped
-
-    def _wrap_async(
-        self,
-        server: Any,
-        tool_name: str,
-        handler_factory: Callable[[Any], Callable[..., Awaitable[Any]]],
-        *,
-        high_risk: bool = False,
-    ) -> Callable[..., Awaitable[Any]]:
-        async def wrapped(*args: Any, **kwargs: Any) -> Any:
-            start = time.perf_counter()
-            success = False
-            target = kwargs.pop("target", None)
-            approval_token = kwargs.get("approval_token")
-            resolved_target = None
-            try:
-                resolved_target = server.target_registry.resolve(target)
-                if resolved_target.readonly and tool_name not in _READ_ONLY_TOOLS:
-                    raise ValueError(
-                        f"Target '{resolved_target.name}' is configured read-only; "
-                        f"tool '{tool_name}' is not permitted"
-                    )
-                self._enforce_operation_policy(
-                    server,
-                    tool_name,
-                    approval_token if isinstance(approval_token, str) else None,
-                    high_risk=high_risk,
-                    resolved_target=resolved_target,
-                )
-                toolset = server.target_tools(resolved_target.name)
-                handler = handler_factory(toolset)
-                result = await handler(*args, **kwargs)
-                success = True
-                return result
-            finally:
-                latency_ms = (time.perf_counter() - start) * 1000.0
-                server.metrics.observe(tool_name, latency_ms=latency_ms, success=success, target=resolved_target.name if resolved_target is not None else "unresolved")
-
-        return wrapped
-
-
 class CoreToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        probes = {name: ProxmoxTool(manager.get_api()) for name, manager in server.proxmox_managers.items()}
         @server.tool_registry.tool(
             description="List configured Proxmox targets without exposing credentials. "
             "A target name is required for other tools when multiple targets are configured."
@@ -240,7 +87,8 @@ class CoreToolsPlugin(RegistryPluginBase):
             start = time.perf_counter()
             try:
                 def discover(target: Any) -> dict[str, Any]:
-                    nodes = server.proxmox_managers[target.name].get_api().nodes.get()
+                    probe = probes[target.name]
+                    nodes = probe._cached_read("health:nodes", lambda: probe.proxmox.nodes.get())
                     return {
                         "reachable": True,
                         "nodes": [
@@ -250,7 +98,8 @@ class CoreToolsPlugin(RegistryPluginBase):
                         ],
                     }
 
-                result = server.target_registry.describe(discover=discover)
+                allowed = permitted_targets(server.config.mcp.client_permissions, client_principal(server.config.mcp.transport))
+                result = server.target_registry.describe(discover=discover, allowed_names=allowed)
                 server.metrics.observe("list_targets", (time.perf_counter() - start) * 1000.0, True, target="all")
                 return result
             except Exception:
@@ -272,12 +121,21 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node, target=target
             )
 
-        @server.tool_registry.tool(description="Read CPU, load, memory, swap, rootfs and storage metrics from one node without shell access.")
+        @server.tool_registry.tool(description="List available network bridges (Linux, OVS and permitted SDN VNets) on a node for VM/LXC networking. Returns the Proxmox network records as JSON.")
+        async def list_bridges(node: str, target: Optional[str] = None) -> Any:
+            return await anyio.to_thread.run_sync(partial(
+                self._wrap_sync(server, "list_bridges", lambda ts: ts.node_tools.list_bridges),
+                node=node, target=target,
+            ))
+
+        @server.tool_registry.tool(description="Read CPU, I/O wait, memory, storage and latest RRD disk/network metrics for one node. Partial failures are reported; no shell or process list.")
         def get_node_diagnostics(
-            node: Annotated[str, Field(description="Node name")],
+            node: Annotated[str, Field(description="Proxmox node name")],
             target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
         ) -> Any:
-            return self._wrap_sync(server, "get_node_diagnostics", lambda ts: ts.node_tools.get_node_diagnostics)(node=node, target=target)
+            return self._wrap_sync(server, "get_node_diagnostics", lambda ts: ts.node_tools.get_node_diagnostics)(
+                node=node, target=target,
+            )
 
         @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
@@ -296,6 +154,12 @@ class CoreToolsPlugin(RegistryPluginBase):
 
 class JobsToolsPlugin(RegistryPluginBase):
     def register(self, server: Any) -> None:
+        @server.tool_registry.tool(description="Reconcile an interrupted retry after verifying its remote task or confirming that no task was submitted. Never submits a new operation.")
+        def reconcile_job(job_id: str, upid: str | None = None, confirmed_not_submitted: bool = False,
+                          approval_token: str | None = None, target: str | None = None) -> Any:
+            return self._wrap_sync(server, "reconcile_job", lambda ts: ts.jobs_tools.reconcile_job)(
+                job_id=job_id, upid=upid, confirmed_not_submitted=confirmed_not_submitted, approval_token=approval_token, target=target)
+
         @server.tool_registry.tool(description=LIST_JOBS_DESC)
         def list_jobs(
             status: Annotated[Optional[str], Field(description="Optional status filter", default=None)] = None,
@@ -326,8 +190,10 @@ class JobsToolsPlugin(RegistryPluginBase):
         def poll_job(
             job_id: Annotated[str, Field(description="Stable job identifier")],
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            include_audit: Annotated[bool, Field(description="Include historical audit events; disable for bounded polling", default=True)] = True,
+            force: Annotated[bool, Field(description="Bypass cached and terminal task state", default=False)] = False,
         ) -> Any:
-            return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target)
+            return self._wrap_sync(server, "poll_job", lambda ts: ts.jobs_tools.poll_job)(job_id=job_id, target=target, include_audit=include_audit, force=force)
 
         @server.tool_registry.tool(description=CANCEL_JOB_DESC)
         def cancel_job(
@@ -504,6 +370,7 @@ class VMToolsPlugin(RegistryPluginBase):
             vmid: Annotated[str, Field(description="VM ID number (e.g. '100', '101')")],
             command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'systemctl status nginx')")],
             approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
+            guest_os: Literal["posix", "windows"] = "posix",
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return await self._wrap_async(server, "execute_vm_command", lambda ts: ts.vm_tools.execute_command)(
@@ -511,6 +378,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 vmid,
                 command,
                 approval_token,
+                guest_os=guest_os,
                 target=target,
             )
 
@@ -745,6 +613,8 @@ class ContainerToolsPlugin(RegistryPluginBase):
             target_names == ("default",) and bool(server.config.ssh)
         )
         if has_target_ssh:
+            # Keep console workers separate from other offloaded read operations.
+            console_limiter = anyio.CapacityLimiter(4)
             configured_names = (
                 ("default",) if server.config.ssh and target_names == ("default",)
                 else has_target_ssh_names
@@ -755,21 +625,49 @@ class ContainerToolsPlugin(RegistryPluginBase):
             )
 
             @server.tool_registry.tool(description=EXECUTE_CONTAINER_COMMAND_DESC)
-            def execute_container_command(
+            async def execute_container_command(
                 selector: Annotated[str, Field(description="Container selector: '123', 'pve1:123', 'pve1/name', or 'name'")],
                 command: Annotated[str, Field(description="Shell command to run (e.g. 'uname -a', 'df -h')")],
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
                 target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(server, "execute_container_command", lambda ts: ts.container_tools.execute_command)(
+                return await anyio.to_thread.run_sync(partial(
+                    self._wrap_sync(server, "execute_container_command", lambda ts: ts.container_tools.execute_command),
                     selector=selector,
                     command=command,
                     approval_token=approval_token,
                     target=target,
+                ), limiter=console_limiter)
+
+            host_command_targets = tuple(
+                name
+                for name in configured_names
+                if getattr(
+                    server.config.ssh
+                    if target_registry is None or target_registry.is_legacy
+                    else target_registry.resolve(name).ssh,
+                    "allow_node_commands",
+                    False,
                 )
+            )
+            if host_command_targets:
+                @server.tool_registry.tool(description=EXECUTE_NODE_COMMAND_DESC)
+                async def execute_node_command(
+                    node: Annotated[str, Field(description="Exact Proxmox cluster node name")],
+                    command: Annotated[str, Field(description="Shell command to run on the physical node (max 8192 characters)")],
+                    approval_token: Annotated[Optional[str], Field(description="Optional approval token for command and high-risk policy", default=None)] = None,
+                    target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+                ) -> Any:
+                    return await anyio.to_thread.run_sync(partial(
+                        self._wrap_sync(server, "execute_node_command", lambda ts: ts.container_tools.execute_node_command, high_risk=True),
+                        node=node,
+                        command=command,
+                        approval_token=approval_token,
+                        target=target,
+                    ), limiter=console_limiter)
 
             @server.tool_registry.tool(description=UPDATE_CONTAINER_SSH_KEYS_DESC)
-            def update_container_ssh_keys(
+            async def update_container_ssh_keys(
                 node: Annotated[str, Field(description="Proxmox node name (e.g. 'pve')")],
                 vmid: Annotated[str, Field(description="Container ID (e.g. '101')")],
                 public_keys: Annotated[str, Field(description="Newline-separated SSH public key(s) to authorize")],
@@ -777,19 +675,19 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
                 target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
             ) -> Any:
-                return self._wrap_sync(
+                return await anyio.to_thread.run_sync(partial(self._wrap_sync(
                     server,
                     "update_container_ssh_keys",
                     lambda ts: ts.container_tools.update_container_ssh_keys,
                     high_risk=True,
-                )(
+                ),
                     node=node,
                     vmid=vmid,
                     public_keys=public_keys,
                     mode=mode,
                     approval_token=approval_token,
                     target=target,
-                )
+                ), limiter=console_limiter)
         else:
             server.logger.info("Container command execution disabled (no [ssh] section in config)")
 

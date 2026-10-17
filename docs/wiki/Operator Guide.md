@@ -156,8 +156,8 @@ http://<host>:8000/mcp
 This is the correct target for MCP clients that support Streamable HTTP. It is separate from the OpenAPI service on port `8811`.
 
 Clients should send `Authorization: Bearer <MCP_API_KEY>`. If `MCP_API_KEY` is unset,
-the endpoint remains unauthenticated for backward compatibility and the server logs a
-security warning. `PROXMOX_API_KEY` does not protect this endpoint.
+native HTTP startup fails closed. Set `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` only
+when an external access control layer authenticates clients. `PROXMOX_API_KEY` does not protect this endpoint.
 
 For reverse proxy deployments, configure the external hostnames explicitly instead of disabling DNS rebinding protection:
 

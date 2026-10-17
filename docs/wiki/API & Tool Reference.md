@@ -48,7 +48,7 @@ tools accept an optional `target` argument; it is required when multiple targets
 Target configuration owns the API/SSH connections, job store, read-only setting, and
 command policy. Direct OpenAPI `/jobs` routes use the `target` query parameter.
 
-The complete catalog has 50 tools. Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
+The catalog includes optional [node SSH commands](../node-command-execution.md). Optional `mcp.tool_allowlist` / `mcp.tool_denylist`
 settings filter tools before MCP registration and OpenAPI route generation, including
 `list_targets`. The default exposes every available tool; SSH-only tools still require
 SSH configuration. Filtering does not disable direct operational OpenAPI routes or
@@ -57,7 +57,7 @@ replace Proxmox RBAC. See the [Operator Guide](Operator-Guide) for exact configu
 ### Authentication and Authorization
 
 - Proxmox API access requires valid legacy `proxmox` and `auth` sections or a named `targets` configuration.
-- Native MCP Streamable HTTP access optionally requires `Authorization: Bearer <MCP_API_KEY>` when `MCP_API_KEY` is configured.
+- Native MCP Streamable HTTP requires `Authorization: Bearer <MCP_API_KEY>` by default; explicitly delegate authentication with `MCP_ALLOW_UNAUTHENTICATED_HTTP=true` only behind an external access control layer.
 - OpenAPI access requires `Authorization: Bearer <PROXMOX_API_KEY>` by default. Startup without an API key requires the explicit local-development override `PROXMOX_ALLOW_NO_AUTH=true`.
 - SSH-backed container command workflows require a valid `ssh` configuration.
 - Command-execution tools are subject to command-policy checks. Depending on policy, a request can be allowed, denied, or require an `approval_token`.
@@ -109,6 +109,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
+| `list_bridges` | Read-only | `node` | `target` | Proxmox network API accessible | permissions filter visible bridges/VNets; API failures are returned |
 | `get_nodes` | Read-only | none | none | Proxmox API reachable | auth failure, API unavailable |
 | `get_node_status` | Read-only | `node` | none | target node exists | unknown node, auth failure |
 
