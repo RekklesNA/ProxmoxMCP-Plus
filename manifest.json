@@ -195,6 +195,10 @@
             "description": "List all LXC containers"
         },
         {
+            "name": "preflight_container_migration",
+            "description": "Read-only, fail-closed preflight checks for LXC migration"
+        },
+        {
             "name": "start_container",
             "description": "Start LXC containers"
         },
