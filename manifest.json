@@ -167,6 +167,10 @@
             "description": "List available storage pools"
         },
         {
+            "name": "get_node_storage",
+            "description": "Read node-specific capacity, status and content capability of storage pools"
+        },
+        {
             "name": "get_cluster_status",
             "description": "Get overall cluster status and health"
         },
