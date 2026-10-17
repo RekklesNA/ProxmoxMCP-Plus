@@ -1259,13 +1259,19 @@ class ContainerTools(ProxmoxTool):
             # Do not retry this POST on ambiguous transport failures: a migration
             # might have been submitted even if its UPID response was lost.
             upid = guest.migrate.post(**request)
-            job = self._register_background_job(
-                tool_name="migrate_container",
-                summary=f"Migrate CT {vmid} from {node} to {destination}",
-                node=node, upid=upid,
-                metadata={"vmid": str(vmid), "source": node, "destination": destination},
-                # No retry_spec or retry_factory: retrying migration can duplicate a job.
-            )
+            try:
+                job = self._register_background_job(
+                    tool_name="migrate_container",
+                    summary=f"Migrate CT {vmid} from {node} to {destination}",
+                    node=node, upid=upid,
+                    metadata={"vmid": str(vmid), "source": node, "destination": destination},
+                    # No retry_spec or retry_factory: retrying migration can duplicate a job.
+                )
+            except Exception:
+                # Migration has already been submitted. Reporting failure here
+                # could induce a duplicate submission. Preserve the remote UPID.
+                self.logger.warning("LXC migration submitted but local job registration failed")
+                job = None
             payload = {"success": True, "status": "submitted",
                        "task_id": str(upid), "job_id": job["job_id"] if job else None,
                        "source_node": node, "destination_node": destination, "vmid": str(vmid)}
