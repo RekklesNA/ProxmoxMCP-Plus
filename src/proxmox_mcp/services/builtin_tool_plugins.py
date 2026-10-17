@@ -72,7 +72,7 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 _READ_ONLY_TOOLS = {
     "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
     "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
-    "get_next_vmid", "get_containers",
+    "get_next_vmid", "get_containers", "preflight_container_migration",
     "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
     "list_backups", "get_node_syslog", "get_task_log", "get_cluster_log", "get_node_firewall_log",
     "get_guest_firewall_log",
@@ -726,6 +726,14 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 format_style=format_style,
                 approval_token=approval_token,
                 target=target,
+            )
+
+        @server.tool_registry.tool(description="Read-only LXC migration preflight on source and destination. Checks membership, rootfs storage and additional mount/device flags; does not submit migration or guarantee success.")
+        def preflight_container_migration(
+            node: str, vmid: str, destination: str, target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "preflight_container_migration", lambda ts: ts.container_tools.preflight_container_migration)(
+                node=node, vmid=vmid, destination=destination, target=target,
             )
 
         target_registry = getattr(server, "target_registry", None)
