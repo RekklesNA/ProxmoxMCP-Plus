@@ -42,7 +42,7 @@ def test_diagnostics_rejects_empty_node_and_malformed_status():
         NodeTools(MagicMock()).get_node_diagnostics("")
     api = MagicMock()
     api.nodes.return_value.status.get.return_value = []
-    with pytest.raises(RuntimeError, match="invalid response"):
+    with pytest.raises(ValueError, match="invalid response"):
         NodeTools(api).get_node_diagnostics("six")
 
 
