@@ -33,3 +33,21 @@ def test_node_time_handles_offline_node():
     tool._call_with_retry = lambda label, fn: fn()
     with pytest.raises(RuntimeError, match="offline"):
         tool.get_node_time("go")
+
+def test_node_time_mcp_registry_dispatch():
+    from types import SimpleNamespace
+    from proxmox_mcp.services.builtin_tool_plugins import CoreToolsPlugin
+
+    registered = {}
+    def register(**kwargs):
+        def decorator(fn):
+            registered[fn.__name__] = fn
+            return fn
+        return decorator
+
+    server = SimpleNamespace(proxmox_managers={}, tool_registry=SimpleNamespace(tool=register))
+    plugin = CoreToolsPlugin()
+    plugin._wrap_sync = MagicMock(return_value=lambda **kwargs: kwargs)
+    plugin.register(server)
+    assert registered["get_node_time"](node="six", target="prod") == {"node": "six", "target": "prod"}
+    assert plugin._wrap_sync.call_args.args[1] == "get_node_time"
