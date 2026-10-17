@@ -38,6 +38,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "update_container_resources",
         "create_container",
         "delete_container",
+        "migrate_container",
         "execute_container_command",
         "execute_node_command",
         "update_container_ssh_keys",
