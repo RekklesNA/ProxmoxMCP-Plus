@@ -1,6 +1,7 @@
 """Offline cluster members must not turn incomplete backup inventories into false negatives."""
 import json
 from unittest.mock import MagicMock
+import pytest
 from proxmox_mcp.tools.backup import BackupTools
 
 
@@ -42,5 +43,5 @@ def test_unreachable_online_node_returns_incomplete_inventory():
     api = MagicMock()
     api.nodes.get.return_value = [{"node": "sam", "status": "online"}]
     api.nodes.return_value.storage.get.side_effect = ConnectionError("unreachable")
-    output = BackupTools(api).list_backups()
-    assert json.loads(output[1].text)["code"] == "INCOMPLETE_INVENTORY"
+    with pytest.raises(RuntimeError, match="Backup listing incomplete"):
+        BackupTools(api).list_backups()
