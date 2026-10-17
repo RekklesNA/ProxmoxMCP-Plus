@@ -70,7 +70,7 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 
 _READ_ONLY_TOOLS = {
-    "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_status",
+    "list_targets", "get_nodes", "get_node_status", "get_storage", "get_cluster_join_info", "get_cluster_status",
     "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
     "get_next_vmid", "get_containers",
     "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
@@ -285,6 +285,12 @@ class CoreToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_cluster_status", lambda ts: ts.cluster_tools.get_cluster_status)(
                 target=target
             )
+
+        @server.tool_registry.tool(description="Read Proxmox cluster join information, including fingerprint and addresses. Treat output as sensitive; caller must not log or publish tokens.")
+        def get_cluster_join_info(
+            target: Annotated[Optional[str], Field(description="Configured target name", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_cluster_join_info", lambda ts: ts.cluster_tools.get_cluster_join_info)(target=target)
 
 
 class JobsToolsPlugin(RegistryPluginBase):
