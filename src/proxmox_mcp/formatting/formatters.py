@@ -17,11 +17,12 @@ class ProxmoxFormatters:
             Formatted string with appropriate unit
         """
         value = float(bytes_value)
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if value < 1024:
-                return f"{value:.2f} {unit}"
+        units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB']
+        index = 0
+        while value >= 1024 and index < len(units) - 1:
             value /= 1024
-        return f"{value:.2f} TB"
+            index += 1
+        return f"{value:.2f} {units[index]}"
     
     @staticmethod
     def format_uptime(seconds: int) -> str:

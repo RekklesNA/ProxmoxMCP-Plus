@@ -18,6 +18,78 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.2`
+
+- Updates Monty to 1.1.0 with compatible sandbox duration limits and a synchronized dependency lock.
+- Updates pinned GitHub and Docker Actions and keeps immutable-pin validation compatible with patch updates.
+- See [v0.6.2 notes](../releases/v0.6.2.md).
+
+### Version `0.6.1`
+
+- Adds polling reuse, bounded tool waiting, latency histograms and opt-in independent API sessions.
+- Separates policy and persistence modules and requires complete critical branch coverage.
+- See [v0.6.1 notes](../releases/v0.6.1.md).
+
+### Version `0.6.0`
+
+- Adds opt-in guarded node SSH commands, lazy startup audit loading, client-specific Code Mode discovery and verified publication retries.
+- See [v0.6.0 notes](../releases/v0.6.0.md).
+
+### Version `0.5.27`
+
+- Repairs guest ID path validation, rollback retry dependency checks, Unicode approval comparison and partial backup metrics found during the independent review.
+- See [v0.5.27 notes](../releases/v0.5.27.md).
+
+### Version `0.5.26`
+
+- Repairs the comprehensive project audit findings, adds bounded runtime operations and requires complete runtime statement coverage.
+- See [v0.5.26 notes](../releases/v0.5.26.md) and [runtime operations](../runtime-safety-and-operations.md) for upgrade and authorization details.
+
+### Version `0.5.25`
+
+- Release date: 2026-10-07
+- Fix Chromium OAuth consent navigation through cross-origin callback redirects (#143).
+- Successful consent POSTs return `303` and follow callbacks with GET; SDK authorization redirects remain `302`.
+- Retain the fixed same-origin form target, escaped client details, anti-framing/no-referrer protections and failed-login rate limiting.
+- Upgrade and restart the service; no configuration or database migration is needed.
+- See [v0.5.25 notes](../releases/v0.5.25.md) for browser verification and rollback behavior.
+
+### Version `0.5.24`
+
+- Release date: 2026-10-01
+- Use the environment's `MCP_API_KEY` for OAuth browser consent; ignore legacy `MCP_OAUTH_KEY_VERSION`.
+- Preserve legacy key metadata for old-worker compatibility and same-key rollback.
+- Key changes preserve OAuth clients, authorization codes and issued tokens; use explicit revocation when needed.
+- Stop all instances before rotating the key, then restart them with the same new value. Stale instances are not disabled by a database guard.
+- See [v0.5.24 upgrade and rollback notes](../releases/v0.5.24.md).
+
+### Version `0.5.23`
+
+- Fix default command deny rules, LXC restore parameters, task cancellation, and poll/retry races.
+- Report backup query failures and partial results instead of an empty list.
+- Append job audit events separately with opt-in retention; stop workers and back up SQLite before upgrading.
+- Add opt-in Code Mode worker reuse with isolated sessions and a local benchmark.
+- Include PR #139's PgDog-compatible OAuth pool reset and matching asyncpg metadata.
+- See [v0.5.23 upgrade notes](../releases/v0.5.23.md).
+
+### Version `0.5.22`
+
+- Release date: 2026-09-26
+- Summary: opt-in MCP Streamable HTTP OAuth authorization-code flow with PKCE and PostgreSQL state (#138).
+- The existing API-key Bearer mode remains the default. OAuth mode requires PostgreSQL, an issuer URL, and the existing `MCP_API_KEY` as the human consent credential.
+- Browser consent never returns the API key to an OAuth client. Key-version rotation invalidates issued credentials across workers.
+- Security review hardens persisted key verification, HTTP startup validation, and authorization/refresh-token expiry checks.
+- Upgrade: install `proxmox-mcp-plus==0.5.22` or pull GHCR `0.5.22`. Configure OAuth explicitly if desired and reconnect clients. See [v0.5.22 notes](../releases/v0.5.22.md).
+
+
+### Version `0.5.21`
+
+- Release date: 2026-09-26
+- Summary: prevent long LXC commands from blocking MCP; add read-only `list_bridges` (#135).
+- Commands have a 60-second remote deadline plus 5-second kill grace, and a bounded local SSH wait. Containers require GNU coreutils `/usr/bin/timeout`.
+- Upgrade: install `proxmox-mcp-plus==0.5.21` or pull GHCR `0.5.21`, restart/reconnect clients; add `list_bridges` to explicit allowlists if desired.
+- Details and limitations: [v0.5.21 notes](../releases/v0.5.21.md).
+
 ### Version `0.5.20`
 
 - Release date: 2026-09-24
