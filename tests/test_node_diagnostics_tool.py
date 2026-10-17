@@ -36,3 +36,44 @@ def test_primary_status_failure_is_not_masked():
     tool._call_with_retry = lambda label, fn: fn()
     with pytest.raises(RuntimeError, match="offline"):
         tool.get_node_diagnostics("go")
+
+def test_diagnostics_rejects_empty_node_and_malformed_status():
+    with pytest.raises(ValueError, match="non-empty"):
+        NodeTools(MagicMock()).get_node_diagnostics("")
+    api = MagicMock()
+    api.nodes.return_value.status.get.return_value = []
+    with pytest.raises(RuntimeError, match="invalid response"):
+        NodeTools(api).get_node_diagnostics("six")
+
+
+@pytest.mark.parametrize("field", ["storage", "rrddata"])
+def test_diagnostics_invalid_optional_api_shape_is_partial(field):
+    api = MagicMock()
+    api.nodes.return_value.status.get.return_value = {"cpu": 0.15}
+    api.nodes.return_value.storage.get.return_value = []
+    api.nodes.return_value.rrddata.get.return_value = []
+    if field == "storage":
+        api.nodes.return_value.storage.get.return_value = {}
+    else:
+        api.nodes.return_value.rrddata.get.return_value = {}
+    result = json.loads(NodeTools(api).get_node_diagnostics("six")[0].text)
+    assert result["complete"] is False
+    assert result["warnings"]
+
+
+def test_diagnostics_registry_dispatch():
+    from types import SimpleNamespace
+    from proxmox_mcp.services.builtin_tool_plugins import CoreToolsPlugin
+
+    registered = {}
+    def register(**kwargs):
+        def decorator(fn):
+            registered[fn.__name__] = fn
+            return fn
+        return decorator
+    server = SimpleNamespace(proxmox_managers={}, tool_registry=SimpleNamespace(tool=register))
+    plugin = CoreToolsPlugin()
+    plugin._wrap_sync = MagicMock(return_value=lambda **kwargs: kwargs)
+    plugin.register(server)
+    assert registered["get_node_diagnostics"](node="six", target="prod") == {"node": "six", "target": "prod"}
+    assert plugin._wrap_sync.call_args.args[1] == "get_node_diagnostics"
