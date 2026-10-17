@@ -728,6 +728,21 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 target=target,
             )
 
+        @server.tool_registry.tool(description="Submit a high-risk LXC migration to another node. Requires destination local disk support and a maintenance window. Returns UPID for task polling; submission is not completion.")
+        def migrate_container(
+            node: Annotated[str, Field(description="Source node")],
+            vmid: Annotated[str, Field(description="Container ID")],
+            destination: Annotated[str, Field(description="Destination node")],
+            restart: bool = True,
+            with_local_disks: bool = True,
+            approval_token: Annotated[Optional[str], Field(description="High-risk operation approval", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "migrate_container", lambda ts: ts.container_tools.migrate_container, high_risk=True)(
+                node=node, vmid=vmid, destination=destination, restart=restart,
+                with_local_disks=with_local_disks, approval_token=approval_token, target=target,
+            )
+
         target_registry = getattr(server, "target_registry", None)
         target_names = target_registry.names if target_registry is not None else ("default",)
         has_target_ssh_names = tuple(
