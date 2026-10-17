@@ -230,6 +230,26 @@ This will permanently remove:
 Example:
 Delete test VM with ID 998 on node pve"""
 
+EXECUTE_NODE_COMMAND_DESC = """Execute a bounded shell command directly on a Proxmox physical node via SSH.
+
+This tool is disabled unless the selected target explicitly sets
+ssh.allow_node_commands=true. Requires configured SSH credentials, a node
+present in the authenticated Proxmox node inventory, and command_policy approval.
+Host command allow_patterns must match the entire command, not just a prefix or
+substring. Use narrowly scoped expressions; permissive wildcards may still
+allow unintended shell operations.
+It is classified as a high-risk operation and respects target and client grants.
+
+Parameters:
+node* - Exact Proxmox cluster node name, e.g. ichi, two, or sam
+command* - Nonempty host shell command, maximum 8192 characters
+approval_token - Required when configured by command_policy
+
+Commands run through GNU timeout (60s + 5s TERM grace), with bounded SSH wait
+and 1 MiB maximum output per stream. Timeouts may leave partial changes; check
+state before retrying. Prefer an unprivileged SSH account with scoped sudo.
+"""
+
 # Container tool descriptions
 GET_CONTAINERS_DESC = """List LXC containers across the cluster (or filter by node).
 
@@ -322,6 +342,9 @@ Examples:
 EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
 
 No guest agent required - connects to the Proxmox node via SSH and uses `pct exec`.
+Commands have a 60-second wall-clock limit (TERM, then KILL after 5 seconds).
+Timeout returns success=false, code=COMMAND_TIMEOUT with partial output.
+Partial changes are not rolled back; inspect state before retrying.
 
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name'
@@ -332,6 +355,7 @@ Example:
 
 Requirements:
 - Container must be running
+- Container must provide GNU coreutils /usr/bin/timeout
 - MCP config must include valid [ssh] credentials for the Proxmox nodes
 """
 

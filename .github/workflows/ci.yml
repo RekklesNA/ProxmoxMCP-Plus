@@ -9,25 +9,41 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: proxmox_mcp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d proxmox_mcp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MCP_OAUTH_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/proxmox_mcp_test
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install --require-hashes -r requirements/runtime.lock
         pip install -r requirements/dev.in
         pip install pip-audit
-        pip install .
+        pip install --no-deps .
 
     - name: Smoke Test (Import Server)
       run: |
@@ -35,7 +51,8 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=75
+        pytest -q --cov=proxmox_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=0
+        python scripts/check_coverage.py coverage.json --require-branches
 
     - name: Ruff
       run: |
@@ -54,9 +71,37 @@ jobs:
 
     - name: pip-audit
       run: |
-        pip-audit -r requirements.txt
+        pip-audit -r requirements/runtime.lock --format cyclonedx-json --output sbom.json
 
     - name: Validate Manifest JSON
       run: |
         if ! command -v jq &> /dev/null; then sudo apt-get install jq; fi
         jq empty manifest.json
+
+    - name: Record resolved environment
+      if: always()
+      run: python -m pip inspect > installed-environment.json
+
+    - name: Upload verification evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: validation-python-${{ matrix.python-version }}
+        path: |
+          coverage.json
+          sbom.json
+          installed-environment.json
+
+  windows-contracts:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: "3.12"
+    - name: Install locked runtime and test dependencies
+      run: |
+        python -m pip install --require-hashes -r requirements/runtime.lock
+        python -m pip install -r requirements/dev.in
+    - name: Verify platform-independent command and HTTP contracts
+      run: python -m pytest tests/test_project_audit_fixes.py tests/test_project_audit_edges.py tests/test_container_console.py tests/test_tool_filtering.py tests/test_runtime_performance.py -q

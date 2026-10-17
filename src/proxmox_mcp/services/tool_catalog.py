@@ -6,6 +6,7 @@ BUILTIN_TOOL_NAMES = frozenset(
     {
         "list_targets",
         "get_nodes",
+        "list_bridges",
         "get_node_status",
         "get_vms",
         "get_vm_config",
@@ -29,6 +30,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "poll_job",
         "cancel_job",
         "retry_job",
+        "reconcile_job",
         "get_containers",
         "start_container",
         "stop_container",
@@ -37,6 +39,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "create_container",
         "delete_container",
         "execute_container_command",
+        "execute_node_command",
         "update_container_ssh_keys",
         "get_container_config",
         "set_container_description",

@@ -29,6 +29,13 @@ class NodeTools(ProxmoxTool):
     node information might be temporarily unavailable.
     """
 
+    def list_bridges(self, node: str) -> List[Content]:
+        """Read bridge records visible to this token, including OVS and SDN."""
+        try:
+            return self._format_response(self.proxmox.nodes(node).network.get(type="any_bridge"))
+        except Exception as error:
+            self._handle_error(f"list bridges for node {node}", error)
+
     def get_nodes(self) -> List[Content]:
         """List all nodes in the Proxmox cluster with detailed status.
 

@@ -94,12 +94,23 @@ class ClusterTools(ProxmoxTool):
             self._handle_error("get cluster status", e)
 
     def get_cluster_join_info(self) -> List[Content]:
-        """Return join information or propagate Proxmox's hostname resolution error."""
+        """Return public cluster join metadata, omitting unexpected credential fields."""
+        def sanitized(value):
+            if isinstance(value, dict):
+                blocked = {"password", "ticket", "authkey", "secret", "token",
+                           "private_key", "authorization", "pveauthcookie"}
+                return {key: sanitized(item) for key, item in value.items()
+                        if str(key).lower().replace("-", "_") not in blocked}
+            if isinstance(value, list):
+                return [sanitized(item) for item in value]
+            return value
+
         try:
-            result = self._call_with_retry(
-                "get cluster join information",
-                lambda: self.proxmox.cluster.config.join.get(),
+            info = self._call_with_retry(
+                "get cluster join info", lambda: self.proxmox.cluster.config.join.get()
             )
-            return self._format_response(result)
+            if not isinstance(info, dict):
+                raise RuntimeError("Unexpected cluster join information response")
+            return self._format_response(sanitized(info))
         except Exception as error:
-            self._handle_error("get cluster join information", error)
+            self._handle_error("get cluster join info", error)

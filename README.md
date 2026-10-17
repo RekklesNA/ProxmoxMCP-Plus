@@ -27,7 +27,12 @@
   <a href="https://github.com/RekklesNA/ProxmoxMCP-Plus/wiki">Wiki</a>
 </p>
 
-![ProxmoxMCP-Plus architecture](docs/assets/proxmoxmcp-nature-architecture.svg)
+[![Architecture: MCP and OpenAPI entry points, guarded target-aware tools, Proxmox VE, and persistent jobs](docs/assets/proxmoxmcp-nature-architecture.svg)](docs/assets/proxmoxmcp-nature-architecture.svg)
+
+MCP and OpenAPI are alternative entry points into the same workflows and may
+run in separate processes. Solid arrows show requests and execution; dashed arrows
+show persisted job and audit state. Approval gates, SSH execution and MCP HTTP
+OAuth depend on configuration. Select the diagram to view it at full size.
 
 ## Why ProxmoxMCP-Plus
 
@@ -46,6 +51,7 @@ What you get:
 - ISO download and cleanup
 - node, storage, and cluster inspection
 - SSH-backed container command execution with guardrails
+- opt-in guarded [Proxmox node SSH commands](docs/node-command-execution.md)
 - persistent job tracking for async Proxmox tasks
 
 ## What Makes It Different
@@ -155,6 +161,16 @@ network access except registered tool calls. Limits: 64,000 source characters,
 Execution has a 30-second budget; cancelling or failing a script does not roll back
 tool side effects. Do not automatically retry a failed mutation script.
 
+Optional worker reuse: set `mcp.code_mode_pool_reuse: true` or
+`MCP_CODE_MODE_POOL_REUSE=true`. The default remains one fresh worker per execution.
+Reuse keeps up to two workers for the server lifetime, recycles each after 100
+checkouts, and starts a new sandbox session per request. Globals, approvals, output
+collectors and call limits are not shared between requests. HTTP clients share the
+server-owned pool; disconnecting a client does not close it. Run
+`python scripts/benchmark_code_mode.py` to measure local startup overhead; this is
+a microbenchmark, not an estimate of Proxmox operation latency.
+
+
 #### Native MCP HTTP with Docker
 
 Use this path when a remote MCP client supports Streamable HTTP:
@@ -186,7 +202,34 @@ keyless startup and logs a warning; it does not configure or verify the external
 access controls. A configured `MCP_API_KEY` is always enforced, even with opt-out.
 This setting does not change OpenAPI authentication or DNS rebinding protection.
 
-When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection enabled and allow only the hostnames you expect:
+##### OAuth browser gate for MCP clients
+
+Native MCP HTTP can optionally expose an OAuth authorization-code flow with PKCE
+while keeping `MCP_API_KEY` as the only human credential an operator has to
+manage. OAuth protocol handling is delegated to the MCP Python SDK
+(`mcp>=1.30.0,<2`), while ProxmoxMCP-Plus provides the API-key consent policy
+and persistent OAuth state.
+
+OAuth state is stored in PostgreSQL. This allows multiple MCP server instances or
+hosts, when deployed explicitly, to share registered clients, authorization codes,
+access tokens, refresh tokens, refresh-token replay protection, and login-rate-limit
+state without relying on a local filesystem.
+
+The client starts at the SDK `/authorize` endpoint. After the SDK validates the
+client, redirect URI, scope, PKCE request, and resource, the browser is redirected
+to `/oauth/consent` on the same MCP origin. The user reviews the client name,
+redirect origin, and requested scopes, then enters `MCP_API_KEY`. The API key is
+never placed in a URL and is never returned to the OAuth client.
+
+Required OAuth settings:
+
+```bash
+export MCP_API_KEY="$(openssl rand -hex 32)"
+# Replace <password> with the database user's password.
+export MCP_OAUTH_DATABASE_URL='postgresql://proxmox_oauth:<password>@postgres.example:5432/proxmox_oauth'
+```
+
+Example server:
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -195,12 +238,119 @@ docker run --rm -p 8000:8000 \
   -e MCP_PORT=8000 \
   -e MCP_TRANSPORT=STREAMABLE_HTTP \
   -e MCP_API_KEY="$MCP_API_KEY" \
-  -e MCP_DNS_REBINDING_PROTECTION=true \
+  -e MCP_OAUTH_ENABLED=true \
+  -e MCP_OAUTH_ISSUER=https://mcp.example.com \
+  -e MCP_OAUTH_DATABASE_URL="$MCP_OAUTH_DATABASE_URL" \
   -e MCP_ALLOWED_HOSTS=mcp.example.com:*,localhost:* \
   -e MCP_ALLOWED_ORIGINS=https://mcp.example.com \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest
 ```
+
+Then connect the OAuth-capable client to:
+
+```text
+https://mcp.example.com/mcp
+```
+
+OAuth mode exposes these endpoints on the same public origin:
+
+- `/.well-known/oauth-protected-resource/mcp` - RFC 9728 protected-resource metadata
+- `/.well-known/oauth-authorization-server` - SDK authorization-server metadata
+- `/register` - SDK dynamic client registration (DCR)
+- `/authorize` - SDK authorization endpoint
+- `/token` - SDK authorization-code/refresh-token exchange
+- `/oauth/consent` - ProxmoxMCP-Plus API-key consent page
+
+The SDK requires PKCE `S256` and protects the MCP resource with issued OAuth
+access tokens. Browser consent transactions are short-lived, HMAC-signed, and
+stateless. All durable OAuth state is stored in PostgreSQL.
+
+Authorization-code consumption and refresh-token rotation use PostgreSQL
+transactions. A code or refresh token is deleted and its replacement tokens are
+inserted atomically, so concurrent server instances cannot successfully replay the
+same credential. Dynamic client registration capacity is also serialized with a
+PostgreSQL transaction-scoped advisory lock; inactive registrations are pruned
+before the configured limit is exceeded.
+
+`MCP_API_KEY` is the sole source of truth for the browser consent credential.
+This runtime does not persist the key or its verifier in PostgreSQL. The server process
+validates consent directly against the value supplied in its environment. If the
+service is explicitly deployed as multiple containers or instances, configure the
+same secret for each instance. Stop all instances before changing the key, then
+restart/recreate all of them with the new value before routing traffic again.
+Existing OAuth clients and issued tokens are independent of the browser-gate key
+and remain valid until they expire or are revoked.
+
+Required when OAuth is enabled:
+
+| Variable | Purpose |
+| --- | --- |
+| `MCP_API_KEY` | Human credential entered only on the consent page |
+| `MCP_OAUTH_ISSUER` | Public HTTPS origin of this MCP authorization server |
+| `MCP_OAUTH_DATABASE_URL` | PostgreSQL DSN used for OAuth state |
+
+Optional OAuth environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MCP_OAUTH_RESOURCE` | `<issuer>/mcp` | Public MCP resource identifier; must use the issuer origin |
+| `MCP_OAUTH_SCOPES` | `mcp` | Comma-separated required scopes |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
+| `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh-token lifetime (30 days) |
+| `MCP_OAUTH_MAX_REGISTERED_CLIENTS` | `4096` | Maximum persisted DCR clients before inactive-client pruning |
+| `MCP_OAUTH_DB_POOL_MIN_SIZE` | `1` | Minimum asyncpg connections per MCP process |
+| `MCP_OAUTH_DB_POOL_MAX_SIZE` | `10` | Maximum asyncpg connections per MCP process |
+| `MCP_OAUTH_DB_COMMAND_TIMEOUT_SECONDS` | `10` | PostgreSQL command timeout used by the OAuth store |
+| `MCP_OAUTH_CLIENT_IP_HEADER` | unset | Trusted reverse-proxy header used only for login rate limiting |
+
+To rotate the browser-gate credential, stop every MCP instance using this issuer,
+update `MCP_API_KEY` in the deployment environment, and restart/recreate all
+instances with the same new key. The environment is read when the provider starts;
+editing a running container's environment does not reload its key. No OAuth
+database metadata or key-version update is required. Pending consent transactions
+created with the previous key will no longer validate after every instance has
+restarted; already issued OAuth tokens remain governed by their normal lifetime
+and revocation rules. A rolling key change leaves old instances accepting the old
+key and causes consent requests routed between different-key instances to fail.
+There is no database guard to detect or disable a stale instance. Changing the
+browser-gate key does not revoke existing access tokens, refresh tokens, or
+authorization codes; use explicit revocation for compromised OAuth credentials.
+
+When upgrading from an OAuth build that used `MCP_OAUTH_KEY_VERSION`, startup
+ignores the old variable and leaves `proxmox_mcp_oauth_metadata` untouched. Fresh
+databases do not create that table. Registered clients and issued OAuth credentials
+are preserved; no manual SQL migration is required. Keeping legacy metadata avoids
+breaking old workers' queries and permits rollback with the same API key and
+legacy key version. Back up the database before upgrading and stop all old
+instances before rotating the key. After a key change, the legacy metadata still
+describes the old key: rollback requires restoring the old configuration or
+following the old version's rotation procedure, which invalidates OAuth state.
+Only remove the legacy table manually once all old instances are retired and a
+rollback is no longer needed; it can still contain the previous key's verifier.
+
+The database role must be able to create and modify the
+`proxmox_mcp_oauth_*` tables in its database. The tables contain OAuth client
+metadata, including issued client secrets, plus authorization codes and active
+tokens, so the PostgreSQL database and backups must be protected as credential
+storage.
+
+If several MCP instances use the same `MCP_OAUTH_DATABASE_URL`, OAuth state and
+one-time-token enforcement are shared across them. Size the database capacity with
+the total number of MCP processes in mind because the configured pool limits apply
+per process.
+
+If the server is behind a trusted reverse proxy and per-user login rate limiting
+must use the original client address, set `MCP_OAUTH_CLIENT_IP_HEADER` to a header
+that the proxy overwrites (for example `CF-Connecting-IP`). Leave it unset unless
+the proxy prevents clients from spoofing that header.
+
+When `MCP_OAUTH_ENABLED=true`, a raw `Authorization: Bearer <MCP_API_KEY>`
+request to `/mcp` is intentionally rejected. The API key is accepted only by the
+consent page; MCP requests must use an issued OAuth access token.
+
+When serving MCP HTTP behind a reverse proxy, keep DNS rebinding protection
+enabled and allow only the hostnames you expect.
 
 #### OpenAPI bridge with Docker
 
@@ -376,6 +526,17 @@ The job record stores:
 - audit history for create, poll, retry, and cancel actions
 
 By default the job store persists to `proxmox-jobs.sqlite3`, so restart does not lose in-flight or completed job metadata.
+
+Audit events are appended to a separate SQLite table. Existing history is migrated
+on startup and the API's `audit_log` format stays unchanged. Retention is unlimited
+by default; set `jobs.audit_retention_days` to a positive number in JSON config to
+prune expired events at startup and when each job is updated. This never deletes
+the job itself. Stop all workers sharing the database and back it up before this
+upgrade. Do not run old and new versions against the same database; restore the
+pre-upgrade backup if downgrading and retaining audit history is required.
+
+A cancellation request is not completion. Poll until the task is failed/cancelled
+before calling `retry_job`; pending cancellation cannot be retried.
 
 ### MCP Job Tools
 
