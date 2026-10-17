@@ -158,3 +158,33 @@ class StorageTools(ProxmoxTool):
             return self._format_response(storage, "storage")
         except Exception as e:
             self._handle_error("get storage", e)
+
+    def get_node_storage(self, node: str) -> List[Content]:
+        """Return per-node storage capacity; never substitute another node's data."""
+        if not node or not node.strip():
+            raise ValueError("node must be non-empty")
+        try:
+            result = self._call_with_retry(
+                f"get storage for node {node}",
+                lambda: self.proxmox.nodes(node).storage.get(),
+            )
+            # Preserve exact node and raw capacity values for migration planning.
+            entries = []
+            for item in _as_list(result):
+                if not isinstance(item, dict):
+                    continue
+                entries.append({
+                    "node": node,
+                    "storage": item.get("storage"),
+                    "type": item.get("type"),
+                    "content": item.get("content"),
+                    "active": item.get("active"),
+                    "enabled": item.get("enabled"),
+                    "total": item.get("total"),
+                    "used": item.get("used"),
+                    "available": item.get("avail"),
+                    "shared": item.get("shared"),
+                })
+            return self._format_response(entries)
+        except Exception as error:
+            self._handle_error(f"get storage for node {node}", error)
