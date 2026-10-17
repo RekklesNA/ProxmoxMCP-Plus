@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Any
 import json
 from datetime import datetime
 from mcp.types import TextContent as Content
-from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.tools.base import ProxmoxTool, completeness_content
 
 
 def _as_list(maybe: Any) -> List:
@@ -46,10 +46,7 @@ class BackupTools(ProxmoxTool):
         return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
 
     def _err(self, action: str, e: Exception) -> List[Content]:
-        """Handle errors."""
-        if hasattr(self, "_handle_error"):
-            self._handle_error(action, e)
-        return [Content(type="text", text=f"Error: {action} - {str(e)}")]
+        self._handle_error(action, e)
 
     def list_backups(
         self,
@@ -69,6 +66,7 @@ class BackupTools(ProxmoxTool):
         """
         try:
             results = []
+            failures: list[str] = []
             try:
                 nodes = _as_list(self.proxmox.nodes.get())
             except Exception as e:
@@ -83,12 +81,8 @@ class BackupTools(ProxmoxTool):
 
                 try:
                     storages = _as_list(self.proxmox.nodes(node_name).storage.get())
-                except Exception as node_error:
-                    self.logger.warning(
-                        "Skipping node %s while listing backups: %s",
-                        node_name,
-                        node_error,
-                    )
+                except Exception:
+                    failures.append(f"Unable to list storage on node {node_name}")
                     continue
                 for s in storages:
                     storage_name = _get(s, "storage")
@@ -115,9 +109,12 @@ class BackupTools(ProxmoxTool):
                             item["_storage"] = storage_name
                             results.append(item)
                     except Exception:
+                        failures.append(f"Unable to query backups in {storage_name} on node {node_name}")
                         continue
 
             if not results:
+                if failures:
+                    raise RuntimeError("Backup listing incomplete: " + "; ".join(failures))
                 msg = "No backups found"
                 if node:
                     msg += f" on node {node}"
@@ -131,6 +128,8 @@ class BackupTools(ProxmoxTool):
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
             lines = ["Available Backups", ""]
+            if failures:
+                lines.extend(["Warning: partial results; " + "; ".join(failures), ""])
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
@@ -165,7 +164,7 @@ class BackupTools(ProxmoxTool):
 
             lines.append("Use the Volume ID with restore_backup to restore.")
 
-            return [Content(type="text", text="\n".join(lines).rstrip())]
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(failures)
 
         except Exception as e:
             return self._err("list backups", e)
@@ -212,7 +211,7 @@ class BackupTools(ProxmoxTool):
                 metadata={"vmid": vmid, "storage": storage},
                 retry_spec={"kind": "backup.create", "params": {"node": node, "request": params}},
                 retry_factory=lambda: self.proxmox.nodes(node).vzdump.post(**params),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -237,7 +236,7 @@ class BackupTools(ProxmoxTool):
                 "Use list_backups to verify when complete.",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"create backup for {vmid}", e)
@@ -269,9 +268,12 @@ class BackupTools(ProxmoxTool):
             is_lxc = "/ct/" in archive.lower() or "vzdump-lxc" in archive.lower()
 
             params: Dict[str, Any] = {
-                "archive": archive,
                 "vmid": int(vmid),
             }
+            if is_lxc:
+                params.update(ostemplate=archive, restore=1)
+            else:
+                params["archive"] = archive
 
             if storage:
                 params["storage"] = storage
@@ -297,7 +299,7 @@ class BackupTools(ProxmoxTool):
                     if is_lxc
                     else (lambda: self.proxmox.nodes(node).qemu.post(**params))
                 ),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -322,7 +324,7 @@ class BackupTools(ProxmoxTool):
                 f"The {vm_type.lower()} will be available once the task completes.",
             ])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"restore backup to {vmid}", e)
@@ -346,23 +348,8 @@ class BackupTools(ProxmoxTool):
         """
         _ = approval_token
         try:
-            # Check if backup is protected
-            content = _as_list(
-                self.proxmox.nodes(node).storage(storage).content.get(content="backup")
-            )
-
-            backup_info = None
-            for item in content:
-                if _get(item, "volid") == volid:
-                    backup_info = item
-                    break
-
-            if backup_info and _get(backup_info, "protected"):
-                return [Content(
-                    type="text",
-                    text=f"Error: Backup '{volid}' is protected and cannot be deleted.\n"
-                         f"Remove protection first if you want to delete it."
-                )]
+            from proxmox_mcp.security.resources import delete_volume, resolve_volume
+            volid = resolve_volume(self.proxmox, node, storage, volid, {"backup"})
 
             result = self.proxmox.nodes(node).storage(storage).content(volid).delete()
             job = self._register_background_job(
@@ -372,8 +359,8 @@ class BackupTools(ProxmoxTool):
                 upid=result,
                 metadata={"storage": storage, "volid": volid},
                 retry_spec={"kind": "backup.delete", "params": {"node": node, "storage": storage, "volid": volid}},
-                retry_factory=lambda: self.proxmox.nodes(node).storage(storage).content(volid).delete(),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                retry_factory=lambda: delete_volume(self.proxmox, node, storage, volid, {"backup"}),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -387,7 +374,7 @@ class BackupTools(ProxmoxTool):
             if result:
                 lines.extend(["", f"Task ID: {result}", f"Job ID: {job['job_id'] if job else 'n/a'}"])
 
-            return [Content(type="text", text="\n".join(lines))]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
 
         except Exception as e:
             return self._err(f"delete backup '{volid}'", e)

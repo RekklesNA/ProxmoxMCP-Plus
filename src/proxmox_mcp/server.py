@@ -10,6 +10,9 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import logging
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
@@ -17,9 +20,10 @@ from mcp.server.fastmcp import FastMCP
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
-from proxmox_mcp.code_mode import install_code_mode
+from proxmox_mcp.code_mode import CodeMode, install_code_mode
 from proxmox_mcp.core.targets import TargetRegistry
 from proxmox_mcp.mcp_http_auth import MCPBearerAuthMiddleware
+from proxmox_mcp.mcp_oauth_provider import build_oauth_from_env
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security import CommandPolicyGate
 from proxmox_mcp.services import (
@@ -106,6 +110,17 @@ class ProxmoxMCPServer:
     """Main server class for Proxmox MCP."""
 
     def __init__(self, config_path: Optional[str] = None):
+        self.code_mode: CodeMode | None = None
+        self.proxmox_managers: dict[str, ProxmoxManager] = {}
+        self.target_job_stores: dict[str, JobStore] = {}
+        self.logger = logging.getLogger("proxmox-mcp.server")
+        try:
+            self._initialize(config_path)
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize(self, config_path: Optional[str]) -> None:
         self.config = load_config(config_path)
         self.tool_exposure_policy = ToolExposurePolicy(
             known_tools=BUILTIN_TOOL_NAMES,
@@ -114,16 +129,16 @@ class ProxmoxMCPServer:
         )
         self.logger = setup_logging(self.config.logging)
         self.target_registry = TargetRegistry(self.config)
-        self.proxmox_managers = {
-            name: ProxmoxManager(
+        self.metrics = ToolMetrics()
+        for name in self.target_registry.names:
+            target = self.target_registry.resolve(name)
+            self.proxmox_managers[name] = ProxmoxManager(
                 target.config,
                 target.auth,
                 api_tunnel_config=target.api_tunnel,
                 ssh_config=target.ssh,
+                metrics=self.metrics, target_name=name,
             )
-            for name in self.target_registry.names
-            for target in [self.target_registry.resolve(name)]
-        }
         self.target_command_policies = {
             name: CommandPolicyGate(
                 self.target_registry.resolve(name).command_policy or self.config.command_policy
@@ -133,9 +148,8 @@ class ProxmoxMCPServer:
         # Retain the legacy policy attribute for compatibility; wrappers always
         # select from target_command_policies using the resolved target.
         self.command_policy = CommandPolicyGate(self.config.command_policy)
-        self.metrics = ToolMetrics()
 
-        self.target_job_stores: dict[str, JobStore] = {}
+        self.target_job_stores = {}
         self.target_toolsets: dict[str, SimpleNamespace] = {}
         for name, manager in self.proxmox_managers.items():
             target = self.target_registry.resolve(name)
@@ -146,7 +160,7 @@ class ProxmoxMCPServer:
                 path = base_path
             else:
                 path = target_job_sqlite_path(base_path, name)
-            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default)
+            job_store = JobStore(api, sqlite_path=path, target_name=name, legacy_mode=is_single_default, audit_retention_days=self.config.jobs.audit_retention_days, poll_cache_ttl=self.config.jobs.poll_cache_ttl)
             self.target_job_stores[name] = job_store
             self.target_toolsets[name] = SimpleNamespace(
                 node_tools=NodeTools(api, metrics=self.metrics, job_store=job_store),
@@ -196,12 +210,22 @@ class ProxmoxMCPServer:
             self.config.logging.level.upper(),
         )
         transport_security = self._build_transport_security()
+        if self.config.mcp.transport == "STREAMABLE":
+            self.oauth_provider, oauth_auth = build_oauth_from_env()
+        else:
+            self.oauth_provider, oauth_auth = None, None
+            oauth_raw = os.getenv("MCP_OAUTH_ENABLED", "false").strip().lower()
+            if self.config.mcp.transport == "SSE" and oauth_raw in {"1", "true", "yes", "on"}:
+                raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
         if transport_security is None:
             self.mcp = FastMCP(
                 "ProxmoxMCP",
                 host=self.config.mcp.host,
                 port=self.config.mcp.port,
                 log_level=log_level,
+                auth_server_provider=self.oauth_provider,
+                auth=oauth_auth,
+                lifespan=self._lifespan,
             )
         else:
             self.mcp = FastMCP(
@@ -210,11 +234,34 @@ class ProxmoxMCPServer:
                 port=self.config.mcp.port,
                 log_level=log_level,
                 transport_security=transport_security,
+                auth_server_provider=self.oauth_provider,
+                auth=oauth_auth,
+                lifespan=self._lifespan,
             )
+        if self.oauth_provider is not None:
+            self.oauth_provider.register_routes(self.mcp)
         self.tool_registry = ToolRegistry(self.mcp, self.tool_exposure_policy)
         self._setup_tools()
         if self.config.mcp.code_mode:
-            install_code_mode(self)
+            self.code_mode = install_code_mode(self)
+
+    @asynccontextmanager
+    async def _lifespan(self, _mcp: Any) -> AsyncIterator[dict[str, Any]]:
+        # HTTP SDK lifespans run per client session. Own its pool around the
+        # HTTP server instead, so disconnecting one client cannot close others.
+        if self.config.mcp.transport == "STDIO":
+            async with self._code_mode_lifespan():
+                yield {}
+        else:
+            yield {}
+
+    @asynccontextmanager
+    async def _code_mode_lifespan(self) -> AsyncIterator[None]:
+        if self.code_mode is not None and self.config.mcp.code_mode_pool_reuse:
+            async with self.code_mode.pool_lifespan():
+                yield
+        else:
+            yield
 
     def _build_transport_security(self) -> Any | None:
         mcp_config = self.config.mcp
@@ -302,12 +349,22 @@ class ProxmoxMCPServer:
         raise AttributeError(name)
 
     async def _run_streamable_http_async(self, *, sse: bool = False) -> None:
-        """Run Streamable HTTP with optional inbound Bearer authentication."""
+        """Run Streamable HTTP with SDK OAuth or legacy Bearer authentication."""
         import uvicorn
 
+        if self.oauth_provider is not None and sse:
+            raise ValueError("MCP OAuth mode supports STREAMABLE HTTP only")
+
         app: Any = self.mcp.sse_app() if sse else self.mcp.streamable_http_app()
+        if self.oauth_provider is not None:
+            app = self.oauth_provider.bind_http_lifespan(app)
         api_key = os.getenv("MCP_API_KEY")
-        if api_key:
+        if self.oauth_provider is not None:
+            self.logger.info(
+                "MCP HTTP OAuth is enabled for issuer %s",
+                self.oauth_provider.issuer_url,
+            )
+        elif api_key:
             app = MCPBearerAuthMiddleware(app, api_key=api_key)
             self.logger.info("MCP HTTP bearer authentication is enabled")
         elif not self.config.mcp.allow_unauthenticated_http:
@@ -328,7 +385,8 @@ class ProxmoxMCPServer:
             port=self.mcp.settings.port,
             log_level=self.mcp.settings.log_level.lower(),
         )
-        await uvicorn.Server(config).serve()
+        async with self._code_mode_lifespan():
+            await uvicorn.Server(config).serve()
 
     async def _run_sse_http_async(self) -> None:
         await self._run_streamable_http_async(sse=True)

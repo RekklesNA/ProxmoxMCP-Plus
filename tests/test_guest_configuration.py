@@ -89,6 +89,7 @@ def test_create_container_retains_dhcp_default_and_supports_static(static):
     tools = ContainerTools(api)
     tools._list_ct_pairs = Mock(return_value=[])
     kwargs = {"ip":"10.0.0.2/24", "gw":"10.0.0.1", "ip6":"fd00::2/64", "gw6":"fd00::1"} if static else {}
+    api.nodes.return_value.storage.get.return_value = [{"storage": "local-lvm", "content": "rootdir"}]
     tools.create_container("pve", "101", "local:vztmpl/debian.tar.zst", storage="local-lvm", network_bridge="vmbr2", **kwargs)
     network = api.nodes.return_value.lxc.create.call_args.kwargs["net0"]
     assert "bridge=vmbr2" in network

@@ -18,6 +18,22 @@ from proxmoxer import ProxmoxAPI
 from proxmox_mcp.formatting import ProxmoxTemplates
 from proxmox_mcp.observability import ToolMetrics
 from proxmox_mcp.security.sanitization import sanitize_string
+import json
+from threading import RLock
+
+
+class InventoryList(list):
+    """Carry completeness metadata without breaking legacy list consumers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.warnings: list[str] = []
+
+
+def completeness_content(warnings: list[str]) -> list[Content]:
+    if not warnings:
+        return []
+    return [Content(type="text", text=json.dumps({"success": False, "code": "INCOMPLETE_INVENTORY", "warnings": warnings}))]
 
 def _log_safe(value: object, max_length: int = 200) -> str:
     return sanitize_string(value, max_length=max_length)
@@ -50,6 +66,7 @@ class ProxmoxTool:
         self.proxmox = proxmox_api
         self.logger = logging.getLogger(f"proxmox-mcp.{self.__class__.__name__.lower()}")
         self._cache: Dict[str, tuple[float, Any]] = {}
+        self._cache_locks = [RLock() for _ in range(32)]
         self.metrics = metrics
         self.job_store = job_store
 
@@ -58,13 +75,40 @@ class ProxmoxTool:
         if not entry:
             return None
         expires_at, value = entry
-        if time.time() >= expires_at:
+        if time.monotonic() >= expires_at:
             self._cache.pop(key, None)
             return None
         return value
 
     def _cache_set(self, key: str, value: Any, ttl_seconds: int = 5) -> None:
-        self._cache[key] = (time.time() + ttl_seconds, value)
+        if len(self._cache) >= 500:
+            self._cache.pop(next(iter(self._cache)))
+        self._cache[key] = (time.monotonic() + ttl_seconds, value)
+
+    def _cached_read(self, key: str, read: Callable[[], Any], ttl_seconds: int = 5) -> Any:
+        """Coalesce concurrent read requests using a bounded stripe lock table."""
+        with self._cache_locks[hash(key) % len(self._cache_locks)]:
+            cached = self._cache_get(key)
+            if cached is not None:
+                return cached
+            value = read()
+            self._cache_set(key, value, ttl_seconds)
+            return value
+
+    def _wait_for_task(self, node: str, upid: str, timeout_seconds: float = 30) -> None:
+        """Wait for a prerequisite task without hiding failed or unknown outcomes."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            status = self.proxmox.nodes(node).tasks(upid).status.get()
+            if not isinstance(status, dict):
+                raise RuntimeError("Prerequisite task returned an invalid status")
+            if status.get("status") == "stopped":
+                if status.get("exitstatus") != "OK":
+                    raise RuntimeError("Prerequisite task failed: " + _log_safe(status.get("exitstatus")))
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Prerequisite task is still running; no dependent operation was submitted")
+            time.sleep(0.1)
 
     def _call_with_retry(
         self,
@@ -142,6 +186,9 @@ class ProxmoxTool:
         error_msg = _log_safe(raw_error_msg)
         self.logger.error("Failed to %s: %s", _log_safe(operation), _log_safe(error_msg))
 
+        if isinstance(error, ValueError):
+            raise ValueError(error_msg) from error
+
         if "not found" in raw_error_msg.lower():
             raise ValueError(f"Resource not found: {error_msg}")
         if "permission denied" in raw_error_msg.lower():
@@ -150,6 +197,19 @@ class ProxmoxTool:
             raise ValueError(f"Invalid input: {error_msg}")
         
         raise RuntimeError(f"Failed to {operation}: {error_msg}")
+
+    def _submission_content(self, job: Optional[Dict[str, Any]], upid: Optional[Any]) -> List[Content]:
+        """Report submission separately from eventual task completion."""
+        if upid is None:
+            return []
+        import json
+
+        return [Content(type="text", text=json.dumps({
+            "success": True,
+            "status": "submitted",
+            "task_id": str(upid),
+            "job_id": job["job_id"] if job else None,
+        }))]
 
     def _register_background_job(
         self,
