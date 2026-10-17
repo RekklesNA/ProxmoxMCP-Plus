@@ -2,7 +2,7 @@
     "manifest_version": "0.4",
     "name": "proxmox-mcp-plus",
     "display_name": "ProxmoxMCP-Plus",
-    "version": "0.5.20",
+    "version": "0.6.2",
     "description": "An enhanced MCP server for managing Proxmox virtualization platforms.",
     "long_description": "ProxmoxMCP-Plus is an enhanced Model Context Protocol (MCP) server that provides comprehensive tools for managing Proxmox virtualization environments, including VM lifecycle, container management, snapshot operations, and backup/restore capabilities.",
     "author": {
@@ -223,6 +223,10 @@
             "description": "Execute a shell command inside an LXC container via SSH"
         },
         {
+            "name": "execute_node_command",
+            "description": "Execute an authorized shell command on a Proxmox node via SSH"
+        },
+        {
             "name": "update_container_ssh_keys",
             "description": "Update root authorized_keys inside an LXC container"
         },
@@ -309,6 +313,14 @@
         {
             "name": "update_container_network",
             "description": "Update an existing LXC network interface, preserving unspecified NIC settings."
+        },
+        {
+            "name": "list_bridges",
+            "description": "List Linux/OVS bridges and permitted SDN VNets on a selected node."
+        },
+        {
+            "name": "reconcile_job",
+            "description": "Reconcile an uncertain retry with a verified task UPID or explicit confirmation that no task was submitted."
         }
     ],
     "keywords": [

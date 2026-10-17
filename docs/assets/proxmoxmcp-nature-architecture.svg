@@ -1,235 +1,109 @@
-<svg width="1800" height="1200" viewBox="0 0 1800 1200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1024" viewBox="0 0 1200 1024" fill="none" role="img" aria-labelledby="title desc">
   <title id="title">ProxmoxMCP-Plus architecture</title>
-  <desc id="desc">A publication-style architecture diagram showing MCP and OpenAPI clients entering the ProxmoxMCP-Plus service boundary, passing through server, proxy, tool registry, command policy, metrics, and job store components, then reaching Proxmox VE APIs, SSH-backed container execution, QEMU Guest Agent, and persistent SQLite job state.</desc>
-
+  <desc id="desc">A logical overview with two alternative entry points. MCP clients use the MCP server over stdio, Streamable HTTP or SSE. HTTP automation uses the OpenAPI bridge. Both reach target-aware tools with configurable permissions, policy and approval gates, bounded dispatch, job polling reuse, logs and latency metrics. Tools reach Proxmox VE through its HTTPS REST API, including QEMU Guest Agent for VM commands, or optional SSH for node commands and LXC pct exec. SQLite stores job IDs, Proxmox UPIDs, results and audit history across restarts. Optional MCP HTTP OAuth stores its state in PostgreSQL. Solid arrows show requests and execution; dashed arrows show job state reads and writes. MCP and OpenAPI may run in separate processes.</desc>
   <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#FCFBF7"/>
-      <stop offset="1" stop-color="#F5F7FA"/>
-    </linearGradient>
-    <linearGradient id="clientGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#EAF3F5"/>
-      <stop offset="1" stop-color="#D8EAEE"/>
-    </linearGradient>
-    <linearGradient id="serviceGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#EEF1FA"/>
-      <stop offset="1" stop-color="#E1E7F6"/>
-    </linearGradient>
-    <linearGradient id="proxmoxGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#FFF0E7"/>
-      <stop offset="1" stop-color="#FCE1D4"/>
-    </linearGradient>
-    <linearGradient id="stateGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#F0F7EA"/>
-      <stop offset="1" stop-color="#DCEFD7"/>
-    </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="145%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#17324D" flood-opacity="0.12"/>
-    </filter>
-    <filter id="lightShadow" x="-18%" y="-18%" width="136%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17324D" flood-opacity="0.10"/>
-    </filter>
-    <marker id="arrowBlue" markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M2 2 L14 8 L2 14 Z" fill="#2D5B7C"/>
+    <marker id="request" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#454545"/>
     </marker>
-    <marker id="arrowTeal" markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M2 2 L14 8 L2 14 Z" fill="#2D7873"/>
+    <marker id="route" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#454545"/>
     </marker>
-    <marker id="arrowOrange" markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M2 2 L14 8 L2 14 Z" fill="#B2643C"/>
+    <marker id="execution" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#303030"/>
+    </marker>
+    <marker id="state" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#666666"/>
     </marker>
     <style>
-      .title { font: 700 44px "Segoe UI", Arial, sans-serif; fill: #17202A; letter-spacing: -0.01em; }
-      .subtitle { font: 400 22px "Segoe UI", Arial, sans-serif; fill: #4F5D6B; }
-      .panel-label { font: 700 28px "Segoe UI", Arial, sans-serif; fill: #17202A; }
-      .panel-title { font: 700 25px "Segoe UI", Arial, sans-serif; fill: #1D2833; }
-      .card-title { font: 700 20px "Segoe UI", Arial, sans-serif; fill: #1F2D3A; }
-      .body { font: 400 16px "Segoe UI", Arial, sans-serif; fill: #40505F; }
-      .small { font: 600 13px "Segoe UI", Arial, sans-serif; fill: #617180; letter-spacing: .08em; text-transform: uppercase; }
-      .mono { font: 700 15px "Consolas", "Courier New", monospace; fill: #243241; }
-      .tag { font: 700 14px "Segoe UI", Arial, sans-serif; fill: #243241; }
-      .invert { fill: #FFFFFF; }
-      .line-blue { stroke: #2D5B7C; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowBlue); }
-      .line-teal { stroke: #2D7873; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowTeal); }
-      .line-orange { stroke: #B2643C; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowOrange); }
-      .line-faint { stroke: #9EACB9; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 7 8; }
-      .thin { stroke-width: 2.5; }
+      text { font-family: "Segoe UI", Arial, sans-serif; fill: #202020; }
+      .title { font-size: 38px; font-weight: 700; letter-spacing: -.5px; }
+      .heading { font-size: 26px; font-weight: 700; }
+      .label { font-size: 22px; font-weight: 700; }
+      .body { font-size: 22px; fill: #4B4B4B; }
+      .detail { font-size: 20px; fill: #4B4B4B; }
+      .column { font-size: 20px; font-weight: 700; }
+      .flow { font-size: 20px; font-weight: 600; }
+      .request { stroke: #454545; stroke-width: 3; marker-end: url(#request); }
+      .route { stroke: #454545; stroke-width: 3; marker-end: url(#route); }
+      .execution { stroke: #303030; stroke-width: 3; marker-end: url(#execution); }
+      .state { stroke: #666666; stroke-width: 3; stroke-dasharray: 7 6; marker-start: url(#state); marker-end: url(#state); }
     </style>
   </defs>
 
-  <rect width="1800" height="1200" rx="30" fill="url(#paper)"/>
-  <path d="M84 118 C230 64 400 58 552 104 C718 154 833 147 985 94 C1160 34 1390 53 1530 143 C1644 216 1715 329 1720 463 C1730 753 1503 1030 1182 1068 C813 1112 551 1000 336 1016 C190 1027 82 962 58 834 C32 696 115 501 94 353 C81 259 25 177 84 118 Z" fill="#FFFFFF" opacity="0.56"/>
-  <path d="M1506 126 C1587 160 1637 224 1639 307 C1641 401 1589 469 1501 491 C1414 514 1328 480 1282 412 C1238 346 1234 259 1292 194 C1346 135 1430 96 1506 126 Z" fill="#E8F0F6" opacity="0.55"/>
-  <path d="M259 942 C344 896 453 904 526 960 C592 1011 612 1091 555 1129 C494 1170 365 1149 281 1105 C202 1063 180 986 259 942 Z" fill="#EEF5EC" opacity="0.64"/>
+  <rect width="1200" height="1024" rx="24" fill="#FAFAFA"/>
+  <text x="48" y="64" class="title">ProxmoxMCP-Plus architecture</text>
+  <text x="48" y="101" class="body">Two entry points for guarded, target-aware Proxmox workflows.</text>
 
-  <text x="112" y="86" class="small">Figure 1</text>
-  <text x="112" y="137" class="title">ProxmoxMCP-Plus architecture</text>
-  <text x="112" y="174" class="subtitle">A dual-surface control plane that routes LLM, MCP, and HTTP automation into guarded Proxmox VE workflows.</text>
-
-  <g transform="translate(92 230)">
-    <rect x="0" y="0" width="320" height="565" rx="28" fill="url(#clientGrad)" stroke="#9FB7C1" stroke-width="2.5" filter="url(#softShadow)"/>
-    <circle cx="37" cy="39" r="22" fill="#2D7873"/>
-    <text x="30" y="48" class="panel-label invert">A</text>
-    <text x="78" y="45" class="panel-title">Clients</text>
-    <text x="78" y="75" class="small">REQUEST SURFACES</text>
-
-    <rect x="34" y="116" width="252" height="96" rx="18" fill="#FFFFFF" stroke="#B7C9CF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="56" y="148" class="card-title">MCP stdio</text>
-    <text x="56" y="175" class="body">Claude Desktop, Cursor,</text>
-    <text x="56" y="200" class="body">VS Code, Codex, OpenCode</text>
-
-    <rect x="34" y="232" width="252" height="82" rx="18" fill="#FFFFFF" stroke="#B7C9CF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="56" y="264" class="card-title">MCP Streamable HTTP</text>
-    <text x="56" y="291" class="mono">/mcp</text>
-    <text x="108" y="291" class="body">remote MCP clients</text>
-
-    <rect x="34" y="334" width="252" height="102" rx="18" fill="#FFFFFF" stroke="#B7C9CF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="56" y="366" class="card-title">HTTP automation</text>
-    <text x="56" y="393" class="mono">/docs</text>
-    <text x="119" y="393" class="body">Swagger UI</text>
-    <text x="56" y="420" class="mono">/openapi.json</text>
-
-    <rect x="34" y="462" width="252" height="56" rx="18" fill="#F7FBFC" stroke="#B7C9CF" stroke-width="2"/>
-    <text x="56" y="495" class="body">Open WebUI, dashboards, scripts</text>
+  <!-- Client examples describe usage; transports are shown at their server entry points. -->
+  <g id="mcp-clients">
+    <rect x="48" y="136" width="534" height="120" rx="18" fill="#F2F2F2" stroke="#BBBBBB" stroke-width="2"/>
+    <text x="72" y="174" class="heading">MCP clients and AI agents</text>
+    <text x="72" y="208" class="body">Local or remote MCP connections</text>
+    <text x="72" y="237" class="detail">Claude, Cursor, Codex, Open WebUI</text>
+  </g>
+  <g id="http-clients">
+    <rect x="618" y="136" width="534" height="120" rx="18" fill="#F2F2F2" stroke="#BBBBBB" stroke-width="2"/>
+    <text x="642" y="174" class="heading">HTTP automation</text>
+    <text x="642" y="208" class="body">Dashboards, scripts and internal tools</text>
+    <text x="642" y="237" class="detail">OpenAPI-compatible integrations</text>
   </g>
 
-  <g transform="translate(520 190)">
-    <rect x="0" y="0" width="745" height="690" rx="32" fill="url(#serviceGrad)" stroke="#A7B5D6" stroke-width="2.5" filter="url(#softShadow)"/>
-    <circle cx="39" cy="41" r="22" fill="#435C9B"/>
-    <text x="31" y="51" class="panel-label invert">B</text>
-    <text x="82" y="47" class="panel-title">ProxmoxMCP-Plus service boundary</text>
-    <text x="82" y="78" class="small">MCP SERVER, OPENAPI PROXY, TOOLS, POLICY, JOBS</text>
+  <!-- This is a logical boundary, not a claim that both entry points share one process. -->
+  <rect x="48" y="304" width="1104" height="410" rx="24" fill="#EAEAEA" stroke="#9B9B9B" stroke-width="2"/>
+  <text x="600" y="344" class="heading" text-anchor="middle">ProxmoxMCP-Plus runtime</text>
 
-    <rect x="42" y="116" width="290" height="112" rx="22" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="68" y="151" class="card-title">FastMCP server</text>
-    <text x="68" y="180" class="mono">stdio</text>
-    <text x="131" y="180" class="body">local process transport</text>
-    <text x="68" y="206" class="body">assistant-facing MCP tools</text>
+  <path d="M315 256V374" class="request"/>
+  <text x="339" y="288" class="flow" style="fill: #454545">MCP</text>
+  <path d="M885 256V374" class="request"/>
+  <text x="909" y="288" class="flow" style="fill: #454545">HTTP</text>
 
-    <rect x="414" y="116" width="290" height="112" rx="22" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="440" y="151" class="card-title">OpenAPI proxy</text>
-    <text x="440" y="180" class="mono">8811</text>
-    <text x="493" y="180" class="body">REST bridge and Swagger UI</text>
-    <text x="440" y="206" class="mono">/health /readyz /metrics</text>
-
-    <rect x="42" y="279" width="662" height="145" rx="24" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="68" y="314" class="card-title">Tool registry and domain tool plugins</text>
-    <text x="68" y="343" class="body">Built-in plugins register the project tool surface onto the MCP server.</text>
-
-    <g transform="translate(68 367)">
-      <rect x="0" y="0" width="88" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="44" y="23" class="tag" text-anchor="middle">Node</text>
-      <rect x="100" y="0" width="74" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="137" y="23" class="tag" text-anchor="middle">VM</text>
-      <rect x="186" y="0" width="118" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="245" y="23" class="tag" text-anchor="middle">Container</text>
-      <rect x="316" y="0" width="112" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="372" y="23" class="tag" text-anchor="middle">Snapshot</text>
-      <rect x="440" y="0" width="78" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="479" y="23" class="tag" text-anchor="middle">ISO</text>
-      <rect x="530" y="0" width="92" height="34" rx="17" fill="#EEF3FF" stroke="#B6C0DF"/>
-      <text x="576" y="23" class="tag" text-anchor="middle">Backup</text>
-    </g>
-
-    <rect x="42" y="480" width="205" height="112" rx="22" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="66" y="514" class="card-title">Config loader</text>
-    <text x="66" y="543" class="body">JSON config + env vars</text>
-    <text x="66" y="569" class="mono">PROXMOX_MCP_CONFIG</text>
-
-    <rect x="270" y="480" width="205" height="112" rx="22" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="294" y="514" class="card-title">Command policy</text>
-    <text x="294" y="543" class="body">deny rules + approval</text>
-    <text x="294" y="569" class="body">high-risk operation gates</text>
-
-    <rect x="498" y="480" width="206" height="112" rx="22" fill="#FFFFFF" stroke="#B6C0DF" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="522" y="514" class="card-title">Observability</text>
-    <text x="522" y="543" class="body">logs, redaction, metrics</text>
-    <text x="522" y="569" class="mono">/metrics</text>
-
-    <rect x="42" y="625" width="662" height="38" rx="19" fill="#F8FAFF" stroke="#B6C0DF"/>
-    <text x="68" y="649" class="body">Long-running Proxmox tasks return a raw UPID plus a stable ProxmoxMCP-Plus job_id.</text>
+  <g id="mcp-entry">
+    <rect x="72" y="374" width="516" height="104" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="96" y="408" class="heading">MCP server</text>
+    <text x="96" y="438" class="detail">stdio / Streamable HTTP / SSE</text>
+    <text x="96" y="464" class="detail">HTTP Bearer auth / optional OAuth</text>
+  </g>
+  <g id="openapi-entry">
+    <rect x="612" y="374" width="516" height="104" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="636" y="408" class="heading">OpenAPI bridge</text>
+    <text x="636" y="438" class="detail">REST tools / Swagger UI · Bearer auth</text>
+    <text x="636" y="464" class="detail">/docs · /openapi.json · /jobs</text>
   </g>
 
-  <g transform="translate(1370 230)">
-    <rect x="0" y="0" width="338" height="565" rx="28" fill="url(#proxmoxGrad)" stroke="#E2A384" stroke-width="2.5" filter="url(#softShadow)"/>
-    <circle cx="39" cy="39" r="22" fill="#C45A2A"/>
-    <text x="31" y="49" class="panel-label invert">C</text>
-    <text x="82" y="45" class="panel-title">Proxmox VE</text>
-    <text x="82" y="75" class="small">VIRTUALIZATION CONTROL SURFACES</text>
-
-    <rect x="36" y="116" width="266" height="98" rx="18" fill="#FFFFFF" stroke="#E6B298" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="60" y="148" class="card-title">PVE REST API</text>
-    <text x="60" y="176" class="body">cluster, node, VM, LXC,</text>
-    <text x="60" y="201" class="body">storage, backup, ISO operations</text>
-
-    <rect x="36" y="242" width="266" height="82" rx="18" fill="#FFFFFF" stroke="#E6B298" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="60" y="274" class="card-title">QEMU Guest Agent</text>
-    <text x="60" y="302" class="body">VM command execution path</text>
-
-    <rect x="36" y="352" width="266" height="82" rx="18" fill="#FFFFFF" stroke="#E6B298" stroke-width="2" filter="url(#lightShadow)"/>
-    <text x="60" y="384" class="card-title">SSH to Proxmox nodes</text>
-    <text x="60" y="412" class="body">optional pct exec path for LXCs</text>
-
-    <rect x="36" y="462" width="266" height="72" rx="18" fill="#FFF8F4" stroke="#E6B298" stroke-width="2"/>
-    <text x="60" y="494" class="body">VMs, LXCs, snapshots,</text>
-    <text x="60" y="519" class="body">backups, storage and templates</text>
+  <path d="M330 478V542" class="route"/>
+  <path d="M870 478V542" class="route"/>
+  <g id="tool-runtime">
+    <rect x="72" y="542" width="1056" height="148" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="96" y="578" class="heading">Filtered, target-aware tool runtime</text>
+    <line x1="438" y1="606" x2="438" y2="666" stroke="#DEDEDE"/>
+    <line x1="804" y1="606" x2="804" y2="666" stroke="#DEDEDE"/>
+    <text x="96" y="618" class="column">Guardrails</text>
+    <text x="96" y="650" class="detail">Permissions · policy · approvals</text>
+    <text x="462" y="618" class="column">Target-aware execution</text>
+    <text x="462" y="650" class="detail">Queues · jobs · polling reuse</text>
+    <text x="828" y="618" class="column">Observability</text>
+    <text x="828" y="650" class="detail">Logs · latency histograms</text>
   </g>
 
-  <g transform="translate(520 950)">
-    <rect x="0" y="0" width="745" height="108" rx="28" fill="url(#stateGrad)" stroke="#9FBE99" stroke-width="2.5" filter="url(#softShadow)"/>
-    <circle cx="39" cy="39" r="22" fill="#5C8F56"/>
-    <text x="30" y="49" class="panel-label invert">D</text>
-    <text x="82" y="45" class="panel-title">Persistent job and audit state</text>
-    <text x="82" y="70" class="body">SQLite-backed JobStore preserves progress, retries,</text>
-    <text x="82" y="94" class="body">results, and audit history across restarts.</text>
-    <rect x="586" y="26" width="112" height="58" rx="18" fill="#FFFFFF" stroke="#9FBE99" stroke-width="2"/>
-    <text x="642" y="50" class="mono" text-anchor="middle">job_id</text>
-    <text x="642" y="74" class="body" text-anchor="middle">stable handle</text>
+  <!-- State is read and written separately from backend execution. -->
+  <path d="M240 695V777" class="state"/>
+  <text x="264" y="756" class="flow" style="fill: #666666">Job + audit state</text>
+  <path d="M870 690V782" class="execution"/>
+  <text x="894" y="756" class="flow" style="fill: #303030">Execute</text>
+
+  <g id="job-persistence">
+    <rect x="48" y="782" width="510" height="184" rx="18" fill="#F4F4F4" stroke="#AFAFAF" stroke-width="2"/>
+    <text x="72" y="821" class="heading">Persistent jobs and audit</text>
+    <text x="72" y="856" class="label">SQLite</text>
+    <text x="72" y="888" class="detail">Stable job_id · Proxmox UPID · retries</text>
+    <text x="72" y="920" class="detail">Results and audit history survive restarts</text>
   </g>
-
-  <path d="M413 390 C455 390 467 390 511 390" class="line-teal"/>
-  <path d="M413 562 C455 562 467 562 511 562" class="line-teal"/>
-  <path d="M1265 418 C1305 418 1319 418 1358 418" class="line-orange"/>
-  <path d="M1265 551 C1305 551 1319 551 1358 551" class="line-orange"/>
-  <path d="M892 418 C968 418 1007 418 1048 418" class="line-blue thin"/>
-  <path d="M373 545 C373 790 601 833 737 911" class="line-faint"/>
-  <path d="M893 854 C893 892 893 912 893 940" class="line-blue"/>
-  <path d="M1172 590 C1204 716 1320 738 1376 672" class="line-faint"/>
-
-  <g transform="translate(94 858)">
-    <rect x="0" y="0" width="1614" height="64" rx="32" fill="#FFFFFF" stroke="#D3DCE5" stroke-width="2"/>
-    <circle cx="40" cy="32" r="16" fill="#2D7873"/>
-    <text x="40" y="38" class="tag invert" text-anchor="middle">1</text>
-    <text x="70" y="38" class="body">Client intent</text>
-    <path d="M208 32 L312 32" class="line-teal thin"/>
-
-    <circle cx="354" cy="32" r="16" fill="#435C9B"/>
-    <text x="354" y="38" class="tag invert" text-anchor="middle">2</text>
-    <text x="384" y="38" class="body">Registered tool routing</text>
-    <path d="M592 32 L732 32" class="line-blue thin"/>
-
-    <circle cx="774" cy="32" r="16" fill="#435C9B"/>
-    <text x="774" y="38" class="tag invert" text-anchor="middle">3</text>
-    <text x="804" y="38" class="body">Policy and observability</text>
-    <path d="M1048 32 L1272 32" class="line-orange thin"/>
-
-    <circle cx="1314" cy="32" r="16" fill="#C45A2A"/>
-    <text x="1314" y="38" class="tag invert" text-anchor="middle">4</text>
-    <text x="1344" y="38" class="body">Result, UPID, and job_id</text>
+  <g id="proxmox-targets">
+    <rect x="594" y="782" width="558" height="184" rx="18" fill="#F4F4F4" stroke="#AFAFAF" stroke-width="2"/>
+    <text x="618" y="821" class="heading">Proxmox VE targets</text>
+    <text x="618" y="856" class="label">HTTPS API / optional SSH</text>
+    <text x="618" y="888" class="detail">VM / LXC · backup · storage / ISO</text>
+    <text x="618" y="920" class="detail">VM: QEMU Guest Agent · LXC: pct exec</text>
   </g>
-
-  <g transform="translate(114 1102)">
-    <rect x="0" y="0" width="374" height="42" rx="21" fill="#FFFFFF" stroke="#D3DCE5"/>
-    <circle cx="25" cy="21" r="8" fill="#2D7873"/>
-    <text x="44" y="27" class="body">MCP and HTTP client request flow</text>
-    <rect x="420" y="0" width="314" height="42" rx="21" fill="#FFFFFF" stroke="#D3DCE5"/>
-    <circle cx="445" cy="21" r="8" fill="#435C9B"/>
-    <text x="464" y="27" class="body">Internal service routing</text>
-    <rect x="778" y="0" width="310" height="42" rx="21" fill="#FFFFFF" stroke="#D3DCE5"/>
-    <circle cx="803" cy="21" r="8" fill="#C45A2A"/>
-    <text x="822" y="27" class="body">Proxmox VE execution paths</text>
-    <rect x="1132" y="0" width="400" height="42" rx="21" fill="#FFFFFF" stroke="#D3DCE5"/>
-    <line x1="1155" y1="21" x2="1195" y2="21" class="line-faint"/>
-    <text x="1212" y="27" class="body">Persistent state and audit feedback</text>
-  </g>
+  <text x="48" y="1003" class="detail">Optional paths: SSH for node / LXC commands · PostgreSQL for MCP OAuth state.</text>
 </svg>

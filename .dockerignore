@@ -3,6 +3,8 @@
 .agents
 .codex
 .codex-run
+.audit
+baseline-tests.txt
 .playwright-cli
 .venv
 .mypy_cache

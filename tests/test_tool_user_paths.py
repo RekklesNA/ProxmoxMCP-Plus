@@ -87,14 +87,14 @@ def test_get_containers_include_stats_json_adds_raw_status_and_rrd_fallback():
     assert payload[0]["cpu_pct"] == 25.0
     assert payload[0]["mem_bytes"] == 134217728
     assert payload[0]["raw_status"]["status"] == "running"
-    ct_api.rrddata.get.assert_called_once_with(timeframe="hour", ds="cpu,mem,maxmem")
+    ct_api.rrddata.get.assert_called_once_with(timeframe="hour")
 
 
 def test_create_container_auto_detects_storage_and_omits_secret_retry_spec():
     proxmox = Mock()
     proxmox.cluster.resources.get.return_value = []
     proxmox.nodes.get.return_value = [{"node": "pve1"}]
-    proxmox.storage.get.return_value = [
+    proxmox.nodes.return_value.storage.get.return_value = [
         {"storage": "slow-dir", "content": "rootdir", "type": "dir"},
         {"storage": "local-lvm", "content": "rootdir,images", "type": "lvmthin"},
     ]
@@ -143,7 +143,7 @@ def test_rollback_snapshot_refuses_when_child_snapshots_exist():
         {"name": "child", "parent": "base"},
     ]
 
-    with pytest.raises(RuntimeError, match="newer child snapshots"):
+    with pytest.raises(ValueError, match="newer child snapshots"):
         SnapshotTools(proxmox).rollback_snapshot("pve1", "100", "base")
 
     snapshot_api.return_value.rollback.post.assert_not_called()
@@ -274,7 +274,7 @@ def test_delete_backup_registers_delete_job_when_unprotected():
     proxmox = Mock()
     storage_api = proxmox.nodes.return_value.storage.return_value
     storage_api.content.get.return_value = [
-        {"volid": "local:backup/vzdump-qemu-100.vma.zst", "protected": 0}
+        {"volid": "local:backup/vzdump-qemu-100.vma.zst", "content": "backup", "protected": 0}
     ]
     storage_api.content.return_value.delete.return_value = "UPID:delete-backup"
     job_store = _JobStore()
