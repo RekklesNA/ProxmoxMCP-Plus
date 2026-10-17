@@ -69,6 +69,7 @@ class BackupTools(ProxmoxTool):
         """
         try:
             results = []
+            skipped_nodes: list[str] = []
             try:
                 nodes = _as_list(self.proxmox.nodes.get())
             except Exception as e:
@@ -80,6 +81,9 @@ class BackupTools(ProxmoxTool):
                     continue
                 if node and node_name != node:
                     continue
+                if _get(n, "status") == "offline":
+                    skipped_nodes.append(node_name)
+                    continue
 
                 try:
                     storages = _as_list(self.proxmox.nodes(node_name).storage.get())
@@ -89,6 +93,7 @@ class BackupTools(ProxmoxTool):
                         node_name,
                         node_error,
                     )
+                    skipped_nodes.append(node_name)
                     continue
                 for s in storages:
                     storage_name = _get(s, "storage")
@@ -125,12 +130,17 @@ class BackupTools(ProxmoxTool):
                     msg += f" in storage {storage}"
                 if vmid:
                     msg += f" for VM/CT {vmid}"
+                if skipped_nodes:
+                    msg += "; incomplete: unreachable/offline nodes: " + ", ".join(sorted(set(skipped_nodes)))
                 return [Content(type="text", text=msg)]
 
             # Sort by creation time (newest first)
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
             lines = ["Available Backups", ""]
+            if skipped_nodes:
+                lines.append("Warning: partial listing; offline/unreachable nodes: " + ", ".join(sorted(set(skipped_nodes))))
+                lines.append("")
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
