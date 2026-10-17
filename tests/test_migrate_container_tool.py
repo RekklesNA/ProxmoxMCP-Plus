@@ -154,3 +154,16 @@ def test_migration_mcp_registry_dispatch_and_policy():
     assert dispatched["destination"] == "six"
     assert dispatched["confirm_downtime"] is True
     assert plugin._wrap_sync.call_args.kwargs.get("high_risk") is True
+
+
+def test_migration_returns_remote_upid_even_when_job_tracking_fails():
+    api = migration_api()
+    store = MagicMock()
+    store.register_task.side_effect = OSError("DB unavailable")
+    response = json.loads(ContainerTools(api, job_store=store).migrate_container(
+        "sam", "115", "six", confirm_migration=True
+    )[0].text)
+    assert response["status"] == "submitted"
+    assert response["task_id"] == "UPID:sam:migrate:115"
+    assert response["job_id"] is None
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once()
