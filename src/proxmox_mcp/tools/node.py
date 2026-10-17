@@ -192,3 +192,24 @@ class NodeTools(ProxmoxTool):
                 break
 
             self._handle_error(f"get status for node {node}", e)
+
+    def get_node_diagnostics(self, node: str) -> List[Content]:
+        """Return scoped, read-only diagnostics without SSH or arbitrary commands."""
+        if not node or not node.strip():
+            raise ValueError("node must be non-empty")
+        try:
+            status = self.proxmox.nodes(node).status.get()
+            storage = self.proxmox.nodes(node).storage.get()
+            return self._format_response({
+                "node": node,
+                "cpu": status.get("cpu"),
+                "loadavg": status.get("loadavg"),
+                "memory": status.get("memory"),
+                "swap": status.get("swap"),
+                "rootfs": status.get("rootfs"),
+                "uptime": status.get("uptime"),
+                "storage": storage,
+                "scope": "PVE node status and node storage API; no host process list",
+            })
+        except Exception as error:
+            self._handle_error(f"get diagnostics for node {node}", error)
