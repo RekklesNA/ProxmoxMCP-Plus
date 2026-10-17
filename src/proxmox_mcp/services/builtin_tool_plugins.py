@@ -121,6 +121,15 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node, target=target
             )
 
+        @server.tool_registry.tool(description="Read node epoch time, local time and timezone to diagnose PVE ticket clock skew.")
+        def get_node_time(
+            node: Annotated[str, Field(description="Proxmox node name")],
+            target: Annotated[Optional[str], Field(description="Configured target name", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_time", lambda ts: ts.node_tools.get_node_time)(
+                node=node, target=target,
+            )
+
         @server.tool_registry.tool(description="List available network bridges (Linux, OVS and permitted SDN VNets) on a node for VM/LXC networking. Returns the Proxmox network records as JSON.")
         async def list_bridges(node: str, target: Optional[str] = None) -> Any:
             return await anyio.to_thread.run_sync(partial(
