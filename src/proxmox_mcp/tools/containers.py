@@ -1158,3 +1158,33 @@ class ContainerTools(ProxmoxTool):
             payload["digest"] = current["digest"]
         self.proxmox.nodes(node).lxc(vmid).config.put(**payload)
         return self._json_fmt({"node": node, "vmid": vmid, "applied": {interface: network}})
+
+    def preflight_container_migration(self, node: str, vmid: str, destination: str):
+        """Read-only migration checks. This is not a Proxmox dry run."""
+        if not node or not destination or node == destination or not str(vmid).isdigit():
+            raise ValueError("Distinct source/destination and numeric vmid are required")
+        try:
+            nodes = self.proxmox.nodes.get()
+            node_states = {n["node"]: n.get("status") for n in nodes}
+            if node_states.get(node) != "online" or node_states.get(destination) != "online":
+                return self._format_response({"ready": False, "reason": "source or destination offline"})
+            config = self.proxmox.nodes(node).lxc(vmid).config.get()
+            disk = str(config.get("rootfs", ""))
+            source_storage = disk.partition(":")[0]
+            target_storages = self.proxmox.nodes(destination).storage.get()
+            dest = next((s for s in target_storages if s.get("storage") == source_storage), None)
+            flags = []
+            if any(k.startswith("mp") and k[2:].isdigit() for k in config):
+                flags.append("additional mount points require manual inspection")
+            if any(k.startswith("dev") for k in config):
+                flags.append("device passthrough requires manual inspection")
+            if dest is None or not dest.get("active"):
+                flags.append("rootfs storage not active on destination")
+            result = {"source": node, "destination": destination, "vmid": vmid,
+                      "rootfs": disk, "storage": source_storage,
+                      "destination_storage": dest, "warnings": flags,
+                      "ready": not flags,
+                      "caveat": "Backup, free-space, HA and application health must be separately verified"}
+            return self._format_response(result)
+        except Exception as error:
+            self._handle_error("preflight container migration", error)
