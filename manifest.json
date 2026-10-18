@@ -119,6 +119,14 @@
             "description": "List all virtual machines across the cluster"
         },
         {
+            "name": "preflight_vm_migration",
+            "description": "Read-only QEMU migration safety assessment"
+        },
+        {
+            "name": "migrate_vm",
+            "description": "Guarded offline QEMU VM migration with local disks"
+        },
+        {
             "name": "get_vm_config",
             "description": "Get full configuration for a QEMU virtual machine"
         },
