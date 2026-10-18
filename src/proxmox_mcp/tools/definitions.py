@@ -44,6 +44,9 @@ Example:
 {"cpu": {"usage": 0.15}, "memory": {"used": "8GB", "total": "32GB"}}"""
 
 # VM tool descriptions
+CONFIGURE_VM_SERIAL_CONSOLE_DESC = """Configure VM ttyS0 serial socket and serial VGA display. Requires stopped VM and explicit confirmation. The guest must configure serial login separately."""
+IMPORT_CLOUD_IMAGE_DESC = """Import an existing qcow2/raw/vmdk image from Proxmox import-enabled storage to an unused VM SCSI disk slot via Proxmox QEMU API. Requires stopped VM and explicit confirmation. The image must already be uploaded to the import storage; this tool does not fetch URLs or overwrite existing disks. Returns a task ID, not completion."""
+
 GET_VMS_DESC = """List all virtual machines across the cluster with their status and resource usage.
 
 Example:
