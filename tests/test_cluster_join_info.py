@@ -15,7 +15,23 @@ def test_join_info_returns_addresses_and_fingerprint():
     assert payload["fingerprint"] == "AA:BB"
     assert payload["nodelist"][0]["name"] == "ichi"
     assert "secret" not in payload
-    assert "password" not in payload["nested"]
+    assert "nested" not in payload
+
+
+def test_join_info_allows_only_documented_public_fields():
+    api = MagicMock()
+    api.cluster.config.join.get.return_value = {
+        "nodelist": [{"name": "ichi", "pve_fp": "AA:BB", "ring1_addr": "192.0.2.2", "api_key": "credential"}],
+        "preferred_node": "ichi", "config_digest": "digest",
+        "totem": {"cluster_name": "lab", "secret": "credential", "private-key": "credential"},
+        "token_value": "credential", "client_secret": "credential",
+    }
+    text = ClusterTools(api).get_cluster_join_info()[0].text
+    payload = json.loads(text)
+    assert "credential" not in text
+    assert payload["nodelist"][0]["pve_fp"] == "AA:BB"
+    assert payload["nodelist"][0]["ring1_addr"] == "192.0.2.2"
+    assert payload["totem"] == {"cluster_name": "lab"}
     api.cluster.config.join.get.assert_called_once_with()
 
 
@@ -23,6 +39,13 @@ def test_join_info_rejects_unexpected_shape():
     api = MagicMock()
     api.cluster.config.join.get.return_value = []
     with pytest.raises(RuntimeError, match="Unexpected"):
+        ClusterTools(api).get_cluster_join_info()
+
+
+def test_join_info_rejects_malformed_node_list():
+    api = MagicMock()
+    api.cluster.config.join.get.return_value = {"nodelist": {}}
+    with pytest.raises(RuntimeError, match="node list"):
         ClusterTools(api).get_cluster_join_info()
 
 

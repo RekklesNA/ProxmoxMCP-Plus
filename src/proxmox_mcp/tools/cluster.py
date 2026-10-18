@@ -10,7 +10,7 @@ This module provides tools for monitoring and managing Proxmox clusters:
 The tools provide essential information for maintaining
 cluster health and ensuring proper operation.
 """
-from typing import List
+from typing import Any, List
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
 
@@ -94,23 +94,34 @@ class ClusterTools(ProxmoxTool):
             self._handle_error("get cluster status", e)
 
     def get_cluster_join_info(self) -> List[Content]:
-        """Return public cluster join metadata, omitting unexpected credential fields."""
-        def sanitized(value):
-            if isinstance(value, dict):
-                blocked = {"password", "ticket", "authkey", "secret", "token",
-                           "private_key", "authorization", "pveauthcookie"}
-                return {key: sanitized(item) for key, item in value.items()
-                        if str(key).lower().replace("-", "_") not in blocked}
-            if isinstance(value, list):
-                return [sanitized(item) for item in value]
-            return value
-
+        """Return documented join metadata; unknown fields never enter agent context."""
         try:
             info = self._call_with_retry(
                 "get cluster join info", lambda: self.proxmox.cluster.config.join.get()
             )
             if not isinstance(info, dict):
                 raise RuntimeError("Unexpected cluster join information response")
-            return self._format_response(sanitized(info))
+            public: dict[str, Any] = {}
+            for key in ("preferred_node", "config_digest", "fingerprint"):
+                if isinstance(info.get(key), str):
+                    public[key] = info[key]
+            if "nodelist" in info:
+                if not isinstance(info["nodelist"], list):
+                    raise RuntimeError("Unexpected cluster join node list")
+                fields = {"name", "nodeid", "quorum_votes", "pve_addr", "pve_fp"}
+                fields.update(f"ring{index}_addr" for index in range(8))
+                public["nodelist"] = [
+                    {key: value for key, value in node.items()
+                     if key in fields and type(value) in (str, int)}
+                    for node in info["nodelist"] if isinstance(node, dict)
+                ]
+            # Corosync's public transport settings are useful for joining. Do not
+            # pass arbitrary totem extensions or credential-shaped nested objects.
+            if isinstance(info.get("totem"), dict):
+                fields = {"cluster_name", "config_version", "ip_version", "secauth", "version",
+                          "transport", "link_mode"}
+                public["totem"] = {key: value for key, value in info["totem"].items()
+                                   if key in fields and type(value) in (str, int)}
+            return self._format_response(public)
         except Exception as error:
             self._handle_error("get cluster join info", error)

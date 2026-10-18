@@ -29,6 +29,27 @@ def test_optional_failures_keep_primary_status():
     assert len(data["warnings"]) == 2
 
 
+def test_empty_rrd_is_partial_instead_of_claiming_complete_metrics():
+    api = MagicMock()
+    api.nodes.return_value.status.get.return_value = {"cpu": 0.0}
+    api.nodes.return_value.storage.get.return_value = []
+    api.nodes.return_value.rrddata.get.return_value = []
+    data = json.loads(NodeTools(api).get_node_diagnostics("six")[0].text)
+    assert data["complete"] is False
+
+
+def test_null_rrd_tail_does_not_hide_latest_observed_sample():
+    api = MagicMock()
+    api.nodes.return_value.status.get.return_value = {"cpu": 0.0}
+    api.nodes.return_value.storage.get.return_value = []
+    api.nodes.return_value.rrddata.get.return_value = [
+        {"time": 10, "diskread": 0.0, "netin": 2.0},
+        {"time": 20, "diskread": None, "netin": None},
+    ]
+    data = json.loads(NodeTools(api).get_node_diagnostics("six")[0].text)
+    assert data["latest_rrd_io"]["time"] == 10
+
+
 def test_primary_status_failure_is_not_masked():
     api = MagicMock()
     api.nodes.return_value.status.get.side_effect = ConnectionError("offline")

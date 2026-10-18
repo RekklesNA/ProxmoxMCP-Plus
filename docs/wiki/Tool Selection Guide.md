@@ -11,7 +11,9 @@ Run read-only tools before mutating anything:
 | Check cluster health | `get_nodes`, `get_cluster_status` |
 | Find VMs | `get_vms`, `get_vm_config` |
 | Find containers | `get_containers`, `get_container_config`, `get_container_ip` |
-| Check storage | `get_storage` |
+| Check storage | `get_storage`, `get_node_storage` for capacity on a particular node |
+| Diagnose node clock or performance | `get_node_time`, `get_node_diagnostics` |
+| Inspect cluster join metadata | `get_cluster_join_info` |
 | Check snapshots | `list_snapshots` with `vm_type=qemu` or `vm_type=lxc` |
 | Check jobs | `list_jobs`, `get_job` |
 | Check logs | `get_node_syslog`, `get_cluster_log` |
@@ -48,6 +50,7 @@ VM command execution requires QEMU Guest Agent inside the VM.
 | Create an LXC | `get_nodes` -> `get_storage` -> `create_container` -> `poll_job` | `get_containers` |
 | Start or stop an LXC | `get_containers` -> `start_container` or `stop_container` -> `poll_job` | `get_containers` |
 | Delete an LXC | `get_containers` -> snapshot or backup if needed -> `delete_container` -> `poll_job` | `get_containers` |
+| Migrate an LXC | `get_node_storage` -> `preflight_container_migration` -> explicit confirmation -> `migrate_container` -> `poll_job` | destination guest location and task exit status |
 | Execute a command in an LXC | `get_containers` -> `execute_container_command` | command output |
 | Update container SSH keys | `get_containers` -> `update_container_ssh_keys` | inspect authorized keys inside the container |
 

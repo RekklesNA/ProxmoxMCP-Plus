@@ -3,6 +3,9 @@ from typing import List, Dict, Optional, Tuple, Any, Union, Callable
 from proxmox_mcp.tools.guest_config import container_network
 import re
 import json
+import math
+from decimal import Decimal
+from proxmoxer.core import ResourceException
 from concurrent.futures import ThreadPoolExecutor
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
@@ -52,6 +55,14 @@ def _as_list(maybe: Any) -> List:
         if isinstance(data, list):
             return data
     return []
+
+
+def _migration_content_types(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {part.strip() for part in value.split(",") if part.strip()}
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        return set(value)
+    raise ValueError("Unexpected storage content capabilities")
 
 
 class ContainerTools(ProxmoxTool):
@@ -1182,7 +1193,7 @@ class ContainerTools(ProxmoxTool):
 
     def migrate_container(
         self, node: str, vmid: str, destination: str,
-        restart: bool = False, with_local_disks: bool = True,
+        restart: bool = False,
         confirm_migration: bool = False, confirm_downtime: bool = False,
         approval_token: Optional[str] = None,
     ) -> List[Content]:
@@ -1192,73 +1203,34 @@ class ContainerTools(ProxmoxTool):
         the returned UPID must be polled for completion by the caller.
         """
         _ = approval_token  # Existing high-risk operation policy is enforced by the registry.
-        if not (isinstance(node, str) and node.strip() and isinstance(destination, str)
-                and destination.strip()) or node == destination:
-            raise ValueError("Source and destination must be distinct non-empty nodes")
-        if not re.fullmatch(r"[0-9]+", str(vmid)):
-            raise ValueError("vmid must be numeric")
-        if not confirm_migration:
+        if confirm_migration is not True:
             raise ValueError("Explicit confirm_migration=True is required")
-        if not with_local_disks:
-            raise ValueError("This migration command requires with_local_disks=True")
+        if not isinstance(restart, bool) or not isinstance(confirm_downtime, bool):
+            raise ValueError("restart and confirm_downtime must be booleans")
+        if restart and not confirm_downtime:
+            raise ValueError("restart=True requires confirm_downtime=True even when the container is currently stopped")
         try:
-            states = {n.get("node"): n.get("status") for n in _as_list(self.proxmox.nodes.get())}
-            if states.get(node) != "online" or states.get(destination) != "online":
-                raise ValueError("Both source and destination nodes must be online")
+            assessment = self._assess_container_migration(
+                node, vmid, destination, allow_downtime=restart and confirm_downtime
+            )
+            if not assessment["ready"]:
+                raise ValueError("Migration blocked: " + "; ".join(assessment["blockers"] + assessment["unknowns"]))
             guest = self.proxmox.nodes(node).lxc(vmid)
-            config = _as_dict(guest.config.get())
-            rootfs = str(config.get("rootfs") or "")
-            if ":" not in rootfs:
-                raise ValueError("Container rootfs does not reference a migratable storage volume")
-            storage = rootfs.partition(":")[0]
-            if config.get("lock"):
-                raise ValueError("Container is locked")
-            if any(re.fullmatch(r"mp[0-9]+", str(k)) or str(k).startswith(("dev", "lxc.")) for k in config):
-                raise ValueError("Additional mounts or custom devices require separate migration handling")
-
-            runtime = _as_dict(guest.status.current.get())
-            if runtime.get("status") not in ("running", "stopped"):
-                raise ValueError("Cannot verify container runtime status")
-            if runtime["status"] == "running" and not (restart and confirm_downtime):
-                raise ValueError("Running containers require restart=True and confirm_downtime=True")
-            resources = _as_list(self.proxmox.cluster.ha.resources.get())
-            if any(str(r.get("sid") or r.get("id")) == f"ct:{vmid}" for r in resources if isinstance(r, dict)):
-                raise ValueError("HA-managed containers require coordinated migration via HA manager")
-
-            dest = _as_dict(self.proxmox.nodes(destination).storage(storage).status.get())
-            content = dest.get("content") or ""
-            supported = "rootdir" in (content.split(",") if isinstance(content, str) else content)
-            if not (dest.get("active") and dest.get("enabled", 1) and supported):
-                raise ValueError("Destination rootfs storage is unavailable or incompatible")
-            size_match = re.search(r"(?:^|,)size=([0-9]+(?:\\.[0-9]+)?)([KMGT])(?:,|$)", rootfs, re.I)
-            if not size_match:
-                raise ValueError("Cannot verify provisioned rootfs size")
-            factors = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
-            required = int(float(size_match.group(1)) * factors[size_match.group(2).upper()] * 1.1)
-            if not isinstance(dest.get("avail"), (int, float)) or dest["avail"] < required:
-                raise ValueError("Destination capacity is unverified or insufficient (10% margin required)")
-
-            # Verify actual backup volumes (not just the existence of a backup job).
-            backup_stores = _as_list(self.proxmox.nodes(node).storage.get())
-            verified = False
-            backed_up = False
-            for item in backup_stores:
-                if not isinstance(item, dict) or "backup" not in (item.get("content") or ""):
-                    continue
-                records = _as_list(self.proxmox.nodes(node).storage(item["storage"]).content.get(
-                    content="backup", vmid=int(vmid)
-                ))
-                verified = True
-                if records:
-                    backed_up = True
-            if not verified or not backed_up:
-                raise ValueError("No verified backup available for migration rollback")
-
-            request = {"target": destination, "restart": int(restart),
-                       "with-local-disks": int(with_local_disks)}
+            # LXC migrates local volumes itself. with-local-disks belongs to the
+            # QEMU API and is rejected by the LXC endpoint's closed schema.
+            request = {"target": destination, "restart": int(restart)}
             # Do not retry this POST on ambiguous transport failures: a migration
             # might have been submitted even if its UPID response was lost.
-            upid = guest.migrate.post(**request)
+            try:
+                upid = guest.migrate.post(**request)
+            except ResourceException as error:
+                if 400 <= error.status_code < 500:
+                    raise
+                return self._uncertain_migration(node, vmid, destination)
+            except Exception:
+                return self._uncertain_migration(node, vmid, destination)
+            if not isinstance(upid, str) or not upid.startswith("UPID:"):
+                return self._uncertain_migration(node, vmid, destination)
             try:
                 job = self._register_background_job(
                     tool_name="migrate_container",
@@ -1279,6 +1251,14 @@ class ContainerTools(ProxmoxTool):
         except Exception as error:
             self._handle_error(f"migrate container {vmid} from {node} to {destination}", error)
 
+    def _uncertain_migration(self, node: str, vmid: str, destination: str) -> List[Content]:
+        return self._json_fmt({
+            "success": False, "code": "SUBMISSION_UNCERTAIN", "status": "unknown",
+            "message": "Migration may have been submitted. Inspect Proxmox tasks and guest location before retrying.",
+            "source_node": node, "destination_node": destination, "vmid": str(vmid),
+            "retryable": False,
+        })
+
     def preflight_container_migration(
         self, node: str, vmid: str, destination: str, allow_downtime: bool = False
     ) -> List[Content]:
@@ -1286,30 +1266,50 @@ class ContainerTools(ProxmoxTool):
 
         This does NOT reserve space, guarantee success, or initiate migration.
         """
-        if not all(isinstance(n, str) and n.strip() for n in (node, destination)) or node == destination:
+        try:
+            return self._json_fmt(self._assess_container_migration(node, vmid, destination, allow_downtime))
+        except Exception as error:
+            self._handle_error("preflight container migration", error)
+
+    def _assess_container_migration(
+        self, node: str, vmid: str, destination: str, allow_downtime: bool = False
+    ) -> Dict[str, Any]:
+        """Shared advisory checks; malformed or inaccessible evidence fails closed."""
+        if not all(isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", n)
+                   for n in (node, destination)) or node == destination:
             raise ValueError("Source and destination must be distinct non-empty nodes")
-        if not re.fullmatch(r"[0-9]+", str(vmid)):
-            raise ValueError("vmid must be numeric")
+        if not re.fullmatch(r"[1-9][0-9]{2,8}", str(vmid)):
+            raise ValueError("vmid must be numeric, canonical, and between 100 and 999999999")
+        if not isinstance(allow_downtime, bool):
+            raise ValueError("allow_downtime must be a boolean")
         checks: Dict[str, Any] = {}
         blockers: List[str] = []
         unknowns: List[str] = []
         warnings: List[str] = []
         try:
-            states = {n.get("node"): n.get("status") for n in _as_list(self.proxmox.nodes.get())}
+            nodes = self.proxmox.nodes.get()
+            if not isinstance(nodes, list) or not all(isinstance(n, dict) for n in nodes):
+                raise ValueError("Unexpected node inventory response")
+            states = {n.get("node"): n.get("status") for n in nodes}
             for name in (node, destination):
                 if states.get(name) != "online":
                     blockers.append(f"Node {name} is not online")
             if blockers:
-                return self._json_fmt({"ready": False, "blockers": blockers, "unknowns": unknowns,
-                                       "warnings": warnings, "checks": checks})
+                return {"ready": False, "blockers": blockers, "unknowns": unknowns,
+                        "warnings": warnings, "checks": checks}
 
-            config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+            config = self.proxmox.nodes(node).lxc(vmid).config.get()
+            if not isinstance(config, dict):
+                raise ValueError("Unexpected container configuration response")
             rootfs = str(config.get("rootfs") or "")
             storage = rootfs.partition(":")[0]
-            if not storage or ":" not in rootfs:
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", storage) or ":" not in rootfs:
                 blockers.append("Container has no parseable rootfs volume")
+                storage = ""
             if any(re.fullmatch(r"mp[0-9]+", str(key)) for key in config):
-                blockers.append("Additional mount points need manual inspection")
+                blockers.append("Additional mounts need manual inspection")
+            if any(re.fullmatch(r"unused[0-9]+", str(key)) for key in config):
+                blockers.append("Unused volumes need manual inspection")
             if any(str(key).startswith(("dev", "lxc.")) for key in config):
                 blockers.append("Custom devices or raw LXC options need manual inspection")
             if config.get("lock"):
@@ -1317,64 +1317,82 @@ class ContainerTools(ProxmoxTool):
 
             # LXC local volume migration may stop/restart the guest.
             try:
-                current = _as_dict(self.proxmox.nodes(node).lxc(vmid).status.current.get())
+                current = self.proxmox.nodes(node).lxc(vmid).status.current.get()
+                if not isinstance(current, dict) or current.get("status") not in ("running", "stopped"):
+                    raise ValueError("Unknown container runtime status")
                 checks["current_status"] = current.get("status")
                 if current.get("status") == "running" and not allow_downtime:
-                    blockers.append("Running container: allow_downtime must be explicitly set")
+                    blockers.append("Running container: allow_downtime (restart and confirm_downtime) must be explicitly set")
                 elif current.get("status") == "running":
                     warnings.append("Running container will experience downtime")
             except Exception:
-                unknowns.append("Container running state unavailable")
+                unknowns.append("Container runtime status / running state unavailable")
 
-            size_match = re.search(r"(?:^|,)size=([0-9]+(?:\\.[0-9]+)?)([KMGT])(?:,|$)", rootfs, re.I)
+            size_match = re.search(r"(?:^|,)size=([0-9]+(?:\.[0-9]+)?)([KMGT])(?:,|$)", rootfs, re.I)
             units = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
-            required = int(float(size_match.group(1)) * units[size_match.group(2).upper()]) if size_match else None
+            required = int(Decimal(size_match.group(1)) * units[size_match.group(2).upper()]) if size_match else None
             checks["rootfs"] = rootfs
             checks["provisioned_rootfs_bytes"] = required
-            if required is None:
+            if required is None or required <= 0:
                 unknowns.append("Rootfs provisioned size unavailable")
             if storage:
                 try:
-                    dest_status = _as_dict(self.proxmox.nodes(destination).storage(storage).status.get())
-                    content = dest_status.get("content") or ""
-                    supported = ("rootdir" in content.split(",")) if isinstance(content, str) else ("rootdir" in content)
-                    checks["target_storage"] = {"storage": storage, "active": bool(dest_status.get("active")),
+                    dest_status = self.proxmox.nodes(destination).storage(storage).status.get()
+                    if not isinstance(dest_status, dict):
+                        raise ValueError("Unexpected destination storage response")
+                    supported = "rootdir" in _migration_content_types(dest_status.get("content") or "")
+                    active = dest_status.get("active") in (1, True)
+                    enabled = dest_status.get("enabled", 1) in (1, True)
+                    checks["target_storage"] = {"storage": storage, "active": active,
                                                 "available_bytes": dest_status.get("avail"),
                                                 "rootdir": supported}
-                    if not dest_status.get("active") or not dest_status.get("enabled", 1) or not supported:
-                        blockers.append("Destination storage is inactive or lacks rootdir capability")
+                    if not active or not enabled or not supported:
+                        blockers.append("Destination storage is inactive or incompatible (lacks rootdir capability)")
                     available = dest_status.get("avail")
-                    if not isinstance(available, (int, float)):
+                    if not isinstance(available, (int, float)) or isinstance(available, bool) or not math.isfinite(available) or available < 0:
                         unknowns.append("Destination available bytes unavailable")
-                    elif required is not None and available < int(required * 1.1):
+                    elif required is not None and available < (required * 11 + 9) // 10:
                         blockers.append("Insufficient destination capacity including 10% safety margin")
                 except Exception:
                     unknowns.append("Destination storage status not accessible")
 
             try:
-                resources = _as_list(self.proxmox.cluster.ha.resources.get())
-                if any(str(r.get("sid") or r.get("id")) == f"ct:{vmid}" for r in resources if isinstance(r, dict)):
-                    blockers.append("Container is configured as an HA resource; coordinate HA migration")
+                resources = self.proxmox.cluster.ha.resources.get()
+                if not isinstance(resources, list) or not all(
+                    isinstance(r, dict) and isinstance(r.get("sid") or r.get("id"), str)
+                    and re.fullmatch(r"(?:ct|vm):[1-9][0-9]*", str(r.get("sid") or r.get("id")))
+                    for r in resources
+                ):
+                    raise ValueError("Unexpected HA resource inventory")
+                if any((r.get("sid") or r.get("id")) == f"ct:{vmid}" for r in resources):
+                    blockers.append("HA-managed container: coordinate HA migration")
                 checks["ha_checked"] = True
             except Exception:
                 unknowns.append("HA resource membership not verified")
 
             # Backups must be verified, rather than inferred from scheduled backup jobs.
             try:
-                stores = _as_list(self.proxmox.nodes(node).storage.get())
+                stores = self.proxmox.nodes(node).storage.get()
+                if not isinstance(stores, list):
+                    raise ValueError("Unexpected backup storage inventory")
                 found = False
                 verified = False
                 for item in stores:
                     if not isinstance(item, dict):
-                        continue
-                    content = item.get("content") or ""
+                        raise ValueError("Malformed backup storage record")
+                    content = _migration_content_types(item.get("content") or "")
                     if "backup" not in content:
                         continue
-                    records = _as_list(self.proxmox.nodes(node).storage(item["storage"]).content.get(
+                    if not isinstance(item.get("storage"), str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", item["storage"]):
+                        raise ValueError("Unexpected backup storage ID")
+                    records = self.proxmox.nodes(node).storage(item["storage"]).content.get(
                         content="backup", vmid=int(vmid)
-                    ))
+                    )
+                    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+                        raise ValueError("Unexpected backup inventory response")
                     verified = True
-                    if records:
+                    if any(str(r.get("vmid")) == str(vmid) and isinstance(r.get("volid"), str)
+                           and r["volid"] for r in records):
                         found = True
                 checks["backup_found"] = found
                 if not verified:
@@ -1388,8 +1406,8 @@ class ContainerTools(ProxmoxTool):
             checks["destination"] = destination
             checks["vmid"] = str(vmid)
             checks["downtime_confirmed"] = allow_downtime
-            return self._json_fmt({"ready": not (blockers or unknowns), "checks": checks,
+            return {"ready": not (blockers or unknowns), "checks": checks,
                                    "blockers": blockers, "unknowns": unknowns, "warnings": warnings,
-                                   "note": "Read-only advisory; no space reservation or migration submitted"})
+                                   "note": "Read-only advisory; no space reservation or migration submitted. Backup presence does not verify freshness or restorability."}
         except Exception as error:
             self._handle_error("preflight container migration", error)

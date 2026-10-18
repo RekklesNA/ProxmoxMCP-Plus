@@ -31,6 +31,80 @@ def test_preflight_with_complete_evidence():
     assert result["checks"]["backup_found"] is True
 
 
+@pytest.mark.parametrize("runtime", [{}, {"status": "unknown"}, []])
+def test_unknown_runtime_never_reports_ready(runtime):
+    api = api_for_preflight()
+    api.nodes.return_value.lxc.return_value.status.current.get.return_value = runtime
+    assert check(api)["ready"] is False
+
+
+@pytest.mark.parametrize("resources", [{}, None, [None], [{"sid": "unrecognized"}]])
+def test_malformed_ha_inventory_never_reports_ready(resources):
+    api = api_for_preflight()
+    api.cluster.ha.resources.get.return_value = resources
+    assert check(api)["ready"] is False
+
+
+def test_fractional_rootfs_size_is_parsed():
+    api = api_for_preflight()
+    api.nodes.return_value.lxc.return_value.config.get.return_value["rootfs"] = "local-lvm:vm-115-disk-0,size=4.5G"
+    result = check(api)
+    assert result["ready"] is True
+    assert result["checks"]["provisioned_rootfs_bytes"] == 4.5 * 1024**3
+
+
+def test_unused_volume_requires_manual_inspection():
+    api = api_for_preflight()
+    api.nodes.return_value.lxc.return_value.config.get.return_value["unused0"] = "other:vm-115-disk-1"
+    assert check(api)["ready"] is False
+
+
+def test_unrelated_backup_is_not_rollback_evidence():
+    api = api_for_preflight()
+    api.nodes.return_value.storage.return_value.content.get.return_value = [{"vmid": 116, "volid": "local:backup/ct-116"}]
+    assert check(api)["ready"] is False
+
+
+@pytest.mark.parametrize("path,value", [
+    ("nodes", {}), ("config", []),
+])
+def test_primary_malformed_evidence_is_an_error(path, value):
+    api = api_for_preflight()
+    if path == "nodes":
+        api.nodes.get.return_value = value
+    else:
+        api.nodes.return_value.lxc.return_value.config.get.return_value = value
+    with pytest.raises(ValueError, match="Unexpected"):
+        check(api)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("status", []), ("content", {"rootdir": True}), ("avail", float("nan")),
+    ("avail", float("inf")), ("avail", True), ("active", "0"), ("enabled", "0"),
+])
+def test_invalid_storage_evidence_blocks_readiness(field, value):
+    api = api_for_preflight()
+    if field == "status":
+        api.nodes.return_value.storage.return_value.status.get.return_value = value
+    else:
+        api.nodes.return_value.storage.return_value.status.get.return_value[field] = value
+    assert check(api)["ready"] is False
+
+
+@pytest.mark.parametrize("stores", [None, [None], [{"storage": "bad/path", "content": "backup"}]])
+def test_malformed_backup_store_inventory_is_unknown(stores):
+    api = api_for_preflight()
+    api.nodes.return_value.storage.get.return_value = stores
+    result = check(api)
+    assert result["ready"] is False
+    assert any("Backup inventory" in unknown for unknown in result["unknowns"])
+
+
+def test_string_downtime_confirmation_is_rejected():
+    with pytest.raises(ValueError, match="boolean"):
+        check(api_for_preflight(), allow_downtime="false")
+
+
 def test_running_container_requires_downtime():
     api = api_for_preflight()
     api.nodes.return_value.lxc.return_value.status.current.get.return_value = {"status": "running"}
@@ -148,7 +222,7 @@ def test_ha_query_error_does_not_report_ready():
 
 def test_backup_unlisted_storage_and_missing_backup():
     api = api_for_preflight()
-    api.nodes.return_value.storage.get.return_value = [None, {"storage": "local", "content": "images"}]
+    api.nodes.return_value.storage.get.return_value = [{"storage": "local", "content": "images"}]
     result = check(api)
     assert result["ready"] is False
     assert any("No backup inventory" in x for x in result["unknowns"])

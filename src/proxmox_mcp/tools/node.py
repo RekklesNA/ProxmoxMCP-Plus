@@ -13,8 +13,10 @@ The tools handle both basic and detailed node information retrieval,
 with fallback mechanisms for partial data availability.
 """
 from typing import List
+import math
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
+from proxmox_mcp.security.resources import validate_segment
 
 class NodeTools(ProxmoxTool):
     """Tools for managing Proxmox nodes.
@@ -204,6 +206,7 @@ class NodeTools(ProxmoxTool):
         """Read the node clock using Proxmox's read-only /nodes/{node}/time endpoint."""
         if not isinstance(node, str) or not node.strip():
             raise ValueError("node must be a non-empty name")
+        validate_segment(node)
         try:
             data = self._call_with_retry(
                 f"get time on node {node}",
@@ -224,6 +227,7 @@ class NodeTools(ProxmoxTool):
         """Read bounded node diagnostics, preserving partial results on optional API errors."""
         if not isinstance(node, str) or not node.strip():
             raise ValueError("node must be a non-empty name")
+        validate_segment(node)
         try:
             status = self._call_with_retry(
                 f"get diagnostics for node {node}", lambda: self.proxmox.nodes(node).status.get()
@@ -243,11 +247,18 @@ class NodeTools(ProxmoxTool):
                 samples = self.proxmox.nodes(node).rrddata.get(timeframe="hour")
                 if not isinstance(samples, list):
                     raise ValueError("Unexpected RRD response")
-                usable = [s for s in samples if isinstance(s, dict) and s.get("time") is not None]
-                if usable:
-                    latest = max(usable, key=lambda s: s["time"])
-                    recent_io = {k: latest.get(k) for k in
-                                 ("time", "diskread", "diskwrite", "netin", "netout", "iowait")}
+                fields = ("diskread", "diskwrite", "netin", "netout", "iowait")
+                def observed(value):
+                    return type(value) in (int, float) and math.isfinite(value)
+
+                usable = [s for s in samples if isinstance(s, dict)
+                          and observed(s.get("time"))
+                          and any(observed(s.get(field)) for field in fields)]
+                if not usable:
+                    raise ValueError("No observed RRD I/O samples")
+                latest = max(usable, key=lambda s: s["time"])
+                recent_io = {k: latest.get(k) if observed(latest.get(k)) else None
+                             for k in ("time", *fields)}
             except Exception:
                 warnings.append("Node RRD I/O metrics unavailable")
             return self._format_response({

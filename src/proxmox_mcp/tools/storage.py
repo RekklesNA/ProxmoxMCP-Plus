@@ -166,6 +166,10 @@ class StorageTools(ProxmoxTool):
         """
         if not isinstance(node, str) or not node.strip():
             raise ValueError("node must be a non-empty name")
+        from proxmox_mcp.security.resources import validate_segment
+        validate_segment(node)
+        if storage is not None:
+            validate_segment(storage)
         try:
             data = _as_list(self._call_with_retry(
                 f"get storage on node {node}",

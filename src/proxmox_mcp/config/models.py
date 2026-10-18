@@ -150,6 +150,7 @@ class CommandPolicyConfig(BaseModel):
             "update_container_ssh_keys",
             "update_vm_config",
             "update_container_network",
+            "migrate_container",
             "execute_node_command",
         ]
     )

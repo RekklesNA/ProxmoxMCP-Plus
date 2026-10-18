@@ -17,7 +17,7 @@ def migration_api(running=False):
         "active": 1, "enabled": 1, "content": "rootdir,images", "avail": 100 * 1024**3,
     }
     api.nodes.return_value.storage.get.return_value = [{"storage": "local", "content": "backup"}]
-    api.nodes.return_value.storage.return_value.content.get.return_value = [{"volid": "local:backup/ct-115"}]
+    api.nodes.return_value.storage.return_value.content.get.return_value = [{"volid": "local:backup/ct-115", "vmid": 115}]
     return api
 
 
@@ -30,7 +30,7 @@ def test_submits_once_and_registers_job_without_retry():
     assert response["status"] == "submitted"
     assert response["job_id"] == "job-migrate-115"
     api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once_with(
-        target="six", restart=0, **{"with-local-disks": 1}
+        target="six", restart=0
     )
     details = store.register_task.call_args.kwargs
     assert details["retry_spec"] is None
@@ -42,6 +42,18 @@ def test_requires_explicit_confirmation_without_submitting():
     with pytest.raises(ValueError, match="confirm_migration"):
         ContainerTools(api).migrate_container("sam", "115", "six")
     api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
+
+
+def test_default_high_risk_policy_requires_migration_approval():
+    from proxmox_mcp.config.models import CommandPolicyConfig
+    from proxmox_mcp.security.command_policy import CommandPolicyGate
+
+    gate = CommandPolicyGate(CommandPolicyConfig(
+        high_risk_mode="enforce", high_risk_require_approval_token=True,
+        high_risk_approval_token="test-approval",
+    ))
+    assert gate.evaluate_operation("migrate_container").allowed is False
+    assert gate.evaluate_operation("migrate_container", approval_token="test-approval").allowed is True
 
 
 def test_running_guest_requires_downtime_confirmation():
@@ -74,16 +86,18 @@ def test_missing_backup_blocks_before_post():
         ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
     api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
 
-@pytest.mark.parametrize("node,vmid,destination,restart,local,expect", [
-    ("sam", "115", "sam", False, True, "distinct"),
-    ("sam", "oops", "six", False, True, "numeric"),
-    ("sam", "115", "six", False, False, "with_local_disks"),
+@pytest.mark.parametrize("node,vmid,destination,expect", [
+    ("sam", "115", "sam", "distinct"),
+    ("sam", "oops", "six", "numeric"),
+    ("sam", "00115", "six", "canonical"),
+    ("sam", "99", "six", "between"),
+    ("sam/../other", "115", "six", "distinct"),
 ])
-def test_migration_rejects_unsafe_arguments(node, vmid, destination, restart, local, expect):
+def test_migration_rejects_unsafe_arguments(node, vmid, destination, expect):
     api = migration_api()
     with pytest.raises(ValueError, match=expect):
         ContainerTools(api).migrate_container(
-            node, vmid, destination, restart=restart, with_local_disks=local, confirm_migration=True
+            node, vmid, destination, confirm_migration=True
         )
     api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
 
@@ -126,11 +140,72 @@ def test_migration_rejects_incompatible_destination():
 def test_migration_skips_non_backup_storage():
     api = migration_api()
     api.nodes.return_value.storage.get.return_value = [
-        None, {"storage": "local", "content": "images"},
+        {"storage": "local", "content": "images"},
         {"storage": "backup", "content": "backup"},
     ]
     result = json.loads(ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)[0].text)
     assert result["status"] == "submitted"
+
+
+@pytest.mark.parametrize("inventory", [None, {}, [None]])
+def test_malformed_backup_inventory_blocks_submission(inventory):
+    api = migration_api()
+    api.nodes.return_value.storage.return_value.content.get.return_value = inventory
+    with pytest.raises(ValueError, match="Backup inventory"):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_not_called()
+
+
+@pytest.mark.parametrize("invalid", [None, {}, "", "not-a-task"])
+def test_invalid_submission_response_is_uncertain_without_retry(invalid):
+    api = migration_api()
+    api.nodes.return_value.lxc.return_value.migrate.post.return_value = invalid
+    response = json.loads(ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)[0].text)
+    assert response["code"] == "SUBMISSION_UNCERTAIN"
+    assert response["success"] is False
+    assert response["retryable"] is False
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once()
+
+
+def test_lost_submission_response_is_uncertain_without_retry():
+    api = migration_api()
+    api.nodes.return_value.lxc.return_value.migrate.post.side_effect = ConnectionError("response lost")
+    response = json.loads(ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)[0].text)
+    assert response["code"] == "SUBMISSION_UNCERTAIN"
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once()
+
+
+@pytest.mark.parametrize("status", [400, 503])
+def test_http_submission_failure_never_retries(status):
+    from proxmoxer.core import ResourceException
+
+    api = migration_api()
+    api.nodes.return_value.lxc.return_value.migrate.post.side_effect = ResourceException(status, "failure", "migration rejected")
+    if status == 400:
+        with pytest.raises(RuntimeError, match="migration rejected"):
+            ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)
+    else:
+        response = json.loads(ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True)[0].text)
+        assert response["code"] == "SUBMISSION_UNCERTAIN"
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once()
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"restart": "yes"}, {"confirm_downtime": "yes"}, {"restart": True},
+])
+def test_invalid_downtime_confirmation_blocks_before_any_api_read(kwargs):
+    api = migration_api()
+    with pytest.raises(ValueError, match="booleans|confirm_downtime"):
+        ContainerTools(api).migrate_container("sam", "115", "six", confirm_migration=True, **kwargs)
+    api.nodes.assert_not_called()
+
+
+def test_running_migration_with_confirmations_uses_lxc_restart():
+    api = migration_api(running=True)
+    ContainerTools(api).migrate_container(
+        "sam", "115", "six", restart=True, confirm_migration=True, confirm_downtime=True
+    )
+    api.nodes.return_value.lxc.return_value.migrate.post.assert_called_once_with(target="six", restart=1)
 
 
 def test_migration_mcp_registry_dispatch_and_policy():
