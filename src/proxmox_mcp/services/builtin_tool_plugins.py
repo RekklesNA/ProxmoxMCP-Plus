@@ -54,6 +54,8 @@ from proxmox_mcp.tools.definitions import (
     POLL_JOB_DESC,
     PREFLIGHT_CONTAINER_MIGRATION_DESC,
     MIGRATE_CONTAINER_DESC,
+    MIGRATE_VM_DESC,
+    PREFLIGHT_VM_MIGRATION_DESC,
     RESET_VM_DESC,
     RESTART_CONTAINER_DESC,
     RESTORE_BACKUP_DESC,
@@ -251,6 +253,34 @@ class VMToolsPlugin(RegistryPluginBase):
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None
         ) -> Any:
             return self._wrap_sync(server, "get_vms", lambda ts: ts.vm_tools.get_vms)(target=target)
+
+        @server.tool_registry.tool(description=PREFLIGHT_VM_MIGRATION_DESC)
+        def preflight_vm_migration(
+            node: str, vmid: str, destination: str,
+            target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "preflight_vm_migration", lambda ts: ts.vm_tools.preflight_vm_migration)(
+                node=node, vmid=vmid, destination=destination, target=target,
+            )
+
+        @server.tool_registry.tool(description=MIGRATE_VM_DESC)
+        def migrate_vm(
+            node: str, vmid: str, destination: str,
+            confirm_migration: bool = False,
+            confirm_backup_verified: bool = False,
+            confirm_workload_drained: bool = False,
+            confirm_cpu_compatibility: bool = False,
+            approval_token: Optional[str] = None,
+            target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "migrate_vm", lambda ts: ts.vm_tools.migrate_vm, high_risk=True)(
+                node=node, vmid=vmid, destination=destination,
+                confirm_migration=confirm_migration,
+                confirm_backup_verified=confirm_backup_verified,
+                confirm_workload_drained=confirm_workload_drained,
+                confirm_cpu_compatibility=confirm_cpu_compatibility,
+                approval_token=approval_token, target=target,
+            )
 
         @server.tool_registry.tool(description=GET_VM_CONFIG_DESC)
         def get_vm_config(

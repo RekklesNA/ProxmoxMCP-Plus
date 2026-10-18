@@ -44,6 +44,9 @@ Example:
 {"cpu": {"usage": 0.15}, "memory": {"used": "8GB", "total": "32GB"}}"""
 
 # VM tool descriptions
+PREFLIGHT_VM_MIGRATION_DESC = """Read-only, fail-closed QEMU offline migration readiness checks for VM inventory, storage capacity, bridges and HA. Backup, guest workload drain, and CPU compatibility require explicit external verification. Does not move a VM."""
+MIGRATE_VM_DESC = """High-risk OFFLINE QEMU migration with local disks after read-only preflight and explicit confirmations of backup, workload drain, CPU compatibility and migration. The VM must already be stopped. Returns a submitted UPID/job ID, never completion. Never automatically retry uncertain submissions."""
+
 GET_VMS_DESC = """List all virtual machines across the cluster with their status and resource usage.
 
 Example:

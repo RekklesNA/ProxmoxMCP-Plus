@@ -151,6 +151,7 @@ class CommandPolicyConfig(BaseModel):
             "update_vm_config",
             "update_container_network",
             "migrate_container",
+            "migrate_vm",
             "execute_node_command",
         ]
     )

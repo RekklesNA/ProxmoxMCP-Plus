@@ -653,6 +653,169 @@ Clone Configuration:
 
         return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
 
+    def _assess_vm_migration(self, node: str, vmid: str, destination: str) -> Dict[str, Any]:
+        """Fail-closed assessment for OFFLINE QEMU migration with local disks."""
+        blockers: List[str] = []
+        unknowns: List[str] = []
+        checks: Dict[str, Any] = {}
+        if not re.fullmatch(r"[1-9][0-9]*", str(vmid)):
+            raise ValueError("vmid must be a canonical positive integer")
+        if not node or not destination or node == destination:
+            raise ValueError("source and destination must be distinct named nodes")
+        try:
+            records = self.proxmox.nodes.get()
+            states = {item["node"]: item.get("status") for item in records if isinstance(item, dict) and "node" in item}
+            if states.get(node) != "online" or states.get(destination) != "online":
+                blockers.append("both source and destination must be online")
+            checks["node_status"] = {node: states.get(node), destination: states.get(destination)}
+        except Exception:
+            unknowns.append("node availability could not be verified")
+        try:
+            inventory = self.proxmox.cluster.resources.get(type="vm")
+            matches = [r for r in inventory if isinstance(r, dict) and str(r.get("vmid")) == str(vmid) and r.get("type") == "qemu"]
+            if len(matches) != 1 or matches[0].get("node") != node:
+                blockers.append("VM ownership or identity mismatch")
+        except Exception:
+            unknowns.append("cluster VM inventory unavailable")
+        config: Dict[str, Any] = {}
+        try:
+            config = _as_dict(self.proxmox.nodes(node).qemu(vmid).config.get())
+            if not config:
+                unknowns.append("VM configuration unavailable")
+            if config.get("lock") or config.get("template"):
+                blockers.append("locked VM or template")
+            if any(str(k).startswith(("unused", "hostpci", "usb", "serial", "parallel")) for k in config):
+                blockers.append("unused disks or passthrough devices need manual review")
+        except Exception:
+            unknowns.append("VM configuration unreadable")
+        try:
+            status = _as_dict(self.proxmox.nodes(node).qemu(vmid).status.current.get())
+            checks["vm_status"] = status.get("status")
+            if status.get("status") != "stopped":
+                blockers.append("offline migration requires VM to be stopped")
+        except Exception:
+            unknowns.append("VM runtime status unavailable")
+        try:
+            ha = self.proxmox.cluster.ha.resources.get()
+            if not isinstance(ha, list):
+                raise ValueError("malformed HA inventory")
+            if any(isinstance(r, dict) and r.get("sid") == f"vm:{vmid}" for r in ha):
+                blockers.append("HA-managed VM requires manual relocation")
+        except Exception:
+            unknowns.append("HA membership could not be verified")
+        disk_sizes: Dict[str, int] = {}
+        disk_storages: set[str] = set()
+        for key, value in config.items():
+            if not re.fullmatch(r"(scsi|virtio|sata|ide)\d+|efidisk\d+|tpmstate\d+", key):
+                continue
+            if not isinstance(value, str) or value.startswith(("none", "cdrom")):
+                continue
+            disk = value.split(",", 1)[0]
+            if ":" not in disk:
+                unknowns.append(f"{key} has unrecognized storage")
+                continue
+            pool = disk.split(":", 1)[0]
+            if "media=cdrom" in value or disk.endswith(".iso"):
+                continue
+            match = re.search(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)", value, re.I)
+            if not match:
+                unknowns.append(f"{key} disk size is unknown")
+                continue
+            units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+            disk_sizes[pool] = disk_sizes.get(pool, 0) + int(float(match.group(1)) * units[match.group(2).upper()])
+            disk_storages.add(pool)
+        if not disk_storages:
+            unknowns.append("no VM disks with known capacities")
+        try:
+            dest_storage = self.proxmox.nodes(destination).storage.get()
+            if not isinstance(dest_storage, list):
+                raise ValueError("malformed storage inventory")
+            pool_map = {r["storage"]: r for r in dest_storage if isinstance(r, dict) and isinstance(r.get("storage"), str)}
+            for pool in disk_storages:
+                info = pool_map.get(pool)
+                if info is None or info.get("active") not in (1, True):
+                    blockers.append(f"destination storage {pool} missing or inactive")
+                    continue
+                if "images" not in str(info.get("content", "")).split(","):
+                    blockers.append(f"destination storage {pool} does not support VM images")
+                avail = info.get("avail")
+                if not isinstance(avail, (int, float)) or avail < 0:
+                    unknowns.append(f"destination storage {pool} available bytes unknown")
+                elif avail < disk_sizes[pool]:
+                    blockers.append(f"destination storage {pool} insufficient free space for provisioned disks")
+            checks["disk_bytes_by_storage"] = disk_sizes
+        except Exception:
+            unknowns.append("destination storage status/capacity unavailable")
+        bridges = set()
+        for key, value in config.items():
+            if re.fullmatch(r"net\d+", key) and isinstance(value, str):
+                m = re.search(r"(?:^|,)bridge=([^,]+)", value)
+                if m:
+                    bridges.add(m.group(1))
+                else:
+                    unknowns.append(f"{key} bridge unknown")
+        try:
+            interfaces = self.proxmox.nodes(destination).network.get()
+            available = {r.get("iface") for r in interfaces if isinstance(r, dict) and r.get("type") in ("bridge", "OVSBridge")}
+            for bridge in bridges:
+                if bridge not in available:
+                    blockers.append(f"destination bridge {bridge} missing")
+        except Exception:
+            unknowns.append("destination network bridges unavailable")
+        checks["destination_bridges"] = sorted(bridges)
+        checks["cpu"] = config.get("cpu")
+        # Offline migration avoids live CPU state transfer, but guest CPU=host
+        # can still change exposed CPU features on the next boot.
+        if config.get("cpu") in (None, "host"):
+            checks["cpu_compatibility"] = "Requires operator review before boot on destination"
+        return {"ready": not blockers and not unknowns, "source": node,
+                "destination": destination, "vmid": str(vmid), "mode": "offline",
+                "blockers": blockers, "unknowns": unknowns, "checks": checks,
+                "warnings": ["No capacity reservation is made; thin-provisioned disk sizes are not actual allocated bytes",
+                             "Backup validity, Kubernetes node drain and CPU host-feature compatibility require operator verification"]}
+
+    def preflight_vm_migration(self, node: str, vmid: str, destination: str) -> List[Content]:
+        return self._json_fmt(self._assess_vm_migration(node, vmid, destination))
+
+    def migrate_vm(self, node: str, vmid: str, destination: str,
+                   confirm_migration: bool = False,
+                   confirm_backup_verified: bool = False,
+                   confirm_workload_drained: bool = False,
+                   confirm_cpu_compatibility: bool = False,
+                   approval_token: Optional[str] = None) -> List[Content]:
+        """Submit exactly one offline QEMU migration POST; never retry uncertainty."""
+        _ = approval_token  # Target-specific high-risk policy enforced in MCP wrapper.
+        if not all(value is True for value in (
+            confirm_migration, confirm_backup_verified,
+            confirm_workload_drained, confirm_cpu_compatibility
+        )):
+            raise ValueError("Explicit migration, verified-backup, workload-drain and CPU-compatibility confirmations required")
+        assessment = self._assess_vm_migration(node, vmid, destination)
+        if not assessment["ready"]:
+            raise ValueError("Migration blocked: " + "; ".join(assessment["blockers"] + assessment["unknowns"]))
+        request = {"target": destination, "online": 0, "with-local-disks": 1}
+        # Failure after submission may mean the remote task is already running.
+        try:
+            upid = self.proxmox.nodes(node).qemu(vmid).migrate.post(**request)
+        except Exception:
+            return self._json_fmt({"success": False, "code": "SUBMISSION_UNCERTAIN",
+                                   "retryable": False, "message": "Inspect Proxmox tasks and VM location before retrying"})
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._json_fmt({"success": False, "code": "SUBMISSION_UNCERTAIN",
+                                   "retryable": False, "message": "Unexpected response; verify remote task before retrying"})
+        try:
+            job = self._register_background_job(
+                tool_name="migrate_vm",
+                summary=f"Offline migrate VM {vmid} from {node} to {destination}",
+                node=node, upid=upid,
+                metadata={"vmid": str(vmid), "source": node, "destination": destination})
+        except Exception:
+            self.logger.warning("QEMU migration submitted but local job tracking failed")
+            job = None
+        return self._json_fmt({"success": True, "status": "submitted", "vmid": str(vmid),
+                               "task_id": upid, "job_id": job["job_id"] if job else None,
+                               "source": node, "destination": destination}) + self._submission_content(job, upid)
+
     def start_vm(self, node: str, vmid: str) -> List[Content]:
         """Start a virtual machine.
         
