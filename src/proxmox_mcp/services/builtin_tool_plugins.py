@@ -143,6 +143,16 @@ class CoreToolsPlugin(RegistryPluginBase):
         ) -> Any:
             return self._wrap_sync(server, "get_storage", lambda ts: ts.storage_tools.get_storage)(target=target)
 
+        @server.tool_registry.tool(description="Read storage capacity and active/rootdir status on one specified node. Thin-pool available bytes are not a migration guarantee.")
+        def get_node_storage(
+            node: Annotated[str, Field(description="Proxmox node")],
+            storage: Annotated[Optional[str], Field(description="Optional storage ID", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_storage", lambda ts: ts.storage_tools.get_node_storage)(
+                node=node, storage=storage, target=target,
+            )
+
         @server.tool_registry.tool(description=GET_CLUSTER_STATUS_DESC)
         def get_cluster_status(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
