@@ -706,7 +706,7 @@ Clone Configuration:
         disk_sizes: Dict[str, int] = {}
         disk_storages: set[str] = set()
         for key, value in config.items():
-            if not re.fullmatch(r"(scsi|virtio|sata|ide)\\d+|efidisk\\d+|tpmstate\\d+", key):
+            if not re.fullmatch(r"(scsi|virtio|sata|ide)\d+|efidisk\d+|tpmstate\d+", key):
                 continue
             if not isinstance(value, str) or value.startswith(("none", "cdrom")):
                 continue
@@ -717,7 +717,7 @@ Clone Configuration:
             pool = disk.split(":", 1)[0]
             if "media=cdrom" in value or disk.endswith(".iso"):
                 continue
-            match = re.search(r"(?:^|,)size=(\\d+(?:\\.\\d+)?)([KMGT])(?:,|$)", value, re.I)
+            match = re.search(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)", value, re.I)
             if not match:
                 unknowns.append(f"{key} disk size is unknown")
                 continue
@@ -748,7 +748,7 @@ Clone Configuration:
             unknowns.append("destination storage status/capacity unavailable")
         bridges = set()
         for key, value in config.items():
-            if re.fullmatch(r"net\\d+", key) and isinstance(value, str):
+            if re.fullmatch(r"net\d+", key) and isinstance(value, str):
                 m = re.search(r"(?:^|,)bridge=([^,]+)", value)
                 if m:
                     bridges.add(m.group(1))
