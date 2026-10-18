@@ -152,6 +152,8 @@ class CommandPolicyConfig(BaseModel):
             "update_container_network",
             "migrate_container",
             "migrate_vm",
+            "configure_vm_serial_console",
+            "import_cloud_image",
             "execute_node_command",
         ]
     )

@@ -816,6 +816,102 @@ Clone Configuration:
                                "task_id": upid, "job_id": job["job_id"] if job else None,
                                "source": node, "destination": destination}) + self._submission_content(job, upid)
 
+    def configure_vm_serial_console(self, node: str, vmid: str,
+                                    confirm_display_change: bool = False) -> List[Content]:
+        """Enable a socket-backed ttyS0 and redirect VGA to it; VM must be stopped."""
+        if confirm_display_change is not True:
+            raise ValueError("confirm_display_change=True required: existing display changes")
+        if not re.fullmatch(r"[1-9][0-9]*", str(vmid)):
+            raise ValueError("Invalid VM ID")
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        state = _as_dict(vm.status.current.get())
+        if state.get("status") != "stopped":
+            raise ValueError("VM must be stopped to configure its serial console")
+        config = _as_dict(vm.config.get())
+        if config.get("lock"):
+            raise ValueError("Locked VM cannot be modified")
+        if config.get("serial0") not in (None, "socket"):
+            raise ValueError("serial0 is already configured differently")
+        if config.get("vga") == "serial0" and config.get("serial0") == "socket":
+            return self._json_fmt({"changed": False, "vmid": str(vmid), "serial0": "socket", "vga": "serial0"})
+        # Never modify arbitrary existing serial devices.
+        vm.config.put(serial0="socket", vga="serial0", digest=config["digest"])
+        return self._json_fmt({"changed": True, "vmid": str(vmid),
+                               "serial0": "socket", "vga": "serial0",
+                               "note": "Guest must enable console=ttyS0,115200n8 and serial-getty."})
+
+    def import_cloud_image(self, node: str, vmid: str, source_volume: str,
+                           destination_storage: str, disk_device: str = "scsi1",
+                           confirm_import: bool = False) -> List[Content]:
+        """Import a previously uploaded cloud disk through Proxmox's import-from API.
+
+        No arbitrary URLs, shell execution or overwriting existing drives.
+        The source must already exist on import-enabled storage.
+        """
+        if confirm_import is not True:
+            raise ValueError("confirm_import=True required")
+        if not re.fullmatch(r"[1-9][0-9]*", str(vmid)):
+            raise ValueError("Invalid VM ID")
+        if not re.fullmatch(r"scsi(?:[0-9]|[12][0-9]|30)", disk_device):
+            raise ValueError("Only scsi0..scsi30 disk slots supported")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", destination_storage):
+            raise ValueError("Invalid destination storage")
+        match = re.fullmatch(
+            r"([A-Za-z][A-Za-z0-9_.-]*):import/([A-Za-z0-9][A-Za-z0-9_.-]*\.(?:qcow2|raw|vmdk))",
+            source_volume, re.IGNORECASE)
+        if not match:
+            raise ValueError("source_volume must be a storage:import/file.qcow2|raw|vmdk volume")
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        state = _as_dict(vm.status.current.get())
+        if state.get("status") != "stopped":
+            raise ValueError("Cloud-image disk import requires a stopped VM")
+        config = _as_dict(vm.config.get())
+        if config.get("lock") or config.get(disk_device) is not None:
+            raise ValueError("Locked VM or target disk slot already in use")
+        storage = self.proxmox.nodes(node).storage.get()
+        if not isinstance(storage, list):
+            raise ValueError("Storage inventory is unavailable")
+        pools = {entry.get("storage"): entry for entry in storage if isinstance(entry, dict)}
+        source_pool = pools.get(match.group(1))
+        target_pool = pools.get(destination_storage)
+        if not source_pool or not target_pool:
+            raise ValueError("Both source and destination storages must exist on the node")
+        if source_pool.get("active") not in (True, 1) or "import" not in str(source_pool.get("content", "")).split(","):
+            raise ValueError("Source storage must be active and support import content")
+        if target_pool.get("active") not in (True, 1) or "images" not in str(target_pool.get("content", "")).split(","):
+            raise ValueError("Destination storage must be active and support images")
+        # Check that the uploaded image exists before submitting the QEMU task.
+        items = self.proxmox.nodes(node).storage(match.group(1)).content.get(content="import")
+        if not isinstance(items, list) or not any(
+            isinstance(item, dict) and item.get("volid") == source_volume for item in items
+        ):
+            raise ValueError("Image is not present in import storage")
+        try:
+            upid = vm.config.post(**{
+                disk_device: f"{destination_storage}:0,import-from={source_volume}",
+                "digest": config["digest"],
+            })
+        except Exception:
+            return self._json_fmt({"status": "unknown", "retryable": False,
+                                   "code": "SUBMISSION_UNCERTAIN",
+                                   "message": "Inspect VM config and Proxmox tasks before retrying"})
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._json_fmt({"status": "unknown", "retryable": False,
+                                   "code": "SUBMISSION_UNCERTAIN",
+                                   "message": "Unexpected Proxmox task response; inspect before retrying"})
+        try:
+            job = self._register_background_job(
+                tool_name="import_cloud_image", summary=f"Import cloud image into VM {vmid}",
+                node=node, upid=upid, metadata={"vmid": str(vmid),
+                                                "source_volume": source_volume,
+                                                "disk_device": disk_device})
+        except Exception:
+            job = None
+            self.logger.warning("Cloud image import submitted; local job registration failed")
+        return self._json_fmt({"status": "submitted", "task_id": upid,
+                               "job_id": job["job_id"] if job else None,
+                               "vmid": str(vmid), "disk_device": disk_device}) + self._submission_content(job, upid)
+
     def start_vm(self, node: str, vmid: str) -> List[Content]:
         """Start a virtual machine.
         

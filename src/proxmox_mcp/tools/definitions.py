@@ -46,6 +46,8 @@ Example:
 # VM tool descriptions
 PREFLIGHT_VM_MIGRATION_DESC = """Read-only, fail-closed QEMU offline migration readiness checks for VM inventory, storage capacity, bridges and HA. Backup, guest workload drain, and CPU compatibility require explicit external verification. Does not move a VM."""
 MIGRATE_VM_DESC = """High-risk OFFLINE QEMU migration with local disks after read-only preflight and explicit confirmations of backup, workload drain, CPU compatibility and migration. The VM must already be stopped. Returns a submitted UPID/job ID, never completion. Never automatically retry uncertain submissions."""
+CONFIGURE_VM_SERIAL_CONSOLE_DESC = """Configure VM ttyS0 serial socket and serial VGA display. Requires stopped VM and explicit confirmation. The guest must configure serial login separately."""
+IMPORT_CLOUD_IMAGE_DESC = """Import an existing qcow2/raw/vmdk image from Proxmox import-enabled storage to an unused VM SCSI disk slot via Proxmox QEMU API. Requires stopped VM and explicit confirmation. The image must already be uploaded to the import storage; this tool does not fetch URLs or overwrite existing disks. Returns a task ID, not completion."""
 
 GET_VMS_DESC = """List all virtual machines across the cluster with their status and resource usage.
 

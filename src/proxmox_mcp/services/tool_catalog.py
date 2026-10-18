@@ -14,6 +14,8 @@ BUILTIN_TOOL_NAMES = frozenset(
         "get_vm_config",
         "preflight_vm_migration",
         "migrate_vm",
+        "configure_vm_serial_console",
+        "import_cloud_image",
         "set_vm_description",
         "update_vm_config",
         "update_container_network",
