@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from proxmox_mcp.tools.definitions import (
     CANCEL_JOB_DESC,
     CLONE_VM_DESC,
+    CONFIGURE_VM_SERIAL_CONSOLE_DESC,
+    IMPORT_CLOUD_IMAGE_DESC,
     CREATE_BACKUP_DESC,
     CREATE_CONTAINER_DESC,
     CREATE_SNAPSHOT_DESC,
@@ -251,6 +253,28 @@ class VMToolsPlugin(RegistryPluginBase):
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None
         ) -> Any:
             return self._wrap_sync(server, "get_vms", lambda ts: ts.vm_tools.get_vms)(target=target)
+
+        @server.tool_registry.tool(description=CONFIGURE_VM_SERIAL_CONSOLE_DESC)
+        def configure_vm_serial_console(
+            node: str, vmid: str, confirm_display_change: bool = False,
+            approval_token: Optional[str] = None, target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "configure_vm_serial_console",
+                                   lambda ts: ts.vm_tools.configure_vm_serial_console, high_risk=True)(
+                node=node, vmid=vmid, confirm_display_change=confirm_display_change,
+                approval_token=approval_token, target=target)
+
+        @server.tool_registry.tool(description=IMPORT_CLOUD_IMAGE_DESC)
+        def import_cloud_image(
+            node: str, vmid: str, source_volume: str, destination_storage: str,
+            disk_device: str = "scsi1", confirm_import: bool = False,
+            approval_token: Optional[str] = None, target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "import_cloud_image",
+                                   lambda ts: ts.vm_tools.import_cloud_image, high_risk=True)(
+                node=node, vmid=vmid, source_volume=source_volume,
+                destination_storage=destination_storage, disk_device=disk_device,
+                confirm_import=confirm_import, approval_token=approval_token, target=target)
 
         @server.tool_registry.tool(description=GET_VM_CONFIG_DESC)
         def get_vm_config(
