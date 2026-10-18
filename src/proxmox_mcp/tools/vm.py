@@ -694,7 +694,7 @@ Clone Configuration:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", destination_storage):
             raise ValueError("Invalid destination storage")
         match = re.fullmatch(
-            r"([A-Za-z][A-Za-z0-9_.-]*):import/([A-Za-z0-9][A-Za-z0-9_.-]*\\.(?:qcow2|raw|vmdk))",
+            r"([A-Za-z][A-Za-z0-9_.-]*):import/([A-Za-z0-9][A-Za-z0-9_.-]*\.(?:qcow2|raw|vmdk))",
             source_volume, re.IGNORECASE)
         if not match:
             raise ValueError("source_volume must be a storage:import/file.qcow2|raw|vmdk volume")
