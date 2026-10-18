@@ -18,6 +18,14 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.3`
+
+- Adds node-local time, storage capacity and diagnostics, public cluster join metadata, and conservative LXC migration assessment and submission tools.
+- Enforces migration confirmations and configured high-risk approval, rejects unknown readiness evidence, and reports uncertain submissions without automatic retries.
+- Preserves backup inventory completeness when cluster members are offline and reports missing RRD metrics as partial.
+- Upgrade and restart workers and MCP clients. Custom high-risk operation lists must include `migrate_container` to apply their approval policy to the new tool.
+- See [v0.6.3 notes](../releases/v0.6.3.md).
+
 ### Version `0.6.2`
 
 - Updates Monty to 1.1.0 with compatible sandbox duration limits and a synchronized dependency lock.
