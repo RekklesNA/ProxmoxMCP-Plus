@@ -119,6 +119,14 @@
             "description": "List all virtual machines across the cluster"
         },
         {
+            "name": "configure_vm_serial_console",
+            "description": "Enable a socket-backed serial console for a stopped VM"
+        },
+        {
+            "name": "import_cloud_image",
+            "description": "Import existing disk image from import-enabled Proxmox storage"
+        },
+        {
             "name": "get_vm_config",
             "description": "Get full configuration for a QEMU virtual machine"
         },
