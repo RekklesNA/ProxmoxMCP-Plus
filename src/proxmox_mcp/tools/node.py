@@ -199,3 +199,23 @@ class NodeTools(ProxmoxTool):
                 break
 
             self._handle_error(f"get status for node {node}", e)
+
+    def get_node_time(self, node: str) -> List[Content]:
+        """Read the node clock using Proxmox's read-only /nodes/{node}/time endpoint."""
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("node must be a non-empty name")
+        try:
+            data = self._call_with_retry(
+                f"get time on node {node}",
+                lambda: self.proxmox.nodes(node).time.get(),
+            )
+            if not isinstance(data, dict) or not isinstance(data.get("time"), int):
+                raise RuntimeError("Node time response did not contain an epoch timestamp")
+            return self._format_response({
+                "node": node,
+                "time": data["time"],
+                "localtime": data.get("localtime"),
+                "timezone": data.get("timezone"),
+            })
+        except Exception as error:
+            self._handle_error(f"get time on node {node}", error)

@@ -8,6 +8,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "get_nodes",
         "list_bridges",
         "get_node_status",
+        "get_node_time",
         "get_vms",
         "get_vm_config",
         "set_vm_description",
