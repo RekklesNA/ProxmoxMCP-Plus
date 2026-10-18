@@ -92,3 +92,25 @@ class ClusterTools(ProxmoxTool):
             return self._format_response(status, "cluster")
         except Exception as e:
             self._handle_error("get cluster status", e)
+
+    def get_cluster_join_info(self) -> List[Content]:
+        """Return public cluster join metadata, omitting unexpected credential fields."""
+        def sanitized(value):
+            if isinstance(value, dict):
+                blocked = {"password", "ticket", "authkey", "secret", "token",
+                           "private_key", "authorization", "pveauthcookie"}
+                return {key: sanitized(item) for key, item in value.items()
+                        if str(key).lower().replace("-", "_") not in blocked}
+            if isinstance(value, list):
+                return [sanitized(item) for item in value]
+            return value
+
+        try:
+            info = self._call_with_retry(
+                "get cluster join info", lambda: self.proxmox.cluster.config.join.get()
+            )
+            if not isinstance(info, dict):
+                raise RuntimeError("Unexpected cluster join information response")
+            return self._format_response(sanitized(info))
+        except Exception as error:
+            self._handle_error("get cluster join info", error)
