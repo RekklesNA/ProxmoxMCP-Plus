@@ -67,6 +67,7 @@ class BackupTools(ProxmoxTool):
         try:
             results = []
             failures: list[str] = []
+            offline_warnings: list[str] = []
             try:
                 nodes = _as_list(self.proxmox.nodes.get())
             except Exception as e:
@@ -77,6 +78,9 @@ class BackupTools(ProxmoxTool):
                 if not node_name:
                     continue
                 if node and node_name != node:
+                    continue
+                if _get(n, "status") == "offline":
+                    offline_warnings.append(f"Unable to list storage on node {node_name} (offline)")
                     continue
 
                 try:
@@ -115,6 +119,9 @@ class BackupTools(ProxmoxTool):
             if not results:
                 if failures:
                     raise RuntimeError("Backup listing incomplete: " + "; ".join(failures))
+                if offline_warnings:
+                    msg = "Backup inventory incomplete; offline nodes were not inspected"
+                    return [Content(type="text", text=msg)] + completeness_content(offline_warnings)
                 msg = "No backups found"
                 if node:
                     msg += f" on node {node}"
@@ -128,8 +135,8 @@ class BackupTools(ProxmoxTool):
             results.sort(key=lambda x: _get(x, "ctime", 0), reverse=True)
 
             lines = ["Available Backups", ""]
-            if failures:
-                lines.extend(["Warning: partial results; " + "; ".join(failures), ""])
+            if failures or offline_warnings:
+                lines.extend(["Warning: partial results; " + "; ".join(failures + offline_warnings), ""])
 
             for backup in results:
                 volid = _get(backup, "volid", "unknown")
@@ -164,7 +171,7 @@ class BackupTools(ProxmoxTool):
 
             lines.append("Use the Volume ID with restore_backup to restore.")
 
-            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(failures)
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(failures + offline_warnings)
 
         except Exception as e:
             return self._err("list backups", e)
