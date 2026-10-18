@@ -219,3 +219,48 @@ class NodeTools(ProxmoxTool):
             })
         except Exception as error:
             self._handle_error(f"get time on node {node}", error)
+
+    def get_node_diagnostics(self, node: str) -> List[Content]:
+        """Read bounded node diagnostics, preserving partial results on optional API errors."""
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("node must be a non-empty name")
+        try:
+            status = self._call_with_retry(
+                f"get diagnostics for node {node}", lambda: self.proxmox.nodes(node).status.get()
+            )
+            if not isinstance(status, dict):
+                raise RuntimeError("Node status endpoint returned an invalid response")
+            warnings = []
+            storage = None
+            recent_io = None
+            try:
+                storage = self.proxmox.nodes(node).storage.get()
+                if not isinstance(storage, list):
+                    raise ValueError("Unexpected storage response")
+            except Exception:
+                warnings.append("Node storage diagnostics unavailable")
+            try:
+                samples = self.proxmox.nodes(node).rrddata.get(timeframe="hour")
+                if not isinstance(samples, list):
+                    raise ValueError("Unexpected RRD response")
+                usable = [s for s in samples if isinstance(s, dict) and s.get("time") is not None]
+                if usable:
+                    latest = max(usable, key=lambda s: s["time"])
+                    recent_io = {k: latest.get(k) for k in
+                                 ("time", "diskread", "diskwrite", "netin", "netout", "iowait")}
+            except Exception:
+                warnings.append("Node RRD I/O metrics unavailable")
+            return self._format_response({
+                "node": node, "uptime": status.get("uptime"),
+                "cpu_fraction": status.get("cpu"),
+                "io_wait_fraction": status.get("wait"),
+                "load_average": status.get("loadavg"),
+                "cpuinfo": status.get("cpuinfo"),
+                "memory": status.get("memory"), "swap": status.get("swap"),
+                "rootfs": status.get("rootfs"),
+                "storage": storage, "latest_rrd_io": recent_io,
+                "process_list_available": False,
+                "warnings": warnings, "complete": not warnings,
+            })
+        except Exception as error:
+            self._handle_error(f"get diagnostics for node {node}", error)

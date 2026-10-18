@@ -137,6 +137,15 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node=node, target=target,
             ))
 
+        @server.tool_registry.tool(description="Read CPU, I/O wait, memory, storage and latest RRD disk/network metrics for one node. Partial failures are reported; no shell or process list.")
+        def get_node_diagnostics(
+            node: Annotated[str, Field(description="Proxmox node name")],
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_diagnostics", lambda ts: ts.node_tools.get_node_diagnostics)(
+                node=node, target=target,
+            )
+
         @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,

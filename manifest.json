@@ -111,6 +111,10 @@
             "description": "Read node clock and timezone for authentication skew diagnostics"
         },
         {
+            "name": "get_node_diagnostics",
+            "description": "Read per-node CPU, memory, storage and recent disk/network metrics"
+        },
+        {
             "name": "get_vms",
             "description": "List all virtual machines across the cluster"
         },
