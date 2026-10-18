@@ -602,6 +602,18 @@ Example:
 get_task_log node='pve' upid='UPID:pve:00001234:...' limit=100
 """
 
+GET_NODE_TIME_DESC = """Read node epoch time, local time and timezone to diagnose PVE ticket clock skew. Read-only; requires node and accepts an optional configured target."""
+
+GET_NODE_DIAGNOSTICS_DESC = """Read CPU, I/O wait, memory, storage and latest observed RRD disk/network metrics for one node. Missing optional metrics produce partial results. Does not execute shell commands or list processes."""
+
+GET_NODE_STORAGE_DESC = """Read storage capacity and active/rootdir status on one specified node. Optionally filter by storage ID. Available bytes do not guarantee migration capacity, especially on thin-provisioned storage."""
+
+GET_CLUSTER_JOIN_INFO_DESC = """Read public cluster join metadata and certificate fingerprints. Only documented public fields are returned. Authentication credentials and arbitrary extensions are omitted. Proxmox errors are reported."""
+
+PREFLIGHT_CONTAINER_MIGRATION_DESC = """Read-only LXC migration assessment: checks nodes, rootfs storage and space, runtime, extra mounts/devices, HA and matching backups. Missing evidence blocks readiness. This advisory does not reserve capacity, test restoreability or migrate. Running guests require allow_downtime=True."""
+
+MIGRATE_CONTAINER_DESC = """Submit an LXC migration after fresh preflight checks. Requires confirm_migration=True; restart=True also requires confirm_downtime=True. Follows the configured target's high-risk approval policy. Returns a submitted task UPID and optional job ID, never completion. Never automatically retries; SUBMISSION_UNCERTAIN requires inspecting Proxmox tasks and guest location before any retry."""
+
 GET_CLUSTER_LOG_DESC = """Read recent cluster-wide log entries.
 
 Parameters:

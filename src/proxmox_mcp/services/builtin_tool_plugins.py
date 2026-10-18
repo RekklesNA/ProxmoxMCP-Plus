@@ -28,6 +28,7 @@ from proxmox_mcp.tools.definitions import (
     GET_JOB_DESC,
     GET_CLUSTER_LOG_DESC,
     GET_CLUSTER_STATUS_DESC,
+    GET_CLUSTER_JOIN_INFO_DESC,
     GET_CONTAINER_CONFIG_DESC,
     GET_CONTAINER_IP_DESC,
     GET_CONTAINERS_DESC,
@@ -36,6 +37,9 @@ from proxmox_mcp.tools.definitions import (
     GET_NEXT_VMID_DESC,
     GET_NODES_DESC,
     GET_NODE_STATUS_DESC,
+    GET_NODE_TIME_DESC,
+    GET_NODE_DIAGNOSTICS_DESC,
+    GET_NODE_STORAGE_DESC,
     GET_NODE_SYSLOG_DESC,
     GET_STORAGE_DESC,
     GET_TASK_LOG_DESC,
@@ -48,6 +52,8 @@ from proxmox_mcp.tools.definitions import (
     LIST_SNAPSHOTS_DESC,
     LIST_TEMPLATES_DESC,
     POLL_JOB_DESC,
+    PREFLIGHT_CONTAINER_MIGRATION_DESC,
+    MIGRATE_CONTAINER_DESC,
     RESET_VM_DESC,
     RESTART_CONTAINER_DESC,
     RESTORE_BACKUP_DESC,
@@ -121,7 +127,7 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node, target=target
             )
 
-        @server.tool_registry.tool(description="Read node epoch time, local time and timezone to diagnose PVE ticket clock skew.")
+        @server.tool_registry.tool(description=GET_NODE_TIME_DESC)
         def get_node_time(
             node: Annotated[str, Field(description="Proxmox node name")],
             target: Annotated[Optional[str], Field(description="Configured target name", default=None)] = None,
@@ -137,11 +143,30 @@ class CoreToolsPlugin(RegistryPluginBase):
                 node=node, target=target,
             ))
 
+        @server.tool_registry.tool(description=GET_NODE_DIAGNOSTICS_DESC)
+        def get_node_diagnostics(
+            node: Annotated[str, Field(description="Proxmox node name")],
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_diagnostics", lambda ts: ts.node_tools.get_node_diagnostics)(
+                node=node, target=target,
+            )
+
         @server.tool_registry.tool(description=GET_STORAGE_DESC)
         def get_storage(
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
             return self._wrap_sync(server, "get_storage", lambda ts: ts.storage_tools.get_storage)(target=target)
+
+        @server.tool_registry.tool(description=GET_NODE_STORAGE_DESC)
+        def get_node_storage(
+            node: Annotated[str, Field(description="Proxmox node")],
+            storage: Annotated[Optional[str], Field(description="Optional storage ID", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_node_storage", lambda ts: ts.storage_tools.get_node_storage)(
+                node=node, storage=storage, target=target,
+            )
 
         @server.tool_registry.tool(description=GET_CLUSTER_STATUS_DESC)
         def get_cluster_status(
@@ -150,6 +175,12 @@ class CoreToolsPlugin(RegistryPluginBase):
             return self._wrap_sync(server, "get_cluster_status", lambda ts: ts.cluster_tools.get_cluster_status)(
                 target=target
             )
+
+        @server.tool_registry.tool(description=GET_CLUSTER_JOIN_INFO_DESC)
+        def get_cluster_join_info(
+            target: Annotated[Optional[str], Field(description="Configured target name", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "get_cluster_join_info", lambda ts: ts.cluster_tools.get_cluster_join_info)(target=target)
 
 
 class JobsToolsPlugin(RegistryPluginBase):
@@ -601,6 +632,33 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 format_style=format_style,
                 approval_token=approval_token,
                 target=target,
+            )
+
+        @server.tool_registry.tool(description=MIGRATE_CONTAINER_DESC)
+        def migrate_container(
+            node: Annotated[str, Field(description="Source node")],
+            vmid: Annotated[str, Field(description="Container ID")],
+            destination: Annotated[str, Field(description="Destination node")],
+            restart: bool = False,
+            confirm_migration: bool = False,
+            confirm_downtime: bool = False,
+            approval_token: Annotated[Optional[str], Field(description="High-risk operation approval", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "migrate_container", lambda ts: ts.container_tools.migrate_container, high_risk=True)(
+                node=node, vmid=vmid, destination=destination, restart=restart,
+                confirm_migration=confirm_migration,
+                confirm_downtime=confirm_downtime, approval_token=approval_token, target=target,
+            )
+
+        @server.tool_registry.tool(description=PREFLIGHT_CONTAINER_MIGRATION_DESC)
+        def preflight_container_migration(
+            node: str, vmid: str, destination: str, allow_downtime: bool = False,
+            target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "preflight_container_migration", lambda ts: ts.container_tools.preflight_container_migration)(
+                node=node, vmid=vmid, destination=destination,
+                allow_downtime=allow_downtime, target=target,
             )
 
         target_registry = getattr(server, "target_registry", None)

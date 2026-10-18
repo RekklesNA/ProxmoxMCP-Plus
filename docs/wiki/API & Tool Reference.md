@@ -112,6 +112,8 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `list_bridges` | Read-only | `node` | `target` | Proxmox network API accessible | permissions filter visible bridges/VNets; API failures are returned |
 | `get_nodes` | Read-only | none | none | Proxmox API reachable | auth failure, API unavailable |
 | `get_node_status` | Read-only | `node` | none | target node exists | unknown node, auth failure |
+| `get_node_time` | Read-only | `node` | `target` | node time API accessible | offline node, invalid timestamp, insufficient permissions |
+| `get_node_diagnostics` | Read-only | `node` | `target` | node status API accessible | primary status failure; missing storage or RRD samples reported as partial |
 
 ## VM Tools
 
@@ -157,6 +159,8 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `get_container_config` | Read-only | `node`, `vmid` | none | target container exists | container not found, node mismatch |
 | `set_container_description` | Mutating | `node`, `vmid`, `description` | none | target container exists and API token can update its config | container not found, node mismatch, insufficient permissions |
 | `get_container_ip` | Read-only | `node`, `vmid` | none | target container exists | container not found, IP information unavailable |
+| `preflight_container_migration` | Read-only | `node`, `vmid`, `destination` | `allow_downtime=false`, `target` | nodes and guest evidence readable | blockers or unknowns set `ready=false`; never submits a task |
+| `migrate_container` | Mutating/high-risk | `node`, `vmid`, `destination`, `confirm_migration=true` | `restart=false`, `confirm_downtime=false`, `approval_token`, `target` | fresh preflight passes and configured target policy permits migration | unsafe/unknown evidence, approval denied, or uncertain submission |
 
 ### Container Notes
 
@@ -166,6 +170,32 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 - `create_container.nesting` and `create_container.unprivileged` change container execution characteristics and should match your Proxmox policy.
 - `create_container.pool` is an optional Proxmox resource pool, not the `storage` used for `rootfs`. Pool-scoped API tokens also need `Pool.Allocate` on the target pool.
 - `create_container`, `start_container`, `stop_container`, `restart_container`, and `delete_container` create persistent job records for asynchronous task tracking.
+
+### Container Migration
+
+Run `preflight_container_migration` before selecting a migration. The conservative
+path supports a rootfs on the same storage ID at the destination, requires a matching
+backup inventory entry and a 10% capacity margin, and blocks extra mounts, unused
+volumes, devices, raw LXC options, locks and HA-managed guests. Unknown or malformed
+evidence sets `ready=false`. An advisory result does not reserve space or verify
+backup freshness, restoreability, application health or all Proxmox migration constraints.
+
+`migrate_container` repeats these checks before its single LXC migration POST.
+Running guests require `restart=true` and `confirm_downtime=true`; any request with
+`restart=true` requires downtime confirmation even if the guest is currently stopped.
+LXC handles local volumes through its migration API; there is no `with_local_disks`
+parameter. The Proxmox token needs `VM.Migrate` and the read permissions used by the
+assessment, plus any additional permissions Proxmox requires for the selected storage.
+
+The tool is included in the default `command_policy.high_risk_operations` list.
+If you configure a custom list, include `migrate_container` explicitly. Approval is
+required when the selected target's high-risk policy requires it; default audit-only
+mode still requires the separate `confirm_migration=true` confirmation.
+
+A successful response means **submitted**, with a Proxmox `task_id` and a `job_id`
+when local tracking is available. Poll the job and inspect the destination guest.
+Migration has no persisted retry recipe. If `SUBMISSION_UNCERTAIN` is returned,
+inspect Proxmox tasks and the guest's current node before considering another call.
 
 ## Snapshot Tools
 
@@ -234,7 +264,9 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | Tool | Mode | Required Inputs | Optional Inputs | Prerequisites | Common Failures |
 | --- | --- | --- | --- | --- | --- |
 | `get_storage` | Read-only | none | none | Proxmox API reachable | auth failure, cluster query failure |
+| `get_node_storage` | Read-only | `node` | `storage`, `target` | node storage API accessible | missing pool, offline node, unknown capacity remains null |
 | `get_cluster_status` | Read-only | none | none | Proxmox API reachable | auth failure, cluster query failure |
+| `get_cluster_join_info` | Read-only | none | `target` | cluster membership and `Sys.Audit` on `/` | membership/hostname lookup or permission failure; credentials and unrecognized fields omitted |
 
 ## Log Inspection Tools
 

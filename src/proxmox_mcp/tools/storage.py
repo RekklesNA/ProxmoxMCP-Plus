@@ -158,3 +158,53 @@ class StorageTools(ProxmoxTool):
             return self._format_response(storage, "storage")
         except Exception as e:
             self._handle_error("get storage", e)
+
+    def get_node_storage(self, node: str, storage: str | None = None) -> List[Content]:
+        """Get actual per-node storage status without falling back to another node.
+
+        Thin-provisioned capacity is an observation, not a migration guarantee.
+        """
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("node must be a non-empty name")
+        from proxmox_mcp.security.resources import validate_segment
+        validate_segment(node)
+        if storage is not None:
+            validate_segment(storage)
+        try:
+            data = _as_list(self._call_with_retry(
+                f"get storage on node {node}",
+                lambda: self.proxmox.nodes(node).storage.get(),
+            ))
+            if not data:
+                raise RuntimeError(f"No storage status records returned for node {node}")
+            records = []
+            for item in data:
+                if not isinstance(item, dict) or not item.get("storage"):
+                    continue
+                if storage is not None and item["storage"] != storage:
+                    continue
+                content = item.get("content") or ""
+                content_types = (
+                    [part.strip() for part in content.split(",")]
+                    if isinstance(content, str) else list(content)
+                )
+                active = bool(item.get("active")) and bool(item.get("enabled", True))
+                capacity = {key: item.get(key) if isinstance(item.get(key), (int, float)) else None
+                            for key in ("total", "used", "avail")}
+                records.append({
+                    "node": node, "storage": item["storage"],
+                    "type": item.get("type"), "content": content_types,
+                    "active": active, "shared": bool(item.get("shared")),
+                    "total_bytes": capacity["total"], "used_bytes": capacity["used"],
+                    "available_bytes": capacity["avail"],
+                    "rootdir_supported": "rootdir" in content_types,
+                    "thin_provisioned": item.get("type") in ("lvmthin", "zfspool", "rbd"),
+                    "migration_capacity_guaranteed": False,
+                })
+            if storage is not None and not records:
+                raise ValueError(f"Storage {storage} not found on node {node}")
+            if not records:
+                raise RuntimeError(f"No valid storage status records on node {node}")
+            return self._format_response(records)
+        except Exception as error:
+            self._handle_error(f"get storage on node {node}", error)

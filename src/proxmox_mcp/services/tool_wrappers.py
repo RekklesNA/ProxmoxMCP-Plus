@@ -11,9 +11,10 @@ def _log_safe(value: object, max_length: int = 200) -> str:
 
 _READ_ONLY_TOOLS = {
     "list_bridges",
-    "list_targets", "get_nodes", "get_node_status", "get_node_time", "get_storage", "get_cluster_status",
+    "list_targets", "get_nodes", "get_node_status", "get_node_time", "get_node_diagnostics",
+    "get_node_storage", "get_cluster_join_info", "get_storage", "get_cluster_status",
     "list_jobs", "get_job", "poll_job", "get_vms", "get_vm_config", "get_vm_ip_addresses",
-    "get_next_vmid", "get_containers",
+    "get_next_vmid", "get_containers", "preflight_container_migration",
     "get_container_config", "get_container_ip", "list_snapshots", "list_isos", "list_templates",
     "list_backups", "get_node_syslog", "get_task_log", "get_cluster_log", "get_node_firewall_log",
     "get_guest_firewall_log",

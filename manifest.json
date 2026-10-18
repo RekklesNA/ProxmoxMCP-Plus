@@ -111,6 +111,10 @@
             "description": "Read node clock and timezone for authentication skew diagnostics"
         },
         {
+            "name": "get_node_diagnostics",
+            "description": "Read per-node CPU, memory, storage and recent disk/network metrics"
+        },
+        {
             "name": "get_vms",
             "description": "List all virtual machines across the cluster"
         },
@@ -171,8 +175,16 @@
             "description": "List available storage pools"
         },
         {
+            "name": "get_node_storage",
+            "description": "Read node-specific capacity, status and content capability of storage pools"
+        },
+        {
             "name": "get_cluster_status",
             "description": "Get overall cluster status and health"
+        },
+        {
+            "name": "get_cluster_join_info",
+            "description": "Read cluster join information and certificate fingerprint with credential redaction"
         },
         {
             "name": "list_jobs",
@@ -199,6 +211,10 @@
             "description": "List all LXC containers"
         },
         {
+            "name": "preflight_container_migration",
+            "description": "Read-only, fail-closed preflight checks for LXC migration"
+        },
+        {
             "name": "start_container",
             "description": "Start LXC containers"
         },
@@ -221,6 +237,10 @@
         {
             "name": "delete_container",
             "description": "Delete LXC containers"
+        },
+        {
+            "name": "migrate_container",
+            "description": "Submit an explicitly confirmed LXC migration and track its task"
         },
         {
             "name": "execute_container_command",
