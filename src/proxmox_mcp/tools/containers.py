@@ -1179,3 +1179,102 @@ class ContainerTools(ProxmoxTool):
             payload["digest"] = current["digest"]
         self.proxmox.nodes(node).lxc(vmid).config.put(**payload)
         return self._json_fmt({"node": node, "vmid": vmid, "applied": {interface: network}})
+
+    def migrate_container(
+        self, node: str, vmid: str, destination: str,
+        restart: bool = False, with_local_disks: bool = True,
+        confirm_migration: bool = False, confirm_downtime: bool = False,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Submit a validated LXC migration task, never silently retry submission.
+
+        This API call may interrupt running workloads. Only one POST is issued;
+        the returned UPID must be polled for completion by the caller.
+        """
+        _ = approval_token  # Existing high-risk operation policy is enforced by the registry.
+        if not (isinstance(node, str) and node.strip() and isinstance(destination, str)
+                and destination.strip()) or node == destination:
+            raise ValueError("Source and destination must be distinct non-empty nodes")
+        if not re.fullmatch(r"[0-9]+", str(vmid)):
+            raise ValueError("vmid must be numeric")
+        if not confirm_migration:
+            raise ValueError("Explicit confirm_migration=True is required")
+        if not with_local_disks:
+            raise ValueError("This migration command requires with_local_disks=True")
+        try:
+            states = {n.get("node"): n.get("status") for n in _as_list(self.proxmox.nodes.get())}
+            if states.get(node) != "online" or states.get(destination) != "online":
+                raise ValueError("Both source and destination nodes must be online")
+            guest = self.proxmox.nodes(node).lxc(vmid)
+            config = _as_dict(guest.config.get())
+            rootfs = str(config.get("rootfs") or "")
+            if ":" not in rootfs:
+                raise ValueError("Container rootfs does not reference a migratable storage volume")
+            storage = rootfs.partition(":")[0]
+            if config.get("lock"):
+                raise ValueError("Container is locked")
+            if any(re.fullmatch(r"mp[0-9]+", str(k)) or str(k).startswith(("dev", "lxc.")) for k in config):
+                raise ValueError("Additional mounts or custom devices require separate migration handling")
+
+            runtime = _as_dict(guest.status.current.get())
+            if runtime.get("status") not in ("running", "stopped"):
+                raise ValueError("Cannot verify container runtime status")
+            if runtime["status"] == "running" and not (restart and confirm_downtime):
+                raise ValueError("Running containers require restart=True and confirm_downtime=True")
+            resources = _as_list(self.proxmox.cluster.ha.resources.get())
+            if any(str(r.get("sid") or r.get("id")) == f"ct:{vmid}" for r in resources if isinstance(r, dict)):
+                raise ValueError("HA-managed containers require coordinated migration via HA manager")
+
+            dest = _as_dict(self.proxmox.nodes(destination).storage(storage).status.get())
+            content = dest.get("content") or ""
+            supported = "rootdir" in (content.split(",") if isinstance(content, str) else content)
+            if not (dest.get("active") and dest.get("enabled", 1) and supported):
+                raise ValueError("Destination rootfs storage is unavailable or incompatible")
+            size_match = re.search(r"(?:^|,)size=([0-9]+(?:\\.[0-9]+)?)([KMGT])(?:,|$)", rootfs, re.I)
+            if not size_match:
+                raise ValueError("Cannot verify provisioned rootfs size")
+            factors = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+            required = int(float(size_match.group(1)) * factors[size_match.group(2).upper()] * 1.1)
+            if not isinstance(dest.get("avail"), (int, float)) or dest["avail"] < required:
+                raise ValueError("Destination capacity is unverified or insufficient (10% margin required)")
+
+            # Verify actual backup volumes (not just the existence of a backup job).
+            backup_stores = _as_list(self.proxmox.nodes(node).storage.get())
+            verified = False
+            backed_up = False
+            for item in backup_stores:
+                if not isinstance(item, dict) or "backup" not in (item.get("content") or ""):
+                    continue
+                records = _as_list(self.proxmox.nodes(node).storage(item["storage"]).content.get(
+                    content="backup", vmid=int(vmid)
+                ))
+                verified = True
+                if records:
+                    backed_up = True
+            if not verified or not backed_up:
+                raise ValueError("No verified backup available for migration rollback")
+
+            request = {"target": destination, "restart": int(restart),
+                       "with-local-disks": int(with_local_disks)}
+            # Do not retry this POST on ambiguous transport failures: a migration
+            # might have been submitted even if its UPID response was lost.
+            upid = guest.migrate.post(**request)
+            try:
+                job = self._register_background_job(
+                    tool_name="migrate_container",
+                    summary=f"Migrate CT {vmid} from {node} to {destination}",
+                    node=node, upid=upid,
+                    metadata={"vmid": str(vmid), "source": node, "destination": destination},
+                    # No retry_spec or retry_factory: retrying migration can duplicate a job.
+                )
+            except Exception:
+                # Migration has already been submitted. Reporting failure here
+                # could induce a duplicate submission. Preserve the remote UPID.
+                self.logger.warning("LXC migration submitted but local job registration failed")
+                job = None
+            payload = {"success": True, "status": "submitted",
+                       "task_id": str(upid), "job_id": job["job_id"] if job else None,
+                       "source_node": node, "destination_node": destination, "vmid": str(vmid)}
+            return self._json_fmt(payload) + self._submission_content(job, upid)
+        except Exception as error:
+            self._handle_error(f"migrate container {vmid} from {node} to {destination}", error)
