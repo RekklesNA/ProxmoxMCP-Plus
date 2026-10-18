@@ -646,6 +646,16 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 confirm_downtime=confirm_downtime, approval_token=approval_token, target=target,
             )
 
+        @server.tool_registry.tool(description="Read-only fail-closed LXC migration preflight: checks node/storage, available space, extra mounts, HA, backups and downtime. Does not reserve capacity or migrate.")
+        def preflight_container_migration(
+            node: str, vmid: str, destination: str, allow_downtime: bool = False,
+            target: Optional[str] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "preflight_container_migration", lambda ts: ts.container_tools.preflight_container_migration)(
+                node=node, vmid=vmid, destination=destination,
+                allow_downtime=allow_downtime, target=target,
+            )
+
         target_registry = getattr(server, "target_registry", None)
         target_names = target_registry.names if target_registry is not None else ("default",)
         has_target_ssh_names = tuple(
