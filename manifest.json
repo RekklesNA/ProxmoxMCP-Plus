@@ -311,6 +311,10 @@
             "description": "Download an ISO image"
         },
         {
+            "name": "download_template",
+            "description": "Download an LXC template archive to Proxmox storage"
+        },
+        {
             "name": "delete_iso",
             "description": "Delete an ISO or template"
         },

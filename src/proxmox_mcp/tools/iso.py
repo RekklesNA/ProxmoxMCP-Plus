@@ -1,6 +1,7 @@
 """ISO and template management tools for Proxmox MCP."""
 from typing import List, Dict, Optional, Any
 import json
+from urllib.parse import urlsplit
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool, InventoryList, completeness_content, _log_safe
 
@@ -268,6 +269,96 @@ class ISOTools(ProxmoxTool):
 
         except Exception as e:
             return self._err(f"download ISO '{filename}'", e)
+
+    def download_template(
+        self,
+        node: str,
+        storage: str,
+        url: str,
+        filename: str,
+        checksum: Optional[str] = None,
+        checksum_algorithm: str = "sha256",
+    ) -> List[Content]:
+        """Download an LXC template from a URL to Proxmox storage.
+
+        Parameters:
+            node: Target node name
+            storage: Target storage pool
+            url: URL to download from
+            filename: Target filename (e.g., 'debian-13-standard_13.1-2_amd64.tar.zst')
+            checksum: Optional checksum for verification
+            checksum_algorithm: Algorithm (sha256, sha512, md5)
+
+        Returns:
+            List[Content] with download result
+        """
+        if (
+            not filename
+            or filename in {".", ".."}
+            or "/" in filename
+            or chr(92) in filename
+            or any(ord(char) < 32 for char in filename)
+            or not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst"))
+        ):
+            raise ValueError("filename must be a safe LXC template archive name")
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+            raise ValueError("url must be an HTTPS URL without embedded credentials")
+        if checksum_algorithm not in {"sha256", "sha512", "md5"}:
+            raise ValueError("unsupported checksum algorithm")
+        if checksum is not None:
+            import re
+            expected_length = {"sha256": 64, "sha512": 128, "md5": 32}[checksum_algorithm]
+            if len(checksum) != expected_length or re.fullmatch(r"[a-fA-F0-9]+", checksum) is None:
+                raise ValueError("checksum is not a valid digest for checksum_algorithm")
+
+        try:
+            params: Dict[str, Any] = {
+                "url": url,
+                "filename": filename,
+                "content": "vztmpl",
+            }
+
+            if checksum:
+                params["checksum"] = checksum
+                params["checksum-algorithm"] = checksum_algorithm
+
+            result = self.proxmox.nodes(node).storage(storage)("download-url").post(**params)
+            job = self._register_background_job(
+                tool_name="download_template",
+                summary=f"Download template {filename} to {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "filename": filename, "url": url},
+                retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
+                retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+            )
+
+            lines = [
+                "LXC Template Download Started",
+                "",
+                f"  - Filename: {filename}",
+                f"  - URL: {url}",
+                f"  - Storage: {storage} @ {node}",
+            ]
+
+            if checksum:
+                lines.append(f"  - Checksum: {checksum_algorithm.upper()}")
+
+            lines.extend([
+                "",
+                f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
+                "",
+                "The download is running in the background.",
+                "Use list_templates to verify when complete.",
+            ])
+
+            return [Content(type="text", text="\n".join(lines))]
+
+        except Exception as e:
+            return self._err(f"download template '{filename}'", e)
 
     def delete_iso(
         self,
