@@ -434,6 +434,19 @@ Example:
 download_iso node='pve' storage='local' url='https://...' filename='ubuntu.iso'
 """
 
+DOWNLOAD_TEMPLATE_DESC = """Download an LXC OS template from an HTTPS URL into Proxmox storage.
+
+Parameters:
+node* - Destination Proxmox node
+storage* - Storage accepting vztmpl content (such as local)
+url* - Template URL (Proxmox downloads server-side)
+filename* - Filename ending in .tar.gz, .tar.xz or .tar.zst
+checksum - Optional digest to verify integrity
+checksum_algorithm - sha256, sha512, or md5 (default sha256)
+
+Use poll_job to track completion and list_templates to verify the volume.
+"""
+
 DELETE_ISO_DESC = """Delete an ISO or template from storage.
 
 Parameters:
