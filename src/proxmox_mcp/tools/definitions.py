@@ -463,17 +463,19 @@ Example:
 download_iso node='pve' storage='local' url='https://...' filename='ubuntu.iso'
 """
 
-DOWNLOAD_TEMPLATE_DESC = """Download an LXC OS template from an HTTPS URL into Proxmox storage.
+DOWNLOAD_TEMPLATE_DESC = """Submit an HTTPS LXC template download through Proxmox (content=vztmpl).
 
-Parameters:
-node* - Destination Proxmox node
-storage* - Storage accepting vztmpl content (such as local)
-url* - Template URL (Proxmox downloads server-side)
-filename* - Filename ending in .tar.gz, .tar.xz or .tar.zst
-checksum - Optional digest to verify integrity
-checksum_algorithm - sha256, sha512, or md5 (default sha256)
+Required: node, storage supporting vztmpl, trusted HTTPS url, safe filename ending
+in .tar.gz/.tar.xz/.tar.zst. Optional checksum and checksum_algorithm (sha256,
+sha512, md5). TLS verification stays enabled. High-risk/target/read-only policy applies.
 
-Use poll_job to track completion and list_templates to verify the volume.
+Rejects observed existing filenames; preflight does not reserve space or prevent
+concurrent writes. Proxmox downloads from its own network: HTTPS is not an SSRF
+boundary. Use trusted publishers and preferably a SHA-256/SHA-512 checksum.
+
+A submitted UPID is not completed work: poll_job then list_templates. Local job
+tracking failure retains the UPID. SUBMISSION_UNCERTAIN requires manual task/storage
+inspection before another call. This operation has no automatic or job retry recipe.
 """
 
 DELETE_ISO_DESC = """Delete an ISO or template from storage.

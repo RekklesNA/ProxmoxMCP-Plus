@@ -9,7 +9,16 @@ Minor and patch updates for Python and GitHub Actions are grouped. Major updates
 remain separate for review. The Docker base image stays on Python 3.11; digest and
 patch updates remain enabled. Open version-update PRs are limited to five for
 Python, three for Actions, and two for Docker. Updates require review and the
-existing CI and security checks before merging.
+existing CI and security checks before merging. The PR container job builds the reviewed Dockerfile without publishing, then checks AMD64 application liveness, non-root execution and removal of pip.
+
+## Ruff Upgrade Policy
+
+Ruff's newer releases expanded its implicit default rule set. The project now
+pins its existing `E4`, `E7`, `E9`, `F` baseline explicitly in `pyproject.toml`
+with target Python 3.11, while allowing Ruff versions below 0.18. A tool upgrade
+must not silently change the lint policy or require unrelated code rewrites.
+Adopt additional rule families through reviewed changes with regression coverage.
+See the [official default-rules reference](https://docs.astral.sh/ruff/default-rules/).
 
 ## Python Runtime Lock
 

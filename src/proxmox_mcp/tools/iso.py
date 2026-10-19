@@ -278,87 +278,106 @@ class ISOTools(ProxmoxTool):
         filename: str,
         checksum: Optional[str] = None,
         checksum_algorithm: str = "sha256",
+        approval_token: Optional[str] = None,
     ) -> List[Content]:
-        """Download an LXC template from a URL to Proxmox storage.
+        """Submit one server-side template download; never blindly resubmit it."""
+        from proxmoxer.core import ResourceException
+        from proxmox_mcp.security.resources import validate_segment
+        import re
 
-        Parameters:
-            node: Target node name
-            storage: Target storage pool
-            url: URL to download from
-            filename: Target filename (e.g., 'debian-13-standard_13.1-2_amd64.tar.zst')
-            checksum: Optional checksum for verification
-            checksum_algorithm: Algorithm (sha256, sha512, md5)
-
-        Returns:
-            List[Content] with download result
-        """
-        if (
-            not filename
-            or filename in {".", ".."}
-            or "/" in filename
-            or chr(92) in filename
-            or any(ord(char) < 32 for char in filename)
-            or not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst"))
-        ):
+        # The target-aware registry checks approval; never send it to Proxmox.
+        _ = approval_token
+        validate_segment(node)
+        validate_segment(storage)
+        if (not isinstance(filename, str) or len(filename) > 255
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.tar\.(?:gz|xz|zst)", filename) is None):
             raise ValueError("filename must be a safe LXC template archive name")
+        if (not isinstance(url, str) or not url.startswith("https://")
+                or any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == chr(92) for char in url)):
+            raise ValueError("url must be an HTTPS URL without whitespace or controls")
         parsed_url = urlsplit(url)
-        if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
-            raise ValueError("url must be an HTTPS URL without embedded credentials")
-        if checksum_algorithm not in {"sha256", "sha512", "md5"}:
+        if (not parsed_url.hostname or parsed_url.username is not None
+                or parsed_url.password is not None or "#" in url
+                or (parsed_url.port is not None and not 1 <= parsed_url.port <= 65535)):
+            raise ValueError("url must have a valid HTTPS host/port without credentials or fragments")
+        if not isinstance(checksum_algorithm, str) or checksum_algorithm not in {"sha256", "sha512", "md5"}:
             raise ValueError("unsupported checksum algorithm")
         if checksum is not None:
-            import re
             expected_length = {"sha256": 64, "sha512": 128, "md5": 32}[checksum_algorithm]
-            if len(checksum) != expected_length or re.fullmatch(r"[a-fA-F0-9]+", checksum) is None:
+            if (not isinstance(checksum, str) or len(checksum) != expected_length
+                    or re.fullmatch(r"[a-fA-F0-9]+", checksum) is None):
                 raise ValueError("checksum is not a valid digest for checksum_algorithm")
 
+        volume = f"{storage}:vztmpl/{filename}"
         try:
-            params: Dict[str, Any] = {
-                "url": url,
-                "filename": filename,
-                "content": "vztmpl",
-            }
+            pools = self.proxmox.nodes(node).storage.get()
+            if not isinstance(pools, list) or any(not isinstance(item, dict) for item in pools):
+                raise ValueError("Storage inventory is unavailable or malformed")
+            matches = [item for item in pools if item.get("storage") == storage]
+            if len(matches) != 1:
+                raise ValueError("Target storage is missing or ambiguous")
+            pool = matches[0]
+            for flag in ("active", "enabled"):
+                if type(pool.get(flag)) not in {bool, int} or pool[flag] != 1:
+                    raise ValueError("Target storage must be enabled and active")
+            content = pool.get("content")
+            if not isinstance(content, str) or "vztmpl" not in content.split(","):
+                raise ValueError("Target storage must support vztmpl content")
+            inventory = self.proxmox.nodes(node).storage(storage).content.get(content="vztmpl")
+            if (not isinstance(inventory, list) or any(
+                    not isinstance(item, dict) or not isinstance(item.get("volid"), str)
+                    for item in inventory)):
+                raise ValueError("Template inventory is unavailable or malformed")
+            if any(item["volid"] == volume for item in inventory):
+                raise ValueError("Template already exists; refusing to overwrite it")
+        except Exception as error:
+            return self._err("prepare template download", error)
 
-            if checksum:
-                params["checksum"] = checksum
-                params["checksum-algorithm"] = checksum_algorithm
+        params: Dict[str, Any] = {
+            "url": url, "filename": filename, "content": "vztmpl",
+            "verify-certificates": 1,
+        }
+        if checksum is not None:
+            params.update({"checksum": checksum, "checksum-algorithm": checksum_algorithm})
 
+        def uncertain() -> List[Content]:
+            return self._json_fmt({
+                "success": False, "status": "unknown", "code": "SUBMISSION_UNCERTAIN",
+                "retryable": False, "node": node, "storage": storage, "volume_id": volume,
+                "message": "Inspect Proxmox tasks and storage before another call; no automatic retry was made.",
+            })
+
+        try:
             result = self.proxmox.nodes(node).storage(storage)("download-url").post(**params)
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                return self._err("download template", error)
+            return uncertain()
+        except Exception:
+            return uncertain()
+        if not isinstance(result, str) or not result.startswith(f"UPID:{node}:"):
+            return uncertain()
+
+        tracking_warning = None
+        job = None
+        try:
             job = self._register_background_job(
                 tool_name="download_template",
                 summary=f"Download template {filename} to {storage}@{node}",
-                node=node,
-                upid=result,
-                metadata={"storage": storage, "filename": filename, "url": url},
-                retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
-                retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                node=node, upid=result,
+                metadata={"storage": storage, "filename": filename},
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
-
-            lines = [
-                "LXC Template Download Started",
-                "",
-                f"  - Filename: {filename}",
-                f"  - URL: {url}",
-                f"  - Storage: {storage} @ {node}",
-            ]
-
-            if checksum:
-                lines.append(f"  - Checksum: {checksum_algorithm.upper()}")
-
-            lines.extend([
-                "",
-                f"Task ID: {result}",
-                f"Job ID: {job['job_id'] if job else 'n/a'}",
-                "",
-                "The download is running in the background.",
-                "Use list_templates to verify when complete.",
-            ])
-
-            return [Content(type="text", text="\n".join(lines))]
-
-        except Exception as e:
-            return self._err(f"download template '{filename}'", e)
+        except Exception:
+            # The POST succeeded: retain the UPID even if local persistence fails.
+            tracking_warning = "Local job tracking failed; inspect the returned Proxmox task directly."
+        return self._json_fmt({
+            "success": True, "status": "submitted", "task_id": result,
+            "job_id": job["job_id"] if job else None, "tracking_warning": tracking_warning,
+            "node": node, "storage": storage, "filename": filename, "volume_id": volume,
+            "retryable": False,
+            "message": "Download submitted; poll the task and verify list_templates before using this volume. Storage preflight does not reserve space or the filename.",
+        })
 
     def delete_iso(
         self,
