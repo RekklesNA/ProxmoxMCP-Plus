@@ -1,5 +1,6 @@
 """ISO and template management tools for Proxmox MCP."""
 from typing import List, Dict, Optional, Any
+from urllib.parse import urlsplit
 import json
 from mcp.types import TextContent as Content
 from proxmox_mcp.tools.base import ProxmoxTool
@@ -243,7 +244,7 @@ class ISOTools(ProxmoxTool):
                 metadata={"storage": storage, "filename": filename, "url": url},
                 retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
                 retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
-                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
 
             lines = [
@@ -293,8 +294,26 @@ class ISOTools(ProxmoxTool):
         Returns:
             List[Content] with download result
         """
-        if not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst")) or "/" in filename or chr(92) in filename:
-            return self._err("download template", ValueError("Expected a safe .tar.gz, .tar.xz, or .tar.zst filename"))
+        if (
+            not filename
+            or filename in {".", ".."}
+            or "/" in filename
+            or chr(92) in filename
+            or any(ord(char) < 32 for char in filename)
+            or not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst"))
+        ):
+            raise ValueError("filename must be a safe LXC template archive name")
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+            raise ValueError("url must be an HTTPS URL without embedded credentials")
+        if checksum_algorithm not in {"sha256", "sha512", "md5"}:
+            raise ValueError("unsupported checksum algorithm")
+        if checksum is not None:
+            import re
+            expected_length = {"sha256": 64, "sha512": 128, "md5": 32}[checksum_algorithm]
+            if len(checksum) != expected_length or re.fullmatch(r"[a-fA-F0-9]+", checksum) is None:
+                raise ValueError("checksum is not a valid digest for checksum_algorithm")
+
         try:
             params: Dict[str, Any] = {
                 "url": url,
