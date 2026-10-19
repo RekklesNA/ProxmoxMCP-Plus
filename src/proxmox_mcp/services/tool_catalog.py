@@ -48,6 +48,7 @@ BUILTIN_TOOL_NAMES = frozenset(
         "list_isos",
         "list_templates",
         "download_iso",
+        "download_template",
         "delete_iso",
         "list_backups",
         "create_backup",
