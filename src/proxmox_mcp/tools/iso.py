@@ -293,7 +293,7 @@ class ISOTools(ProxmoxTool):
         Returns:
             List[Content] with download result
         """
-        if not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst")) or "/" in filename or "\\\\" in filename:
+        if not filename.endswith((".tar.gz", ".tar.xz", ".tar.zst")) or "/" in filename or chr(92) in filename:
             return self._err("download template", ValueError("Expected a safe .tar.gz, .tar.xz, or .tar.zst filename"))
         try:
             params: Dict[str, Any] = {
@@ -313,7 +313,7 @@ class ISOTools(ProxmoxTool):
                 node=node,
                 upid=result,
                 metadata={"storage": storage, "filename": filename, "url": url},
-                retry_spec={"kind": "template.download", "params": {"node": node, "storage": storage, "request": params}},
+                retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
                 retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
                 cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).status.stop.post(),
             )
