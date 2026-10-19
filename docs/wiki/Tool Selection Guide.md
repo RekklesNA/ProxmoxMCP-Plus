@@ -40,6 +40,9 @@ It does not grant Proxmox permissions or replace API-token least privilege.
 | Start or stop a VM | `get_vms` -> `start_vm` or `stop_vm` -> `poll_job` | `get_vms` |
 | Delete a VM | `get_vms` -> snapshot or backup if needed -> `delete_vm` -> `poll_job` | `get_vms` |
 | Run a guest command | `get_vms` -> `execute_vm_command` | command output and guest-agent status |
+| Migrate a stopped VM | `preflight_vm_migration` -> verify backup/workload/CPU -> `migrate_vm` -> `poll_job` | task exit status and destination VM location |
+| Attach an uploaded cloud disk | inspect import storage and VM config -> `import_cloud_image` -> `poll_job` | imported disk and intended boot configuration |
+| Enable a VM serial console | configure guest serial login -> stop VM -> `configure_vm_serial_console` | serial0 socket, serial display and guest login |
 
 VM command execution requires QEMU Guest Agent inside the VM.
 

@@ -2,7 +2,7 @@
     "manifest_version": "0.4",
     "name": "proxmox-mcp-plus",
     "display_name": "ProxmoxMCP-Plus",
-    "version": "0.6.3",
+    "version": "0.6.4",
     "description": "An enhanced MCP server for managing Proxmox virtualization platforms.",
     "long_description": "ProxmoxMCP-Plus is an enhanced Model Context Protocol (MCP) server that provides comprehensive tools for managing Proxmox virtualization environments, including VM lifecycle, container management, snapshot operations, and backup/restore capabilities.",
     "author": {
@@ -117,6 +117,22 @@
         {
             "name": "get_vms",
             "description": "List all virtual machines across the cluster"
+        },
+        {
+            "name": "preflight_vm_migration",
+            "description": "Read-only QEMU migration safety assessment"
+        },
+        {
+            "name": "migrate_vm",
+            "description": "Guarded offline QEMU VM migration with local disks"
+        },
+        {
+            "name": "configure_vm_serial_console",
+            "description": "Enable a socket-backed serial console for a stopped VM"
+        },
+        {
+            "name": "import_cloud_image",
+            "description": "Import existing disk image from import-enabled Proxmox storage"
         },
         {
             "name": "get_vm_config",

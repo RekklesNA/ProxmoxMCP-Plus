@@ -19,12 +19,16 @@ from proxmox_mcp.tools.storage_selection import select_storage
 from proxmox_mcp.tools.guest_config import bridge_name, parse_device, vm_media
 import json
 import re
+import math
+from decimal import Decimal
 import urllib.parse
 from typing import Any, Dict, List, Optional
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
 from proxmox_mcp.tools.base import ProxmoxTool, _log_safe, completeness_content
 from proxmox_mcp.tools.console.manager import VMConsoleManager
+from proxmox_mcp.security.resources import validate_segment
+from proxmoxer.core import ResourceException
 
 
 def _as_dict(maybe: Any) -> Dict:
@@ -35,6 +39,37 @@ def _as_dict(maybe: Any) -> Dict:
             return data
         return maybe
     return {}
+
+
+def _vm_reference(node: str, vmid: str) -> None:
+    validate_segment(node)
+    if not re.fullmatch(r"[1-9][0-9]{2,8}", str(vmid)):
+        raise ValueError("Invalid VM ID: use a canonical ID between 100 and 999999999")
+
+
+def _records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("Malformed API inventory")
+    return value
+
+
+def _content_types(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {part.strip() for part in value.split(",") if part.strip()}
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        return set(value)
+    raise ValueError("Malformed storage content capabilities")
+
+
+def _pve_flag(value: Any) -> bool:
+    if not isinstance(value, (bool, int)) or value not in (0, 1):
+        raise ValueError("Malformed Proxmox boolean flag")
+    return bool(value)
+
+
+def _capacity(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
 
 class VMTools(ProxmoxTool):
     """Tools for managing Proxmox VMs.
@@ -652,6 +687,366 @@ Clone Configuration:
         result_text += f"\n\nTask ID: {task_result}\nJob ID: {job['job_id'] if job else 'n/a'}"
 
         return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+
+    def _assess_vm_migration(self, node: str, vmid: str, destination: str) -> Dict[str, Any]:
+        """Observe native Proxmox preconditions and conservative offline constraints."""
+        _vm_reference(node, vmid)
+        validate_segment(destination)
+        if node == destination:
+            raise ValueError("source and destination must be distinct named nodes")
+        blockers: List[str] = []
+        unknowns: List[str] = []
+        checks: Dict[str, Any] = {}
+        try:
+            records = _records(self.proxmox.nodes.get())
+            states = {item["node"]: item.get("status") for item in records}
+            if states.get(node) != "online" or states.get(destination) != "online":
+                blockers.append("both source and destination must be online")
+            checks["node_status"] = {node: states.get(node), destination: states.get(destination)}
+        except Exception:
+            unknowns.append("node availability could not be verified")
+        try:
+            inventory = _records(self.proxmox.cluster.resources.get(type="vm"))
+            matches = [r for r in inventory if str(r.get("vmid")) == str(vmid) and r.get("type") == "qemu"]
+            if len(matches) != 1 or matches[0].get("node") != node:
+                blockers.append("VM ownership or identity mismatch")
+        except Exception:
+            unknowns.append("cluster VM inventory unavailable")
+        guest = self.proxmox.nodes(node).qemu(vmid)
+        config: Dict[str, Any] = {}
+        try:
+            observed = guest.config.get()
+            if not isinstance(observed, dict) or not observed:
+                raise ValueError("VM configuration unavailable")
+            config = observed
+            if config.get("lock") or config.get("template"):
+                blockers.append("locked VM or template")
+            if any(str(k).startswith(("unused", "hostpci", "usb", "parallel", "virtiofs", "ivshmem"))
+                   or k in {"args", "cicustom", "hookscript", "vmstate"} for k in config):
+                blockers.append("node-local resources or unused disks need manual review")
+            if any(str(k).startswith("serial") and value != "socket" for k, value in config.items()):
+                blockers.append("physical serial devices need manual review")
+        except Exception:
+            unknowns.append("VM configuration unreadable")
+        try:
+            status = guest.status.current.get()
+            if not isinstance(status, dict) or status.get("status") not in {"running", "stopped"}:
+                raise ValueError("VM runtime status unavailable")
+            checks["vm_status"] = status["status"]
+            if status["status"] != "stopped":
+                blockers.append("offline migration requires VM to be stopped")
+        except Exception:
+            unknowns.append("VM runtime status unavailable")
+        try:
+            ha = _records(self.proxmox.cluster.ha.resources.get())
+            if any(not re.fullmatch(r"(?:vm|ct):[1-9][0-9]*", str(r.get("sid") or r.get("id"))) for r in ha):
+                raise ValueError("malformed HA inventory")
+            if any((r.get("sid") or r.get("id")) == f"vm:{vmid}" for r in ha):
+                blockers.append("HA-managed VM requires manual relocation")
+        except Exception:
+            unknowns.append("HA membership could not be verified")
+
+        # The native endpoint covers pending/snapshot references and node/resource
+        # constraints that cannot be reconstructed from the current drive strings.
+        native_disks: Dict[str, Dict[str, Any]] = {}
+        try:
+            native = guest.migrate.get(target=destination)
+            if not isinstance(native, dict):
+                raise ValueError("missing native migration preconditions")
+            if _pve_flag(native["running"]):
+                blockers.append("native preflight reports a running VM")
+            allowed = native["allowed_nodes"]
+            denied = native.get("not_allowed_nodes", {})
+            if not isinstance(allowed, list) or not all(isinstance(n, str) for n in allowed):
+                raise ValueError("malformed native allowed nodes")
+            if not isinstance(denied, dict) or any(not isinstance(v, dict) for v in denied.values()):
+                raise ValueError("malformed native node restrictions")
+            if destination not in allowed or denied.get(destination):
+                blockers.append("native preflight does not allow the destination")
+            resources = native["local_resources"]
+            mapped = native.get("mapped-resources", [])
+            mapped_info = native.get("mapped-resource-info", {})
+            if not isinstance(resources, list) or not all(isinstance(r, str) for r in resources):
+                raise ValueError("malformed native local resources")
+            if not isinstance(mapped, list) or not isinstance(mapped_info, dict):
+                raise ValueError("malformed native mapped resources")
+            if resources or mapped or mapped_info:
+                blockers.append("native local/mapped resources require manual review")
+            for disk in _records(native["local_disks"]):
+                volid = disk["volid"]
+                if not isinstance(volid, str) or ":" not in volid or volid in native_disks:
+                    raise ValueError("malformed native disk identity")
+                for flag in ("cdrom", "is_unused"):
+                    _pve_flag(disk[flag])
+                for flag in ("is_cloudinit", "is_vmstate", "shared", "is_attached"):
+                    _pve_flag(disk.get(flag, 0))
+                if disk["is_unused"] or disk.get("is_vmstate"):
+                    blockers.append("native unused or saved-state disks require manual review")
+                if disk["cdrom"] and not disk.get("is_cloudinit"):
+                    blockers.append("local ISO/CD-ROM must be ejected before migration")
+                if not disk.get("is_cloudinit") and (not _capacity(disk.get("size")) or disk["size"] <= 0):
+                    raise ValueError("native disk capacity unavailable")
+                native_disks[volid] = disk
+            checks["native_preflight"] = True
+        except Exception:
+            unknowns.append("native migration preconditions unavailable or malformed")
+
+        disk_sizes: Dict[str, int] = {}
+        volume_sizes: Dict[str, int] = {}
+        pool_contents: Dict[str, set[str]] = {}
+        volumes: set[str] = set()
+        for key, value in config.items():
+            if not re.fullmatch(r"(?:scsi|virtio|sata|ide|efidisk|tpmstate)\d+", str(key)):
+                continue
+            try:
+                if not isinstance(value, str):
+                    raise ValueError("malformed drive configuration")
+                volume = value.split(",", 1)[0]
+                if volume == "none" and "media=cdrom" in value.split(","):
+                    continue
+                pool, separator, filename = volume.partition(":")
+                validate_segment(pool)
+                if not separator or not filename:
+                    raise ValueError("unrecognized storage volume")
+                volumes.add(volume)
+                cloudinit = bool(re.fullmatch(rf"(?:{vmid}/)?vm-{vmid}-cloudinit(?:\.(?:qcow2|raw))?", filename))
+                cdrom = "media=cdrom" in value.split(",") and not cloudinit
+                pool_contents.setdefault(pool, set()).add("iso" if cdrom else "images")
+                if cloudinit or cdrom:
+                    continue
+                match = re.search(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)", value, re.I)
+                if not match:
+                    raise ValueError("disk size unknown")
+                units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+                size = int(Decimal(match.group(1)) * units[match.group(2).upper()])
+                if size <= 0:
+                    raise ValueError("disk size must be positive")
+                native_size = native_disks.get(volume, {}).get("size")
+                if isinstance(native_size, (int, float)) and _capacity(native_size):
+                    size = max(size, int(native_size))
+                volume_sizes[volume] = max(volume_sizes.get(volume, 0), size)
+            except Exception:
+                unknowns.append(f"{key} disk configuration/capacity unavailable")
+        if not volumes:
+            unknowns.append("no VM disks with known storage")
+        for volume, size in volume_sizes.items():
+            pool = volume.partition(":")[0]
+            disk_sizes[pool] = disk_sizes.get(pool, 0) + size
+        if set(native_disks) - volumes:
+            blockers.append("native pending or snapshot-only disk dependencies need manual review")
+        try:
+            pools = _records(self.proxmox.nodes(destination).storage.get())
+            pool_map = {r["storage"]: r for r in pools}
+            if len(pool_map) != len(pools):
+                raise ValueError("ambiguous storage inventory")
+            for pool, content in pool_contents.items():
+                info = pool_map.get(pool)
+                if info is None or not _pve_flag(info.get("active", 0)) or not _pve_flag(info.get("enabled", 1)):
+                    blockers.append(f"destination storage {pool} missing, inactive or disabled")
+                    continue
+                if not content <= _content_types(info.get("content", "")):
+                    blockers.append(f"destination storage {pool} does not support required content")
+                shared = _pve_flag(info.get("shared", 0))
+                # Native local_disks excludes shared storage. Do not reserve the
+                # already allocated provisioned size a second time on shared pools.
+                if shared:
+                    if any(v.startswith(pool + ":") for v in native_disks):
+                        unknowns.append(f"shared storage {pool} contradicts native local disk evidence")
+                    continue
+                local_volumes = {v for v in volumes if v.startswith(pool + ":")}
+                if not local_volumes <= set(native_disks):
+                    unknowns.append(f"native preflight omitted local storage {pool} dependencies")
+                available = info.get("avail")
+                if not _capacity(available):
+                    unknowns.append(f"destination storage {pool} available bytes unknown")
+                elif isinstance(available, (int, float)) and available < disk_sizes.get(pool, 0):
+                    blockers.append(f"destination storage {pool} insufficient free space for provisioned disks")
+            checks["disk_bytes_by_storage"] = disk_sizes
+        except Exception:
+            unknowns.append("destination storage status/capacity unavailable")
+        bridges: set[str] = set()
+        for key, value in config.items():
+            if not re.fullmatch(r"net\d+", str(key)):
+                continue
+            try:
+                if not isinstance(value, str):
+                    raise ValueError("malformed guest network")
+                values = [field.partition("=")[2] for field in value.split(",") if field.startswith("bridge=")]
+                if len(values) != 1:
+                    raise ValueError("guest bridge unknown or ambiguous")
+                bridges.add(bridge_name(values[0]))
+            except Exception:
+                unknowns.append(f"{key} bridge unknown")
+        try:
+            interfaces = _records(self.proxmox.nodes(destination).network.get(type="any_bridge"))
+            available_bridges = {r["iface"] for r in interfaces if r.get("active", 1) in (1, True)}
+            for bridge in bridges:
+                if bridge not in available_bridges:
+                    blockers.append(f"destination bridge {bridge} missing or inactive")
+        except Exception:
+            unknowns.append("destination network bridges unavailable")
+        checks["destination_bridges"] = sorted(bridges)
+        checks["cpu"] = config.get("cpu")
+        return {"ready": not (blockers or unknowns), "source": node,
+                "destination": destination, "vmid": str(vmid), "mode": "offline",
+                "blockers": blockers, "unknowns": unknowns, "checks": checks,
+                "warnings": ["Observations do not reserve capacity or lock guest runtime state",
+                             "Backup restorability, workload drain and CPU compatibility require operator verification"]}
+
+    def preflight_vm_migration(self, node: str, vmid: str, destination: str) -> List[Content]:
+        return self._json_fmt(self._assess_vm_migration(node, vmid, destination))
+
+    def _vm_uncertain(self, node: str, vmid: str) -> List[Content]:
+        return self._json_fmt({"success": False, "status": "unknown", "retryable": False,
+                               "code": "SUBMISSION_UNCERTAIN", "node": node, "vmid": str(vmid),
+                               "message": "Inspect Proxmox tasks, VM config and location before retrying"})
+
+    def migrate_vm(self, node: str, vmid: str, destination: str,
+                   confirm_migration: bool = False,
+                   confirm_backup_verified: bool = False,
+                   confirm_workload_drained: bool = False,
+                   confirm_cpu_compatibility: bool = False,
+                   approval_token: Optional[str] = None) -> List[Content]:
+        """Submit one offline migration; never automatically retry the POST."""
+        _ = approval_token  # Enforced at the target-aware registry boundary.
+        if not all(value is True for value in (
+            confirm_migration, confirm_backup_verified,
+            confirm_workload_drained, confirm_cpu_compatibility
+        )):
+            raise ValueError("Explicit migration, verified-backup, workload-drain and CPU-compatibility confirmations required")
+        assessment = self._assess_vm_migration(node, vmid, destination)
+        if not assessment["ready"]:
+            raise ValueError("Migration blocked: " + "; ".join(assessment["blockers"] + assessment["unknowns"]))
+        try:
+            upid = self.proxmox.nodes(node).qemu(vmid).migrate.post(
+                target=destination, online=0, **{"with-local-disks": 1})
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("migrate VM", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._vm_uncertain(node, vmid)
+        try:
+            job = self._register_background_job(
+                tool_name="migrate_vm", summary=f"Offline migrate VM {vmid} from {node} to {destination}",
+                node=node, upid=upid,
+                metadata={"vmid": str(vmid), "source": node, "destination": destination})
+        except Exception:
+            self.logger.warning("QEMU migration submitted but local job tracking failed")
+            job = None
+        return self._json_fmt({"success": True, "status": "submitted", "vmid": str(vmid),
+                               "task_id": upid, "job_id": job["job_id"] if job else None,
+                               "source": node, "destination": destination}) + self._submission_content(job, upid)
+
+    def _vm_change_config(self, vm: Any) -> Dict[str, Any]:
+        state = vm.status.current.get()
+        if not isinstance(state, dict) or state.get("status") != "stopped":
+            raise ValueError("VM must be stopped before configuration changes")
+        config = vm.config.get()
+        if not isinstance(config, dict) or not config:
+            raise ValueError("VM config unavailable")
+        if config.get("lock") or config.get("template"):
+            raise ValueError("Locked VM or template cannot be modified")
+        if not isinstance(config.get("digest"), str) or not config["digest"].strip():
+            raise ValueError("VM config digest unavailable")
+        return config
+
+    def configure_vm_serial_console(self, node: str, vmid: str,
+                                    confirm_display_change: bool = False,
+                                    approval_token: Optional[str] = None) -> List[Content]:
+        """Set a socket-backed serial console with optimistic config concurrency."""
+        _ = approval_token
+        if confirm_display_change is not True:
+            raise ValueError("confirm_display_change=True required: existing display changes")
+        _vm_reference(node, vmid)
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        config = self._vm_change_config(vm)
+        if config.get("serial0") not in (None, "socket"):
+            raise ValueError("serial0 is already configured differently")
+        if config.get("vga") == "serial0" and config.get("serial0") == "socket":
+            return self._json_fmt({"success": True, "changed": False, "vmid": str(vmid),
+                                   "serial0": "socket", "vga": "serial0"})
+        try:
+            vm.config.put(serial0="socket", vga="serial0", digest=config["digest"])
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("configure VM serial console", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        return self._json_fmt({"success": True, "changed": True, "vmid": str(vmid),
+                               "serial0": "socket", "vga": "serial0",
+                               "note": "Guest must enable console=ttyS0,115200n8 and serial-getty."})
+
+    def import_cloud_image(self, node: str, vmid: str, source_volume: str,
+                           destination_storage: str, disk_device: str = "scsi1",
+                           confirm_import: bool = False,
+                           approval_token: Optional[str] = None) -> List[Content]:
+        """Attach an existing import volume via PVE's asynchronous import-from API."""
+        _ = approval_token
+        if confirm_import is not True:
+            raise ValueError("confirm_import=True required")
+        _vm_reference(node, vmid)
+        if not isinstance(disk_device, str) or not re.fullmatch(r"scsi(?:[0-9]|[12][0-9]|30)", disk_device):
+            raise ValueError("Only scsi0..scsi30 disk slots supported")
+        if not isinstance(destination_storage, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", destination_storage):
+            raise ValueError("Invalid destination storage")
+        if not isinstance(source_volume, str):
+            raise ValueError("source_volume must identify an uploaded import image")
+        match = re.fullmatch(
+            r"([A-Za-z][A-Za-z0-9_.-]*):import/([A-Za-z0-9][A-Za-z0-9_.-]*\.(?:qcow2|raw|vmdk))",
+            source_volume, re.IGNORECASE)
+        if not match:
+            raise ValueError("source_volume must be a storage:import/file.qcow2|raw|vmdk volume")
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        config = self._vm_change_config(vm)
+        if disk_device in config:
+            raise ValueError("target disk slot already in use")
+        try:
+            pools = _records(self.proxmox.nodes(node).storage.get())
+            by_name = {entry["storage"]: entry for entry in pools}
+            if len(by_name) != len(pools):
+                raise ValueError("ambiguous storage inventory")
+            for name, content in ((match.group(1), "import"), (destination_storage, "images")):
+                pool = by_name.get(name)
+                if pool is None or not _pve_flag(pool.get("active", 0)) or not _pve_flag(pool.get("enabled", 1)):
+                    raise ValueError("source/destination storage must exist and be active/enabled")
+                if content not in _content_types(pool.get("content", "")):
+                    raise ValueError(f"storage must support {content} content")
+            try:
+                images = _records(self.proxmox.nodes(node).storage(match.group(1)).content.get(content="import"))
+            except ValueError as error:
+                raise ValueError("Image inventory is unavailable or malformed") from error
+            if sum(item.get("volid") == source_volume for item in images) != 1:
+                raise ValueError("Image is not uniquely present in import storage")
+        except (KeyError, TypeError) as error:
+            raise ValueError("Storage inventory is unavailable or malformed") from error
+        try:
+            upid = vm.config.post(**{
+                disk_device: f"{destination_storage}:0,import-from={source_volume}", "digest": config["digest"],
+            })
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("import cloud image", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._vm_uncertain(node, vmid)
+        try:
+            job = self._register_background_job(
+                tool_name="import_cloud_image", summary=f"Import cloud image into VM {vmid}",
+                node=node, upid=upid, metadata={"vmid": str(vmid),
+                                               "source_volume": source_volume, "disk_device": disk_device})
+        except Exception:
+            job = None
+            self.logger.warning("Cloud image import submitted; local job registration failed")
+        return self._json_fmt({"success": True, "status": "submitted", "task_id": upid,
+                               "job_id": job["job_id"] if job else None,
+                               "vmid": str(vmid), "disk_device": disk_device}) + self._submission_content(job, upid)
+
 
     def start_vm(self, node: str, vmid: str) -> List[Content]:
         """Start a virtual machine.
