@@ -18,6 +18,14 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.4`
+
+- Adds native-precondition-backed offline QEMU migration and read-only assessment, plus guarded cloud-image import and serial console configuration.
+- Repairs approval-token dispatch, uncertain submission reporting, malformed evidence handling and configuration digest checks from the two contributed PRs.
+- Preserves shared-storage capacity semantics, generated CloudInit and serial sockets; rejects unsupported local devices/ISO dependencies.
+- Restart workers and reconnect clients. Include all three new mutations in any custom high-risk operations list.
+- See [v0.6.4 notes](../releases/v0.6.4.md).
+
 ### Version `0.6.3`
 
 - Adds node-local time, storage capacity and diagnostics, public cluster join metadata, and conservative LXC migration assessment and submission tools.
