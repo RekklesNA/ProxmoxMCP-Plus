@@ -24,6 +24,7 @@ from proxmox_mcp.tools.definitions import (
     DELETE_SNAPSHOT_DESC,
     DELETE_VM_DESC,
     DOWNLOAD_ISO_DESC,
+    DOWNLOAD_TEMPLATE_DESC,
     EXECUTE_CONTAINER_COMMAND_DESC,
     EXECUTE_NODE_COMMAND_DESC,
     EXECUTE_VM_COMMAND_DESC,
@@ -954,6 +955,28 @@ class ImageToolsPlugin(RegistryPluginBase):
                 filename=filename,
                 checksum=checksum,
                 checksum_algorithm=checksum_algorithm,
+                target=target,
+            )
+
+        @server.tool_registry.tool(description=DOWNLOAD_TEMPLATE_DESC)
+        def download_template(
+            node: Annotated[str, Field(description="Target node name")],
+            storage: Annotated[str, Field(description="Target storage pool")],
+            url: Annotated[str, Field(description="URL to download from")],
+            filename: Annotated[str, Field(description="Target template filename (e.g. 'debian-13-standard_13.1-2_amd64.tar.zst')")],
+            checksum: Annotated[Optional[str], Field(description="Optional checksum", default=None)] = None,
+            checksum_algorithm: Annotated[str, Field(description="Algorithm: sha256, sha512, md5", default="sha256")] = "sha256",
+            approval_token: Annotated[Optional[str], Field(description="Approval token for this target policy", default=None)] = None,
+            target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+        ) -> Any:
+            return self._wrap_sync(server, "download_template", lambda ts: ts.iso_tools.download_template, high_risk=True)(
+                node=node,
+                storage=storage,
+                url=url,
+                filename=filename,
+                checksum=checksum,
+                checksum_algorithm=checksum_algorithm,
+                approval_token=approval_token,
                 target=target,
             )
 

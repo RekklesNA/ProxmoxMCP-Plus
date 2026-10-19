@@ -18,6 +18,13 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.5`
+
+- Adds guarded HTTPS LXC template downloads with storage/filename checks, structured submission outcomes, native task cancellation and no blind retry.
+- Upgrades Ruff with an explicit existing-rule baseline and refreshes the pinned Python 3.11 container base image.
+- Restart workers/clients; add `download_template` to any custom high-risk operations list.
+- See [v0.6.5 notes](../releases/v0.6.5.md) and [template download example](../examples/download-lxc-template.md).
+
 ### Version `0.6.4`
 
 - Adds native-precondition-backed offline QEMU migration and read-only assessment, plus guarded cloud-image import and serial console configuration.

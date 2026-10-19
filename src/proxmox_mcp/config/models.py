@@ -154,6 +154,7 @@ class CommandPolicyConfig(BaseModel):
             "migrate_vm",
             "configure_vm_serial_console",
             "import_cloud_image",
+            "download_template",
             "execute_node_command",
         ]
     )

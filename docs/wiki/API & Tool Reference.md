@@ -311,3 +311,7 @@ When adding or changing a tool, update all of the following:
 - [Container Command Execution](Container-Command-Execution)
 - [Integrations Guide](Integrations-Guide)
 - [Troubleshooting](Troubleshooting)
+
+### `download_template`
+
+Download a trusted HTTPS LXC archive to active/enabled `vztmpl` storage. High-risk/target/read-only/client policies apply. Reports submission, never completion; no blind retry. See the [example and operating limits](../examples/download-lxc-template.md).

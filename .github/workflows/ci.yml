@@ -7,6 +7,37 @@ on:
     branches: [ main, master ]
 
 jobs:
+  container-smoke:
+    name: Container build and health
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - name: Build the reviewed Dockerfile without publishing
+      run: docker build --tag proxmox-mcp-pr:smoke .
+    - name: Verify AMD64 application health and runtime hardening
+      shell: bash
+      run: |
+        set -euo pipefail
+        container_name="proxmox-mcp-pr-smoke"
+        trap 'docker logs "$container_name" || true; docker rm -f "$container_name" || true' EXIT
+        docker run --detach --name "$container_name" \
+          --publish 127.0.0.1:18811:8811 \
+          --volume "$PWD/proxmox-config/config.example.json:/app/proxmox-config/config.json:ro" \
+          --env PROXMOX_API_KEY=pr-smoke-check proxmox-mcp-pr:smoke
+        for attempt in {1..30}; do
+          if curl --fail --silent http://127.0.0.1:18811/livez > /dev/null; then
+            break
+          fi
+          test "$(docker inspect "$container_name" --format '{{.State.Running}}')" = "true"
+          sleep 2
+        done
+        curl --fail --silent --show-error http://127.0.0.1:18811/livez | jq -e '.status == "ok"'
+        test "$(docker exec "$container_name" uname -m)" = "x86_64"
+        test "$(docker exec "$container_name" id -u)" != "0"
+        docker exec "$container_name" sh -c 'test ! -e /usr/local/bin/pip && ! python -m pip --version >/dev/null 2>&1'
+
   validate:
     runs-on: ubuntu-latest
     services:
