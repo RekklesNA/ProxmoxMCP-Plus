@@ -34,8 +34,10 @@ Use the root `README.md` for the fast project overview. Use this wiki when you n
 | Runtime | Command | Target |
 | --- | --- | --- |
 | MCP stdio | `uvx proxmox-mcp-plus` | launched by local MCP clients |
-| MCP Streamable HTTP | `docker compose --profile mcp-http up -d proxmox-mcp-http` | `http://<host>:8000/mcp` |
-| OpenAPI | `docker compose up -d` | `http://<host>:8811/docs` |
+| MCP Streamable HTTP | `docker compose --profile mcp-http up -d proxmox-mcp-http` | `http://127.0.0.1:8000/mcp` |
+| OpenAPI | `docker compose --profile openapi up -d proxmox-mcp-api` | `http://127.0.0.1:8811/docs` |
+
+Compose publishes on loopback by default. See [Compose modes and network access](../docker-compose.md) for proxy/tunnel access or explicit host bindings.
 
 4. Verify read-only tools first: `get_nodes`, `get_vms`, `get_containers`, and `get_storage`.
 5. Use mutating tools only after checking permissions, target IDs, storage, and safety policy.

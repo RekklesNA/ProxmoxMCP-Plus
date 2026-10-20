@@ -201,32 +201,30 @@ Available routes:
 
 The repository includes `docker-compose.yml` and `Dockerfile`.
 
-Default Compose behavior:
+Compose modes are opt-in. Both services mount configuration read-only, preserve state
+in the `proxmox-jobs` volume, drop all Linux capabilities and enable `no-new-privileges`.
+Host ports bind to `127.0.0.1` by default. Container listeners stay on `0.0.0.0` for Docker
+network routing; the bare image still defaults to OpenAPI mode.
 
-- Builds the local image
-- Mounts `./proxmox-config` read-only into `/app/proxmox-config`
-- Exposes `8811`
-- Keeps OpenAPI mode as the default Docker runtime
-- Sets `PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json`
-- Requires `PROXMOX_API_KEY` from your shell or Compose `.env` file
-- Adds a container liveness health check against `http://localhost:8811/livez`
-
-Start it with:
+OpenAPI:
 
 ```bash
 export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
-docker compose up -d --build
+docker compose --profile openapi up -d --build proxmox-mcp-api
 ```
 
-To run the native MCP Streamable HTTP service from Docker Compose:
+Native MCP Streamable HTTP:
 
 ```bash
 export MCP_API_KEY="${MCP_API_KEY:-$(openssl rand -hex 32)}"
-docker compose --profile mcp-http up -d proxmox-mcp-http
+docker compose --profile mcp-http up -d --build proxmox-mcp-http
 ```
 
-Then connect Streamable HTTP MCP clients to `http://<docker-host>:8000/mcp` and send
-`Authorization: Bearer <MCP_API_KEY>`.
+Each mode requires its own key at application startup and can be configured without
+the other mode's key. Native MCP clients use `http://127.0.0.1:8000/mcp` and
+`Authorization: Bearer <MCP_API_KEY>`; the OpenAPI bridge uses `127.0.0.1:8811`.
+See [Compose modes, host bindings and upgrade steps](../docker-compose.md) for
+reverse proxies/tunnels, explicit LAN access and stopping a previously default OpenAPI service.
 
 ### Limit the Exposed Tool Surface
 
@@ -267,7 +265,7 @@ not a replacement for Proxmox RBAC, API-token scoping, or approval policy.
 The same image can also be run directly:
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
   -e PROXMOX_MCP_MODE=mcp-http \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \

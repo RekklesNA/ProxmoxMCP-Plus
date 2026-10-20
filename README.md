@@ -123,7 +123,12 @@ after changing the filter.
 | --- | --- | --- | --- |
 | MCP stdio from PyPI | Claude Desktop, Cursor, VS Code, Codex, local agents | `uvx proxmox-mcp-plus` | client lists `get_nodes`, `get_vms`, and job tools |
 | Native MCP HTTP from Docker | remote MCP clients that support Streamable HTTP | `docker compose --profile mcp-http up -d proxmox-mcp-http` | connect to `http://localhost:8000/mcp` |
-| OpenAPI bridge from Docker | HTTP clients, dashboards, scripts, no-code tools | `docker compose up -d` | `curl -f http://localhost:8811/livez` |
+| OpenAPI bridge from Docker | HTTP clients, dashboards, scripts, no-code tools | `docker compose --profile openapi up -d proxmox-mcp-api` | `curl -f http://localhost:8811/livez` |
+
+Docker examples publish host ports on `127.0.0.1` by default; Compose modes are opt-in. Set
+only the selected mode's key: `MCP_API_KEY` for native HTTP or `PROXMOX_API_KEY`
+for OpenAPI. See [Compose deployment and upgrade notes](docs/docker-compose.md)
+for reverse proxies, tunnels, explicit LAN bindings and container recreation.
 
 #### MCP stdio with PyPI
 
@@ -177,7 +182,7 @@ Use this path when a remote MCP client supports Streamable HTTP:
 
 ```bash
 export MCP_API_KEY="$(openssl rand -hex 32)"
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
   -e PROXMOX_MCP_MODE=mcp-http \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \
@@ -190,8 +195,10 @@ docker run --rm -p 8000:8000 \
 Point MCP clients at:
 
 ```text
-http://<docker-host>:8000/mcp
+http://127.0.0.1:8000/mcp
 ```
+
+For remote clients, use the configured proxy/tunnel URL or explicitly widen the host binding as described in [Docker deployment](docs/docker-compose.md).
 
 Send `Authorization: Bearer <MCP_API_KEY>` with every native MCP HTTP request.
 The key is independent of Proxmox credentials. Native Streamable HTTP and SSE
@@ -232,7 +239,7 @@ export MCP_OAUTH_DATABASE_URL='postgresql://proxmox_oauth:<password>@postgres.ex
 Example server:
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
   -e PROXMOX_MCP_MODE=mcp-http \
   -e MCP_HOST=0.0.0.0 \
   -e MCP_PORT=8000 \
@@ -358,7 +365,7 @@ OpenAPI mode is the default Docker runtime and requires an API key:
 
 ```bash
 export PROXMOX_API_KEY="$(openssl rand -hex 32)"
-docker run --rm -p 8811:8811 \
+docker run --rm -p 127.0.0.1:8811:8811 \
   -e PROXMOX_API_KEY="$PROXMOX_API_KEY" \
   -v "$(pwd)/proxmox-config/config.json:/app/proxmox-config/config.json:ro" \
   ghcr.io/rekklesna/proxmoxmcp-plus:latest

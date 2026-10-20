@@ -1,16 +1,24 @@
 services:
   proxmox-mcp-api:
     build: .
+    profiles:
+      - openapi
     ports:
-      - "8811:8811"
+      - "${OPENAPI_BIND_ADDRESS:-127.0.0.1}:8811:8811"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./proxmox-config:/app/proxmox-config:ro
       - proxmox-jobs:/app/data
     environment:
       - PROXMOX_MCP_CONFIG=/app/proxmox-config/config.json
       - PROXMOX_JOBS_SQLITE_PATH=/app/data/proxmox-jobs.sqlite3
-      # Set PROXMOX_API_KEY in your shell or .env before starting OpenAPI mode.
-      - PROXMOX_API_KEY=${PROXMOX_API_KEY:?Set PROXMOX_API_KEY before starting OpenAPI mode}
+      # The selected OpenAPI process requires this at startup. Do not use :?
+      # here: Compose interpolates inactive services too (issue #183).
+      - PROXMOX_API_KEY=${PROXMOX_API_KEY:-}
+      - PROXMOX_MCP_MODE=openapi
       - API_HOST=0.0.0.0
       - API_PORT=8811
     restart: unless-stopped
@@ -27,7 +35,11 @@ services:
     profiles:
       - mcp-http
     ports:
-      - "8000:8000"
+      - "${MCP_HTTP_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./proxmox-config:/app/proxmox-config:ro
       - proxmox-jobs:/app/data

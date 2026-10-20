@@ -11,7 +11,7 @@ This page covers the common ways to connect MCP clients and HTTP clients to Prox
 | VS Code / GitHub Copilot agent mode | MCP stdio, or Streamable HTTP where supported | local command or remote MCP endpoint |
 | Codex | MCP stdio | local command configured in Codex MCP settings |
 | OpenCode | MCP stdio with env file | examples under `proxmox-config/opencode/` |
-| Open WebUI or HTTP-only tools | OpenAPI bridge | `http://<host>:8811/docs` and `/openapi.json` |
+| Open WebUI or HTTP-only tools | OpenAPI bridge | `http://127.0.0.1:8811/docs` and `/openapi.json` |
 | Remote MCP clients | MCP Streamable HTTP | `http://<host>:8000/mcp` |
 
 Use MCP stdio when the client can launch the server locally. Use MCP Streamable HTTP when the server runs on another host. Use OpenAPI when the consumer only understands HTTP or Swagger-style schemas.
@@ -150,18 +150,20 @@ For HTTP-native clients, run the OpenAPI bridge:
 
 ```bash
 export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
-docker compose up -d
+docker compose --profile openapi up -d proxmox-mcp-api
 ```
 
-Then connect to:
+Compose publishes on loopback by default; see [Compose network access and upgrades](../docker-compose.md) for remote clients.
+
+Then connect locally to:
 
 | Route | Purpose |
 | --- | --- |
-| `http://<host>:8811/docs` | Swagger UI |
-| `http://<host>:8811/openapi.json` | OpenAPI schema |
-| `http://<host>:8811/livez` | unauthenticated liveness |
-| `http://<host>:8811/readyz` | authenticated readiness |
-| `http://<host>:8811/health` | authenticated readiness alias |
+| `http://127.0.0.1:8811/docs` | Swagger UI |
+| `http://127.0.0.1:8811/openapi.json` | OpenAPI schema |
+| `http://127.0.0.1:8811/livez` | unauthenticated liveness |
+| `http://127.0.0.1:8811/readyz` | authenticated readiness |
+| `http://127.0.0.1:8811/health` | authenticated readiness alias |
 
 Send authenticated requests with:
 
