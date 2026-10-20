@@ -20,7 +20,7 @@ When `mcp.transport` is `STREAMABLE_HTTP` or `STREAMABLE`, the server exposes th
 | --- | --- | --- |
 | `/mcp` | MCP Streamable HTTP endpoint | use this for remote MCP clients that support Streamable HTTP |
 
-The Docker Compose `mcp-http` profile exposes this endpoint on port `8000`.
+The opt-in Docker Compose `mcp-http` profile publishes this endpoint on `127.0.0.1:8000` by default. See [Compose network access](../docker-compose.md) for proxies, tunnels and explicit host bindings.
 When `MCP_API_KEY` is set, callers must send `Authorization: Bearer <MCP_API_KEY>`.
 Missing or incorrect credentials return `401` with `WWW-Authenticate: Bearer`.
 

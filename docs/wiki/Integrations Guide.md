@@ -60,13 +60,15 @@ export MCP_API_KEY="${MCP_API_KEY:-$(openssl rand -hex 32)}"
 docker compose --profile mcp-http up -d proxmox-mcp-http
 ```
 
-Then connect the client to:
+Compose host ports bind to loopback by default. See [Compose deployment](../docker-compose.md) for a host-side or containerized proxy/tunnel and explicit remote access.
+
+Then connect the client to the configured public proxy/tunnel URL or locally to:
 
 ```text
-http://<docker-host>:8000/mcp
+http://127.0.0.1:8000/mcp
 ```
 
-The default OpenAPI service on port `8811` is not an MCP Streamable HTTP endpoint; MCP HTTP clients should use `/mcp` on the native MCP service.
+The opt-in OpenAPI service on port `8811` is not an MCP Streamable HTTP endpoint; MCP HTTP clients should use `/mcp` on the native MCP service.
 Configure the client to send `Authorization: Bearer <MCP_API_KEY>`. The native token is
 separate from `PROXMOX_API_KEY`, which applies only to the OpenAPI service.
 

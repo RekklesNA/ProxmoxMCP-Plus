@@ -18,6 +18,13 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.6`
+
+- Fixes #183: Compose host ports default to loopback and both modes are opt-in (`openapi` / `mcp-http`). An inactive service no longer requires its credential during interpolation.
+- Both example services drop capabilities and enable `no-new-privileges`; selected-mode authentication remains enforced at startup.
+- Recreate wanted services with an explicit profile. Stop a previously default OpenAPI container when migrating to MCP-only operation; retain the named jobs volume.
+- See [v0.6.6 notes](../releases/v0.6.6.md) and [Compose deployment](../docker-compose.md).
+
 ### Version `0.6.5`
 
 - Adds guarded HTTPS LXC template downloads with storage/filename checks, structured submission outcomes, native task cancellation and no blind retry.

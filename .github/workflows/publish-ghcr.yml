@@ -119,6 +119,7 @@ jobs:
 
         docker run --detach \
           --name "$container_name" \
+          --cap-drop ALL --security-opt no-new-privileges:true \
           --platform linux/arm64 \
           --publish 127.0.0.1:18811:8811 \
           --volume "$PWD/proxmox-config/config.example.json:/app/proxmox-config/config.json:ro" \
