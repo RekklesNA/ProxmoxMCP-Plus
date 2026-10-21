@@ -77,3 +77,58 @@ def test_persisted_delete_recipe_replays_purge(api, tmp_path, kind, endpoint, pa
         assert store.poll_job(job['job_id'])['status'] == 'failed'
         store.retry_job(job['job_id'])
     getattr(api.nodes.return_value, endpoint).return_value.delete.assert_called_once_with(**expected)
+
+
+def _ha_stop(api, guest, polls_running):
+    """HA guest: the stop task is OK at once, the guest stays running for a few polls."""
+    guest.status.stop.post.return_value = 'UPID:pve1:hastop'
+    api.nodes.return_value.tasks.return_value.status.get.return_value = {'status': 'stopped', 'exitstatus': 'OK'}
+    guest.status.current.get.side_effect = (
+        [{'status': 'running', 'name': 'ha-guest'}] * (1 + polls_running) + [{'status': 'stopped'}]
+    )
+
+
+def test_force_delete_vm_waits_for_ha_guest_to_stop(api):
+    vm = api.nodes.return_value.qemu.return_value
+    _ha_stop(api, vm, polls_running=3)
+    with patch('proxmox_mcp.tools.base.time.sleep'):
+        VMTools(api).delete_vm('pve1', '100', force=True, purge=True)
+    assert vm.status.current.get.call_count == 5
+    vm.delete.assert_called_once_with(purge=1)
+
+
+def test_force_delete_container_waits_for_ha_guest_to_stop(api):
+    ct = api.nodes.return_value.lxc.return_value
+    _ha_stop(api, ct, polls_running=3)
+    tools = ContainerTools(api)
+    with patch.object(tools, '_resolve_targets', return_value=[('pve1', 101, 'ha-ct')]), \
+         patch('proxmox_mcp.tools.base.time.sleep'):
+        result = json.loads(tools.delete_container('101', force=True, purge=True, format_style='json')[0].text)
+    assert result[0]['ok'] is True
+    assert ct.status.current.get.call_count == 5
+    ct.delete.assert_called_once_with(purge=1)
+
+
+def test_force_delete_vm_not_submitted_if_guest_never_stops(api):
+    vm = api.nodes.return_value.qemu.return_value
+    _ha_stop(api, vm, polls_running=10_000)
+    clock = iter(range(0, 10_000, 10))
+    with patch('proxmox_mcp.tools.base.time.sleep'), \
+         patch('proxmox_mcp.tools.base.time.monotonic', side_effect=lambda: next(clock)):
+        with pytest.raises(Exception, match='still running after stop'):
+            VMTools(api).delete_vm('pve1', '100', force=True, purge=True)
+    vm.delete.assert_not_called()
+
+
+def test_force_delete_container_not_submitted_if_guest_never_stops(api):
+    ct = api.nodes.return_value.lxc.return_value
+    _ha_stop(api, ct, polls_running=10_000)
+    clock = iter(range(0, 10_000, 10))
+    tools = ContainerTools(api)
+    with patch.object(tools, '_resolve_targets', return_value=[('pve1', 101, 'ha-ct')]), \
+         patch('proxmox_mcp.tools.base.time.sleep'), \
+         patch('proxmox_mcp.tools.base.time.monotonic', side_effect=lambda: next(clock)):
+        result = json.loads(tools.delete_container('101', force=True, purge=True, format_style='json')[0].text)
+    assert result[0]['ok'] is False
+    assert 'still running after stop' in result[0]['error']
+    ct.delete.assert_not_called()

@@ -110,6 +110,21 @@ class ProxmoxTool:
                 raise TimeoutError("Prerequisite task is still running; no dependent operation was submitted")
             time.sleep(0.1)
 
+    def _wait_for_guest_stopped(self, guest: Any, timeout_seconds: float = 60) -> None:
+        """Wait until a guest reports ``stopped``.
+
+        For an HA-managed guest the stop task only queues an HA request and finishes
+        before the guest is down, so the task outcome alone is not enough.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            status = guest.status.current.get()
+            if isinstance(status, dict) and status.get("status") == "stopped":
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Guest is still running after stop; no dependent operation was submitted")
+            time.sleep(0.5)
+
     def _call_with_retry(
         self,
         operation: str,

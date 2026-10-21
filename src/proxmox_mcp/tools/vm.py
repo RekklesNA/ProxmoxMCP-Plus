@@ -1361,6 +1361,7 @@ Clone Configuration:
                     stop_upid = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
                     self._register_background_job(tool_name="stop_vm", summary=f"Stop VM {vmid} before deletion", node=node, upid=stop_upid)
                     self._wait_for_task(node, stop_upid)
+                    self._wait_for_guest_stopped(self.proxmox.nodes(node).qemu(vmid))
                     result_text = f"Stopping VM {vmid} ({vm_name}) before deletion...\n"
             else:
                 result_text = f"Deleting VM {vmid} ({vm_name})...\n"

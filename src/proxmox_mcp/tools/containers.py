@@ -840,6 +840,7 @@ class ContainerTools(ProxmoxTool):
                         stop_upid = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
                         self._register_background_job(tool_name="stop_container", summary=f"Stop container {vmid} before deletion", node=node, upid=stop_upid)
                         self._wait_for_task(node, stop_upid)
+                        self._wait_for_guest_stopped(self.proxmox.nodes(node).lxc(vmid))
                         rec["message"] = "Stopped and deleted"
                     else:
                         rec["message"] = "Deleted"
