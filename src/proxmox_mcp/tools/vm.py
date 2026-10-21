@@ -1312,6 +1312,7 @@ Clone Configuration:
         node: str,
         vmid: str,
         force: bool = False,
+        purge: bool = False,
         approval_token: Optional[str] = None,
     ) -> List[Content]:
         """Delete/remove a virtual machine completely.
@@ -1327,7 +1328,10 @@ Clone Configuration:
             node: Host node name (e.g., 'pve1', 'proxmox-node2')
             vmid: VM ID number (e.g., '100', '101')
             force: Force deletion even if VM is running (will stop first)
-            
+            purge: Also remove the VMID from cluster configuration that references
+                it (HA resources, backup and replication jobs, ACLs). Without it
+                Proxmox refuses to delete a VM that is still an HA resource.
+
         Returns:
             List of Content objects containing deletion result
             
@@ -1362,15 +1366,16 @@ Clone Configuration:
                 result_text = f"Deleting VM {vmid} ({vm_name})...\n"
             
             # Delete the VM
-            task_result = self.proxmox.nodes(node).qemu(vmid).delete()
+            delete_params = {"purge": 1} if purge else {}
+            task_result = self.proxmox.nodes(node).qemu(vmid).delete(**delete_params)
             job = self._register_background_job(
                 tool_name="delete_vm",
                 summary=f"Delete VM {vmid} ({vm_name}) on {node}",
                 node=node,
                 upid=task_result,
-                metadata={"vmid": vmid, "force": force},
-                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid}},
-                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(),
+                metadata={"vmid": vmid, "force": force, "purge": purge},
+                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid, "purge": purge}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(**delete_params),
                 cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
             

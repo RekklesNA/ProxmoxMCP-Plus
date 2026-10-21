@@ -505,6 +505,7 @@ class VMToolsPlugin(RegistryPluginBase):
             node: Annotated[str, Field(description="Host node name (e.g. 'pve')")],
             vmid: Annotated[str, Field(description="VM ID number (e.g. '998')")],
             force: Annotated[bool, Field(description="Force deletion even if VM is running", default=False)] = False,
+            purge: Annotated[bool, Field(description="Also remove the VM from HA resources, backup/replication jobs and ACLs", default=False)] = False,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
@@ -512,6 +513,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 node,
                 vmid,
                 force,
+                purge=purge,
                 approval_token=approval_token,
                 target=target,
             )
@@ -678,6 +680,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
             selector: Annotated[str, Field(description="CT selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list")],
             force: Annotated[bool, Field(description="Force deletion even if running", default=False)] = False,
             format_style: Annotated[Literal["pretty", "json"], Field(description="Output format")] = "pretty",
+            purge: Annotated[bool, Field(description="Also remove the container from HA resources, backup/replication jobs and ACLs", default=False)] = False,
             approval_token: Annotated[Optional[str], Field(description="Optional approval token for high-risk operations", default=None)] = None,
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
         ) -> Any:
@@ -685,6 +688,7 @@ class ContainerToolsPlugin(RegistryPluginBase):
                 selector=selector,
                 force=force,
                 format_style=format_style,
+                purge=purge,
                 approval_token=approval_token,
                 target=target,
             )

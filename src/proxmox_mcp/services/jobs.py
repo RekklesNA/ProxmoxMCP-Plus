@@ -34,6 +34,11 @@ def target_job_sqlite_path(base_path: str, target_name: str) -> str:
     return str(base.with_name(f"{base.name}.target-{target_name}"))
 
 
+def _delete_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Guest delete query; recipes stored before ``purge`` existed replay without it."""
+    return {"purge": 1} if params.get("purge") else {}
+
+
 class JobStore(JobPersistence):
     """Tracks long-running Proxmox tasks behind stable job IDs."""
 
@@ -463,7 +468,10 @@ class JobStore(JobPersistence):
         self.register_retry_handler("vm.stop", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.stop.post())
         self.register_retry_handler("vm.shutdown", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.shutdown.post())
         self.register_retry_handler("vm.reset", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).status.reset.post())
-        self.register_retry_handler("vm.delete", lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).delete())
+        self.register_retry_handler(
+            "vm.delete",
+            lambda params: self.proxmox.nodes(params["node"]).qemu(params["vmid"]).delete(**_delete_params(params)),
+        )
         self.register_retry_handler("ct.start", lambda params: self.proxmox.nodes(params["node"]).lxc(params["vmid"]).status.start.post())
         self.register_retry_handler(
             "ct.stop",
@@ -475,7 +483,10 @@ class JobStore(JobPersistence):
         )
         self.register_retry_handler("ct.restart", lambda params: self.proxmox.nodes(params["node"]).lxc(params["vmid"]).status.reboot.post())
         self.register_retry_handler("ct.create", lambda params: self.proxmox.nodes(params["node"]).lxc.create(**params["ct_config"]))
-        self.register_retry_handler("ct.delete", lambda params: self.proxmox.nodes(params["node"]).lxc(params["vmid"]).delete())
+        self.register_retry_handler(
+            "ct.delete",
+            lambda params: self.proxmox.nodes(params["node"]).lxc(params["vmid"]).delete(**_delete_params(params)),
+        )
         self.register_retry_handler(
             "snapshot.create",
             lambda params: (

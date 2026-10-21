@@ -225,6 +225,8 @@ Parameters:
 node* - Host node name (e.g. 'pve')
 vmid* - VM ID number (e.g. '998')
 force - Force deletion even if VM is running (optional, default: false)
+purge - Also remove the VMID from HA resources, backup/replication jobs and ACLs
+        (optional, default: false). Required when the VM is an HA resource.
 
 This will permanently remove:
 - VM configuration
@@ -232,8 +234,9 @@ This will permanently remove:
 - All snapshots
 - Cannot be undone!
 
-Example:
-Delete test VM with ID 998 on node pve"""
+Examples:
+- Delete test VM with ID 998 on node pve
+- Delete HA-managed VM 998 on node pve: purge=True"""
 
 EXECUTE_NODE_COMMAND_DESC = """Execute a bounded shell command directly on a Proxmox physical node via SSH.
 
@@ -331,6 +334,8 @@ WARNING: This operation permanently deletes the container and all its data!
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list
 force - Force deletion even if container is running (optional, default: false)
+purge - Also remove the CTID from HA resources, backup/replication jobs and ACLs
+        (optional, default: false). Required when the container is an HA resource.
 
 This will permanently remove:
 - Container configuration
@@ -342,6 +347,7 @@ Examples:
 - Delete container 200: selector='200'
 - Delete by name: selector='my-container'
 - Force delete running container: selector='pve:201', force=True
+- Delete HA-managed container: selector='pve:202', purge=True
 """
 
 EXECUTE_CONTAINER_COMMAND_DESC = """Execute a shell command inside a running LXC container.
