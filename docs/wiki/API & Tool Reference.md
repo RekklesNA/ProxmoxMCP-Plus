@@ -126,7 +126,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `stop_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, stop failure from Proxmox |
 | `shutdown_vm` | Mutating | `node`, `vmid` | none | VM exists | guest shutdown unavailable or timeout on guest side |
 | `reset_vm` | Mutating | `node`, `vmid` | none | VM exists | VM not found, reset rejected by Proxmox |
-| `delete_vm` | Mutating | `node`, `vmid` | `force=false` | VM exists | running VM without `force`, VM not found |
+| `delete_vm` | Mutating | `node`, `vmid` | `force=false`, `purge=false` | VM exists | running VM without `force`, VM not found, HA resource without `purge` |
 | `execute_vm_command` | Mutating | `node`, `vmid`, `command` | `approval_token` | VM running, QEMU Guest Agent installed, policy allows command | guest agent unavailable, VM not running, policy denial |
 | `get_vm_config` | Read-only | `node`, `vmid` | none | VM exists | VM not found, node mismatch |
 | `set_vm_description` | Mutating | `node`, `vmid`, `description` | none | VM exists and API token can update its config | VM not found, node mismatch, insufficient permissions |
@@ -162,7 +162,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 | `restart_container` | Mutating | `selector` | `timeout_seconds=10`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, reboot failure |
 | `update_container_resources` | Mutating | `selector` | `cores`, `memory`, `swap`, `disk_gb`, `disk=rootfs`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, invalid resize target, resource update rejected |
 | `create_container` | Mutating | `node`, `vmid`, `ostemplate` | `hostname`, `cores=1`, `memory=512`, `swap=512`, `disk_size=8`, `storage`, `password`, `ssh_public_keys`, `network_bridge=vmbr0`, `start_after_create=false`, `onboot=false`, `nesting=false`, `unprivileged=true`, `pool` | target node exists, template path valid, target storage valid | duplicate `vmid`, missing template, invalid storage, resource pool, or bridge |
-| `delete_container` | Mutating | `selector` | `force=false`, `format_style=pretty\|json` | selector resolves to one or more containers | no selector match, running container without `force`, delete failure |
+| `delete_container` | Mutating | `selector` | `force=false`, `format_style=pretty\|json`, `purge=false` | selector resolves to one or more containers | no selector match, running container without `force`, delete failure |
 | `execute_container_command` | Mutating | `selector`, `command` | `approval_token` | only registered when `ssh` config exists; container must be running; policy must allow command | tool unavailable without SSH config, no selector match, SSH failure, policy denial |
 | `update_container_ssh_keys` | Mutating/high-risk | `node`, `vmid`, `public_keys` | `mode=append\|replace`, `approval_token` | only registered when `ssh` config exists; target container reachable through configured execution path; high-risk policy must allow the operation | tool unavailable without SSH config, invalid container target, SSH failure, approval required |
 | `get_container_config` | Read-only | `node`, `vmid` | none | target container exists | container not found, node mismatch |
@@ -173,6 +173,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 ### Container Notes
 
+- For `delete_vm` and `delete_container`, `purge=true` also removes HA resources and backup/replication job references. ACLs are removed by Proxmox during normal deletion regardless of this flag. `force=true` waits up to 60 seconds for the guest to report `stopped` after its stop task succeeds; a timeout prevents submission of the delete request, although the earlier stop request can still complete later.
 - `get_containers` exposes flat top-level parameters for stricter MCP clients. The legacy `payload` object is still accepted for existing callers.
 - `update_container_resources.disk_gb` is an additional resize amount for the selected disk, not a full replacement size target.
 - `create_container.start_after_create` controls immediate startup after provisioning.

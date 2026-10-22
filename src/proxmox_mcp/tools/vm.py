@@ -1313,6 +1313,8 @@ Clone Configuration:
         vmid: str,
         force: bool = False,
         approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
     ) -> List[Content]:
         """Delete/remove a virtual machine completely.
         
@@ -1327,7 +1329,10 @@ Clone Configuration:
             node: Host node name (e.g., 'pve1', 'proxmox-node2')
             vmid: VM ID number (e.g., '100', '101')
             force: Force deletion even if VM is running (will stop first)
-            
+            purge: Also remove the VMID from cluster configuration that references
+                it (HA resources, backup and replication jobs). Without it
+                Proxmox refuses to delete a VM that is still an HA resource.
+
         Returns:
             List of Content objects containing deletion result
             
@@ -1357,20 +1362,22 @@ Clone Configuration:
                     stop_upid = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
                     self._register_background_job(tool_name="stop_vm", summary=f"Stop VM {vmid} before deletion", node=node, upid=stop_upid)
                     self._wait_for_task(node, stop_upid)
+                    self._wait_for_guest_stopped(self.proxmox.nodes(node).qemu(vmid))
                     result_text = f"Stopping VM {vmid} ({vm_name}) before deletion...\n"
             else:
                 result_text = f"Deleting VM {vmid} ({vm_name})...\n"
             
             # Delete the VM
-            task_result = self.proxmox.nodes(node).qemu(vmid).delete()
+            delete_params = {"purge": 1} if purge else {}
+            task_result = self.proxmox.nodes(node).qemu(vmid).delete(**delete_params)
             job = self._register_background_job(
                 tool_name="delete_vm",
                 summary=f"Delete VM {vmid} ({vm_name}) on {node}",
                 node=node,
                 upid=task_result,
-                metadata={"vmid": vmid, "force": force},
-                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid}},
-                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(),
+                metadata={"vmid": vmid, "force": force, "purge": purge},
+                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid, "purge": purge}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(**delete_params),
                 cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
             )
             

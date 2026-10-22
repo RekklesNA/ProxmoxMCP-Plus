@@ -65,12 +65,12 @@ def test_delete_tools_reject_guest_disk_volume(tool):
 def test_force_vm_delete_waits_for_stop():
     api = Mock()
     vm = api.nodes.return_value.qemu.return_value
-    vm.status.current.get.return_value = {'status': 'running', 'name': 'audit'}
+    vm.status.current.get.side_effect = [{'status': 'running', 'name': 'audit'}, {'status': 'stopped'}]
     vm.status.stop.post.return_value = 'UPID:pve1:stop'
     api.nodes.return_value.tasks.return_value.status.get.return_value = {'status': 'stopped', 'exitstatus': 'OK'}
     vm.delete.return_value = 'UPID:pve1:delete'
     VMTools(api).delete_vm('pve1', '100', force=True)
-    vm.status.current.get.assert_called_once()
+    assert vm.status.current.get.call_count == 2
     vm.status.stop.post.assert_called_once()
     vm.delete.assert_called_once()
     api.nodes.return_value.tasks.return_value.status.get.assert_called_once()
@@ -79,7 +79,7 @@ def test_force_vm_delete_waits_for_stop():
 def test_force_container_delete_waits_for_stop():
     api = Mock()
     ct = api.nodes.return_value.lxc.return_value
-    ct.status.current.get.return_value = {'status': 'running'}
+    ct.status.current.get.side_effect = [{'status': 'running'}, {'status': 'stopped'}]
     ct.status.stop.post.return_value = 'UPID:pve1:stop'
     api.nodes.return_value.tasks.return_value.status.get.return_value = {'status': 'stopped', 'exitstatus': 'OK'}
     ct.delete.return_value = 'UPID:pve1:delete'
@@ -87,7 +87,7 @@ def test_force_container_delete_waits_for_stop():
     with patch.object(tools, '_resolve_targets', return_value=[('pve1', 100, 'audit')]):
         result = json.loads(tools.delete_container('100', force=True, format_style='json')[0].text)
     assert result[0]['ok'] is True
-    ct.status.current.get.assert_called_once()
+    assert ct.status.current.get.call_count == 2
     api.nodes.return_value.tasks.return_value.status.get.assert_called_once()
 
 

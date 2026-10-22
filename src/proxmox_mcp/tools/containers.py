@@ -798,6 +798,8 @@ class ContainerTools(ProxmoxTool):
         force: bool = False,
         format_style: str = "pretty",
         approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
     ) -> List[Content]:
         """Delete one or more LXC containers.
 
@@ -805,6 +807,8 @@ class ContainerTools(ProxmoxTool):
             selector: Container selector (same grammar as start_container)
             force: Force deletion even if container is running (default: False)
             format_style: Output format ('pretty' or 'json')
+            purge: Also remove the CTID from HA resources, backup and replication
+                jobs (default: False)
 
         Returns:
             List[Content] with deletion results
@@ -837,16 +841,20 @@ class ContainerTools(ProxmoxTool):
                         stop_upid = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
                         self._register_background_job(tool_name="stop_container", summary=f"Stop container {vmid} before deletion", node=node, upid=stop_upid)
                         self._wait_for_task(node, stop_upid)
+                        self._wait_for_guest_stopped(self.proxmox.nodes(node).lxc(vmid))
                         rec["message"] = "Stopped and deleted"
                     else:
                         rec["message"] = "Deleted"
 
                     # Delete the container
-                    task_result = self.proxmox.nodes(node).lxc(vmid).delete()
+                    delete_params = {"purge": 1} if purge else {}
+                    task_result = self.proxmox.nodes(node).lxc(vmid).delete(**delete_params)
                     rec["task_id"] = str(task_result)
 
-                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
-                        return self.proxmox.nodes(node_name).lxc(vmid_value).delete()
+                    def retry_factory(
+                        node_name: str = node, vmid_value: int = vmid, params: Dict[str, Any] = delete_params
+                    ) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).delete(**params)
 
                     def cancel_factory(upid: str, node_name: str = node) -> Any:
                         return self.proxmox.nodes(node_name).tasks(upid).delete()
@@ -856,8 +864,8 @@ class ContainerTools(ProxmoxTool):
                         summary=f"Delete container {vmid} on {node}",
                         node=node,
                         upid=task_result,
-                        metadata={"vmid": vmid, "force": force},
-                        retry_spec={"kind": "ct.delete", "params": {"node": node, "vmid": vmid}},
+                        metadata={"vmid": vmid, "force": force, "purge": purge},
+                        retry_spec={"kind": "ct.delete", "params": {"node": node, "vmid": vmid, "purge": purge}},
                         retry_factory=retry_factory,
                         cancel_factory=cancel_factory,
                     )
