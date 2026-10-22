@@ -506,10 +506,10 @@ Supported workflow areas:
 
 Validation and contract entry points in this repository:
 
-- `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=75`
+- `python -m pytest -q` (see [Contributing](CONTRIBUTING.md#validate-a-change) for the full CI coverage gate)
 - `ruff check .`
 - `mypy src --ignore-missing-imports`
-- `pip-audit -r requirements.txt`
+- `python -m pip_audit -r requirements/runtime.lock --require-hashes --disable-pip --strict`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
