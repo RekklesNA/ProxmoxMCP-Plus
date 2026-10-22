@@ -2,31 +2,43 @@
 
 This guide covers local development, testing, and release work for ProxmoxMCP-Plus.
 
+Start with [Contributing](../../CONTRIBUTING.md) for contribution channels,
+the Code of Conduct, safe test setup, and pull request expectations.
+
 ## Local Setup
 
 ```bash
-uv venv
-uv pip install -e ".[dev]"
-cp proxmox-config/config.example.json proxmox-config/config.json
+python -m venv .venv
+# Activate .venv using the command for your shell (see CONTRIBUTING.md).
+python -m pip install --require-hashes -r requirements/runtime.lock
+python -m pip install -r requirements/dev.in
+python -m pip install --no-deps -e .
 ```
 
-Set `proxmox-config/config.json` to a real environment or use a test config path through `PROXMOX_MCP_CONFIG`.
+Unit tests use mocks and do not require a real Proxmox configuration. For manual
+server work, copy `proxmox-config/config.example.json` to the ignored local
+`proxmox-config/config.json` and use an authorized lab environment, or select a
+dedicated config with `PROXMOX_MCP_CONFIG`. Do not commit credentials.
 
 ## Common Commands
 
 ```bash
-pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=75
+python -m pytest -q
 ruff check .
 mypy src --ignore-missing-imports
-pip-audit -r requirements.txt
-black .
-python main.py
-export PROXMOX_API_KEY="${PROXMOX_API_KEY:-$(openssl rand -hex 32)}"
-python -m proxmox_mcp.openapi_proxy --host 0.0.0.0 --port 8811 -- python main.py
+python -m pip_audit -r requirements/runtime.lock --require-hashes --disable-pip --strict
+python -m build
 ```
 
-The coverage gate starts at 60% so CI tracks regressions while coverage is expanded around high-risk tools and the JobStore/OpenAPI boundary.
-OpenAPI mode requires `PROXMOX_API_KEY` by default. For local unauthenticated development only, set `PROXMOX_ALLOW_NO_AUTH=true`.
+Install `pip-audit` separately if needed. CI requires every runtime statement and
+all branches in its critical modules to be covered. It supplies a disposable
+PostgreSQL service and Docker/Compose; see [the contribution guide](../../CONTRIBUTING.md#validate-a-change)
+for equivalent commands and why local optional-environment skips do not establish
+the full coverage gate. Follow [Dependency updates](../dependency-updates.md) for
+lock-file changes.
+
+For manual server startup and OpenAPI authentication, follow the
+[README](../../README.md#quick-start) and [Compose guide](../docker-compose.md).
 
 ## Project Layout
 
@@ -48,7 +60,7 @@ OpenAPI mode requires `PROXMOX_API_KEY` by default. For local unauthenticated de
 - Keep behavior changes covered by tests
 - Prefer clear, typed interfaces for tool contracts
 - Update docs when a tool, config field, or runtime behavior changes
-- Avoid documenting features that are not actually registered in `server.py`
+- Verify tool availability through the registry and configured capability filters
 
 ## What To Check When Changing Tools
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/RekklesNA/ProxmoxMCP-Plus/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not include exploit details in a public issue.
+  - name: Usage questions and discussions
+    url: https://github.com/RekklesNA/ProxmoxMCP-Plus/discussions
+    about: Ask setup questions or discuss how to use the project.
+  - name: Documentation
+    url: https://github.com/RekklesNA/ProxmoxMCP-Plus#documentation
+    about: Find setup, API, security, and troubleshooting guides.
