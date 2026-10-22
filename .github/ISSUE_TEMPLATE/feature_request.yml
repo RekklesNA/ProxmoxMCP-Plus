@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose an improvement with a concrete use case.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before the implementation. For setup help, use [Discussions](https://github.com/RekklesNA/ProxmoxMCP-Plus/discussions).
+        Do not include credentials, private infrastructure details, or unreported security vulnerabilities.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+      description: Who needs this, what task is blocked, and how do you handle it today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired workflow and relevant MCP tool, API, or configuration changes.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and existing solutions
+      description: Include workarounds or related tools and explain what is missing.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compatibility, permissions, and operational impact
+      description: Note Proxmox version constraints, permissions, destructive effects, or deployment changes if relevant. Write not sure if unknown.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests for this proposal.
+          required: true

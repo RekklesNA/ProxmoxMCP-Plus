@@ -1,0 +1,33 @@
+name: Accessibility barrier
+description: Report a barrier in documentation, tool output, or project workflows.
+title: "[Accessibility]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        See our [accessibility statement](https://github.com/RekklesNA/ProxmoxMCP-Plus/blob/main/ACCESSIBILITY.md).
+        A text description is enough; recordings and screenshots are optional. You do not need to share medical information.
+        This report is public. Remove credentials and identifying details. If this form is inaccessible, use a blank issue or Discussions.
+  - type: textarea
+    id: barrier
+    attributes:
+      label: Task and accessibility barrier
+      description: What were you trying to do, where did the barrier occur, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Relevant environment
+      description: Optionally include project version, client/browser/terminal, OS, assistive technology, input method, or zoom level, with versions where useful.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps or example
+      description: Include a documentation URL or tool name and sanitized output if available. A best-effort description is welcome.
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Workaround or suggested improvement
+      description: Optional. You do not need a proposed fix to report a barrier.

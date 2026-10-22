@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible problem with the server, tools, or deployment.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For suspected vulnerabilities, use [private security reporting](https://github.com/RekklesNA/ProxmoxMCP-Plus/security/advisories/new).
+        Issues are public. Remove API/approval tokens, SSH keys, passwords, private hosts/IPs, and identifying data from logs or screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Include the release or commit and, for Docker, the image tag/digest if known.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options:
+        - MCP stdio
+        - Native MCP HTTP
+        - OpenAPI bridge
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python or Docker version, MCP client/version, and Proxmox VE version as applicable. Do not paste secret configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the affected tool/endpoint, sanitized arguments, and relevant settings such as named targets or read-only mode.
+      placeholder: |
+        1. Configure ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Explain the difference, including any job/task status or error code.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or minimal example
+      description: Optional. Include only the relevant excerpt. Remove secrets and private infrastructure details.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue and removed secrets and private data from this report.
+          required: true

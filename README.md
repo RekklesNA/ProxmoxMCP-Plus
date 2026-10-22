@@ -506,10 +506,10 @@ Supported workflow areas:
 
 Validation and contract entry points in this repository:
 
-- `pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=75`
+- `python -m pytest -q` (see [Contributing](CONTRIBUTING.md#validate-a-change) for the full CI coverage gate)
 - `ruff check .`
 - `mypy src --ignore-missing-imports`
-- `pip-audit -r requirements.txt`
+- `python -m pip_audit -r requirements/runtime.lock --require-hashes --disable-pip --strict`
 - `tests/integration/test_real_contract.py`
 - `tests/scripts/run_real_e2e.py`
 
@@ -635,15 +635,30 @@ Published wiki:
 
 ## Development Checks
 
+See [Contributing](CONTRIBUTING.md) for environment setup, test prerequisites,
+and pull request guidance.
+
 ```bash
-pytest -q --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=75
+python -m pytest -q
 ruff check .
 mypy src --ignore-missing-imports
-pip-audit -r requirements.txt
+python -m pip_audit -r requirements/runtime.lock --require-hashes --disable-pip --strict
 python -m build
 ```
 
-Paramiko 5.0.0 or newer is required so `pip-audit` can run without a `CVE-2026-44405` exception.
+CI also runs PostgreSQL-backed tests and enforces full runtime statement coverage
+and full branch coverage for critical modules. See [Contributing](CONTRIBUTING.md#validate-a-change)
+for the exact coverage commands and [Dependency updates](docs/dependency-updates.md)
+for the reviewed runtime lock workflow.
+
+## Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Accessibility](ACCESSIBILITY.md)
+- [Security Policy](.github/SECURITY.md)
+- [Report an issue](https://github.com/RekklesNA/ProxmoxMCP-Plus/issues/new/choose)
+- [Discussions](https://github.com/RekklesNA/ProxmoxMCP-Plus/discussions)
 
 ## License
 
