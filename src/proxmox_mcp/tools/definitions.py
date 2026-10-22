@@ -225,7 +225,7 @@ Parameters:
 node* - Host node name (e.g. 'pve')
 vmid* - VM ID number (e.g. '998')
 force - Force deletion even if VM is running (optional, default: false)
-purge - Also remove the VMID from HA resources, backup/replication jobs and ACLs
+purge - Also remove the VMID from HA resources and backup/replication jobs
         (optional, default: false). Required when the VM is an HA resource.
 
 This will permanently remove:
@@ -334,7 +334,7 @@ WARNING: This operation permanently deletes the container and all its data!
 Parameters:
 selector* - Container selector: '123' | 'pve1:123' | 'pve1/name' | 'name' | comma list
 force - Force deletion even if container is running (optional, default: false)
-purge - Also remove the CTID from HA resources, backup/replication jobs and ACLs
+purge - Also remove the CTID from HA resources and backup/replication jobs
         (optional, default: false). Required when the container is an HA resource.
 
 This will permanently remove:

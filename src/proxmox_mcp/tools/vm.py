@@ -1312,8 +1312,9 @@ Clone Configuration:
         node: str,
         vmid: str,
         force: bool = False,
-        purge: bool = False,
         approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
     ) -> List[Content]:
         """Delete/remove a virtual machine completely.
         
@@ -1329,7 +1330,7 @@ Clone Configuration:
             vmid: VM ID number (e.g., '100', '101')
             force: Force deletion even if VM is running (will stop first)
             purge: Also remove the VMID from cluster configuration that references
-                it (HA resources, backup and replication jobs, ACLs). Without it
+                it (HA resources, backup and replication jobs). Without it
                 Proxmox refuses to delete a VM that is still an HA resource.
 
         Returns:

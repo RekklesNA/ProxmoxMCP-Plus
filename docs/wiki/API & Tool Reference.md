@@ -173,6 +173,7 @@ Selector-based tools fail when no container matches the selector or when a bulk 
 
 ### Container Notes
 
+- For `delete_vm` and `delete_container`, `purge=true` also removes HA resources and backup/replication job references. ACLs are removed by Proxmox during normal deletion regardless of this flag. `force=true` waits up to 60 seconds for the guest to report `stopped` after its stop task succeeds; a timeout prevents submission of the delete request, although the earlier stop request can still complete later.
 - `get_containers` exposes flat top-level parameters for stricter MCP clients. The legacy `payload` object is still accepted for existing callers.
 - `update_container_resources.disk_gb` is an additional resize amount for the selected disk, not a full replacement size target.
 - `create_container.start_after_create` controls immediate startup after provisioning.

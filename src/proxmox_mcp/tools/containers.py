@@ -797,8 +797,9 @@ class ContainerTools(ProxmoxTool):
         selector: str,
         force: bool = False,
         format_style: str = "pretty",
-        purge: bool = False,
         approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
     ) -> List[Content]:
         """Delete one or more LXC containers.
 
@@ -807,7 +808,7 @@ class ContainerTools(ProxmoxTool):
             force: Force deletion even if container is running (default: False)
             format_style: Output format ('pretty' or 'json')
             purge: Also remove the CTID from HA resources, backup and replication
-                jobs and ACLs (default: False)
+                jobs (default: False)
 
         Returns:
             List[Content] with deletion results
