@@ -14,6 +14,7 @@ COPY requirements/runtime.lock ./requirements/runtime.lock
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir --require-hashes -r requirements/runtime.lock \
     && python -m pip install --no-cache-dir --no-deps . \
+    && python -m pip check \
     && python -m pip uninstall --yes pip setuptools wheel
 
 COPY . .

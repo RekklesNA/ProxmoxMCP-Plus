@@ -5,6 +5,9 @@ import re
 import tomllib
 from pathlib import Path
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -54,6 +57,22 @@ def test_setup_metadata_tracks_pyproject_runtime_contract():
     assert set(setup_kwargs["entry_points"]["console_scripts"]) == {
         f"{name}={target}" for name, target in pyproject["project"]["scripts"].items()
     }
+
+
+def test_runtime_lock_satisfies_package_dependency_constraints():
+    """A green source install must not hide an incompatible Docker runtime lock."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = (ROOT / "requirements/runtime.lock").read_text(encoding="utf-8")
+    pins = {
+        canonicalize_name(name): version
+        for name, version in re.findall(r"^([A-Za-z0-9_.-]+)==([^\s;\\]+)", lock, re.MULTILINE)
+    }
+    for raw in project["project"]["dependencies"]:
+        requirement = Requirement(raw)
+        version = pins[canonicalize_name(requirement.name)]
+        assert requirement.specifier.contains(version), (
+            f"runtime.lock pins {requirement.name}=={version}, incompatible with {raw}"
+        )
 
 
 def test_ghcr_release_builds_pinned_multi_arch_images():

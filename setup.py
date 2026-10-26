@@ -26,7 +26,7 @@ setup(
         "mcpo>=0.0.17",
         "paramiko>=5.0.0,<6.0.0",
         "anyio>=4.0.0",
-        "pydantic-monty==1.1.0",
+        "pydantic-monty==1.2.0",
     ],
     extras_require={
         "dev": [
@@ -38,7 +38,7 @@ setup(
             "pytest-asyncio>=1.4.0,<2.0.0",
             "ruff>=0.1.0,<0.18.0",
             "build>=1.2.0,<2.0.0",
-            "types-paramiko>=4.0.0.20260508,<5.0.0",
+            "types-paramiko>=4.0.0.20260508,<6.0.0",
             "types-requests>=2.31.0,<3.0.0",
         ],
     },
