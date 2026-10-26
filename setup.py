@@ -26,7 +26,7 @@ setup(
         "mcpo>=0.0.17",
         "paramiko>=5.0.0,<6.0.0",
         "anyio>=4.0.0",
-        "pydantic-monty==1.1.0",
+        "pydantic-monty==1.2.0",
     ],
     extras_require={
         "dev": [
