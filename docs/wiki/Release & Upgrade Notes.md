@@ -18,6 +18,14 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.7`
+
+- Adds optional HA-aware guest deletion with `purge`, preserves positional approval arguments, and waits for the actual stopped state before forced deletion.
+- Retains purge intent across persisted retries; older recipes keep their previous behavior. No database migration is required.
+- Updates Monty to 1.2.0, refreshes the certifi trust bundle, updates pinned CI/publishing actions and typing stubs, and rejects incompatible runtime locks during validation and image builds.
+- Adds community contribution, conduct, issue/PR, and accessibility guidance. Restart workers and reconnect MCP clients after upgrading.
+- See [v0.6.7 notes](../releases/v0.6.7.md) for upgrade and irreversible-deletion behavior.
+
 ### Version `0.6.6`
 
 - Fixes #183: Compose host ports default to loopback and both modes are opt-in (`openapi` / `mcp-http`). An inactive service no longer requires its credential during interpolation.
