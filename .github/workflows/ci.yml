@@ -120,6 +120,7 @@ jobs:
         pip install -r requirements/dev.in
         pip install pip-audit
         pip install --no-deps .
+        python -m pip check
 
     - name: Smoke Test (Import Server)
       run: |
