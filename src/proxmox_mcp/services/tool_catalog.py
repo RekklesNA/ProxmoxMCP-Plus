@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from mcp.types import ToolAnnotations
+
 BUILTIN_TOOL_NAMES = frozenset(
     {
         "list_targets",
@@ -74,3 +76,96 @@ BUILTIN_TOOL_NAMES = frozenset(
         "get_guest_firewall_log",
     }
 )
+
+
+def _read_only(*, open_world: bool = True) -> ToolAnnotations:
+    return ToolAnnotations(readOnlyHint=True, openWorldHint=open_world)
+
+
+def _write(
+    *, destructive: bool, idempotent: bool = False, open_world: bool = True
+) -> ToolAnnotations:
+    return ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=destructive,
+        idempotentHint=idempotent,
+        openWorldHint=open_world,
+    )
+
+
+# MCP tool annotations advertised in tools/list. Clients may use readOnlyHint to
+# skip confirmation for read-only tools. The read-only set must stay aligned with
+# the tools allowed on read-only targets (_READ_ONLY_TOOLS plus list_targets).
+BUILTIN_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
+    # Read-only queries.
+    "list_targets": _read_only(),
+    "get_nodes": _read_only(),
+    "list_bridges": _read_only(),
+    "get_node_status": _read_only(),
+    "get_node_time": _read_only(),
+    "get_node_diagnostics": _read_only(),
+    "get_vms": _read_only(),
+    "get_vm_config": _read_only(),
+    "preflight_vm_migration": _read_only(),
+    "get_vm_ip_addresses": _read_only(),
+    "get_next_vmid": _read_only(),
+    "get_storage": _read_only(),
+    "get_node_storage": _read_only(),
+    "get_cluster_status": _read_only(),
+    "get_cluster_join_info": _read_only(),
+    "list_jobs": _read_only(open_world=False),
+    "get_job": _read_only(),
+    "poll_job": _read_only(),
+    "get_containers": _read_only(),
+    "preflight_container_migration": _read_only(),
+    "get_container_config": _read_only(),
+    "get_container_ip": _read_only(),
+    "list_snapshots": _read_only(),
+    "list_isos": _read_only(),
+    "list_templates": _read_only(),
+    "list_backups": _read_only(),
+    "get_node_syslog": _read_only(),
+    "get_task_log": _read_only(),
+    "get_cluster_log": _read_only(),
+    "get_node_firewall_log": _read_only(),
+    "get_guest_firewall_log": _read_only(),
+    # Additive operations.
+    "create_vm": _write(destructive=False),
+    "clone_vm": _write(destructive=False),
+    "import_cloud_image": _write(destructive=False),
+    "start_vm": _write(destructive=False),
+    "create_container": _write(destructive=False),
+    "start_container": _write(destructive=False),
+    "create_snapshot": _write(destructive=False),
+    "download_iso": _write(destructive=False),
+    "download_template": _write(destructive=False),
+    "create_backup": _write(destructive=False),
+    # Operations that overwrite, interrupt, delete or run arbitrary commands.
+    "set_vm_description": _write(destructive=True, idempotent=True),
+    "update_vm_config": _write(destructive=True, idempotent=True),
+    "configure_vm_serial_console": _write(destructive=True, idempotent=True),
+    "set_container_description": _write(destructive=True, idempotent=True),
+    "update_container_resources": _write(destructive=True, idempotent=True),
+    "update_container_network": _write(destructive=True, idempotent=True),
+    "update_container_ssh_keys": _write(destructive=True),
+    "migrate_vm": _write(destructive=True),
+    "migrate_container": _write(destructive=True),
+    "stop_vm": _write(destructive=True),
+    "shutdown_vm": _write(destructive=True),
+    "reset_vm": _write(destructive=True),
+    "delete_vm": _write(destructive=True),
+    "stop_container": _write(destructive=True),
+    "restart_container": _write(destructive=True),
+    "delete_container": _write(destructive=True),
+    "execute_vm_command": _write(destructive=True),
+    "execute_container_command": _write(destructive=True),
+    "execute_node_command": _write(destructive=True),
+    "rollback_snapshot": _write(destructive=True),
+    "delete_snapshot": _write(destructive=True),
+    "delete_iso": _write(destructive=True),
+    "restore_backup": _write(destructive=True),
+    "delete_backup": _write(destructive=True),
+    "cancel_job": _write(destructive=True),
+    "retry_job": _write(destructive=True),
+    "reconcile_job": _write(destructive=True, open_world=False),
+}

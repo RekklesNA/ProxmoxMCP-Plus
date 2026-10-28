@@ -54,6 +54,12 @@ settings filter tools before MCP registration and OpenAPI route generation, incl
 SSH configuration. Filtering does not disable direct operational OpenAPI routes or
 replace Proxmox RBAC. See the [Operator Guide](Operator-Guide) for exact configuration.
 
+Every built-in tool advertises MCP tool annotations in `tools/list`. `readOnlyHint` is
+`true` exactly for the tools permitted on read-only targets, so MCP clients can tell
+lookups from operations that change state. Mutating tools also set `destructiveHint`,
+`idempotentHint`, and `openWorldHint`. Annotations are hints for clients; they do not
+replace target, command, or approval policy.
+
 ### Authentication and Authorization
 
 - Proxmox API access requires valid legacy `proxmox` and `auth` sections or a named `targets` configuration.
@@ -302,6 +308,7 @@ When adding or changing a tool, update all of the following:
 - tool implementation under `src/proxmox_mcp/tools/`
 - registration in the built-in plugin layer under `src/proxmox_mcp/services/builtin_tool_plugins.py`
 - human-facing description in `src/proxmox_mcp/tools/definitions.py`
+- MCP annotations in `src/proxmox_mcp/services/tool_catalog.py`
 - tests under `tests/`
 - this page if parameters, prerequisites, or availability changed
 
