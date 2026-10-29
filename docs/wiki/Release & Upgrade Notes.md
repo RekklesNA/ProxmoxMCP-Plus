@@ -18,6 +18,13 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.8`
+
+- Advertises MCP annotations for all 65 built-in tools, with conservative hints for interrupting backup modes, guest power changes and incremental disk growth.
+- Adds annotations to Code Mode: local search/schema discovery are read-only; execution may invoke destructive, non-idempotent external operations.
+- Retains explicit plugin overrides and server-side permission, target, command and approval enforcement. Restart workers and reconnect clients to refresh tool discovery.
+- No configuration or database migration is required. See [v0.6.8 notes](../releases/v0.6.8.md).
+
 ### Version `0.6.7`
 
 - Adds optional HA-aware guest deletion with `purge`, preserves positional approval arguments, and waits for the actual stopped state before forced deletion.
