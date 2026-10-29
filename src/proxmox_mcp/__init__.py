@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .server import ProxmoxMCPServer
 
-__version__ = "0.6.7"
+__version__ = "0.6.8"
 __all__ = ["ProxmoxMCPServer"]
 
 

@@ -12,7 +12,7 @@ import anyio
 from proxmox_mcp.security.access import authorize_client, client_principal
 from proxmox_mcp.security.resources import validate_segment, validate_guest_id
 
-from .tool_catalog import BUILTIN_TOOL_NAMES
+from .tool_catalog import BUILTIN_TOOL_ANNOTATIONS, BUILTIN_TOOL_NAMES
 from .dispatch import DispatchGate
 
 ToolFunction = TypeVar("ToolFunction", bound=Callable[..., Any])
@@ -170,7 +170,8 @@ class ToolRegistry:
                 self._mcp.tool(
                     name=name,
                     description=description,
-                    annotations=annotations,
+                    annotations=annotations if annotations is not None
+                    else BUILTIN_TOOL_ANNOTATIONS.get(tool_name),
                 )(_async_dispatch(func, self._authorize, tool_name, self._acquire))
                 self.registered_tools.add(tool_name)
             return func
