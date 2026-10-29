@@ -44,6 +44,14 @@ async def test_protocol_hides_and_blocks_domain_tools(mode):
     handler = mode.server.mcp._mcp_server.request_handlers[ListToolsRequest]
     result = (await handler(ListToolsRequest(method="tools/list"))).root
     assert {t.name for t in result.tools} == {"proxmox_code_search", "proxmox_code_get_schema", "proxmox_code_execute"}
+    for tool in result.tools:
+        assert tool.annotations is not None
+        execute = tool.name == "proxmox_code_execute"
+        assert tool.annotations.readOnlyHint is (not execute)
+        assert tool.annotations.openWorldHint is execute
+        if execute:
+            assert tool.annotations.destructiveHint is True
+            assert tool.annotations.idempotentHint is False
     result = await protocol_call(mode, "get_nodes", {})
     assert result.isError
     assert "Direct domain tool" in result.content[0].text

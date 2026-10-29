@@ -323,6 +323,10 @@ async def test_stdio_protocol_lists_only_allowlisted_tools(tmp_path):
             result = await session.list_tools()
 
     assert {tool.name for tool in result.tools} == {"get_nodes", "get_vms"}
+    for tool in result.tools:
+        assert tool.annotations is not None
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.openWorldHint is True
 
 
 @pytest.mark.asyncio

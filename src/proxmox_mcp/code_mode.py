@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from pydantic_core import to_jsonable_python
 from proxmox_mcp.security.access import authorize_client, client_principal, permitted_targets
 
@@ -80,7 +81,8 @@ class CodeMode:
     def register(self) -> None:
         mcp = self.server.mcp
 
-        @mcp.tool(name="proxmox_code_search", description="Search Proxmox MCP tools by name or description.")
+        @mcp.tool(name="proxmox_code_search", description="Search Proxmox MCP tools by name or description.",
+                  annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
         async def code_search(query: str, category: str | None = None, limit: int = 10) -> dict[str, Any]:
             query_l = query.lower().strip()
             limit = max(1, min(limit, 20))
@@ -96,14 +98,17 @@ class CodeMode:
                 results.append(item)
             return {"success": True, "data": results[:limit]}
 
-        @mcp.tool(name="proxmox_code_get_schema", description="Return exact input schemas for discovered Proxmox tools.")
+        @mcp.tool(name="proxmox_code_get_schema", description="Return exact input schemas for discovered Proxmox tools.",
+                  annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
         async def code_get_schema(names: list[str]) -> dict[str, Any]:
             tools = self._runtime_tools()
             if not names or any(name not in tools for name in names):
                 return {"success": False, "error": "Unknown or unavailable Proxmox tool."}
             return {"success": True, "data": {name: _schema(tools[name]) for name in names}}
 
-        @mcp.tool(name="proxmox_code_execute", description="Execute sandboxed async code using call_tool(name, arguments).")
+        @mcp.tool(name="proxmox_code_execute", description="Execute sandboxed async code using call_tool(name, arguments).",
+                  annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True,
+                                              idempotentHint=False, openWorldHint=True))
         async def code_execute(code: str) -> dict[str, Any]:
             return await self.execute(code)
 

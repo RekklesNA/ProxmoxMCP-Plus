@@ -60,6 +60,21 @@ lookups from operations that change state. Mutating tools also set `destructiveH
 `idempotentHint`, and `openWorldHint`. Annotations are hints for clients; they do not
 replace target, command, or approval policy.
 
+Hints describe the whole tool, including optional arguments: resource updates are
+not idempotent because `disk_gb` grows the disk by an increment on every call.
+Backup creation is destructive because `mode=stop` or `mode=suspend` can interrupt
+a guest. Starting guests is conservatively destructive because it changes power
+state and starts workloads. Queries may maintain local observation caches or job
+audit records, but do not submit Proxmox mutations. Local target discovery and job
+listing have `openWorldHint=false`.
+
+In Code Mode, search and schema lookup are read-only and closed-world; execution
+is potentially destructive, non-idempotent and open-world because it can invoke
+mutating domain tools. Explicit plugin annotations override built-in defaults;
+unknown extension tools retain the MCP defaults. Clients must trust the server
+before relying on hints and must not treat them as authorization or a guarantee
+that retrying an asynchronous operation is safe.
+
 ### Authentication and Authorization
 
 - Proxmox API access requires valid legacy `proxmox` and `auth` sections or a named `targets` configuration.

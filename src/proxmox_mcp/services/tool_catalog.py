@@ -98,7 +98,7 @@ def _write(
 # the tools allowed on read-only targets (_READ_ONLY_TOOLS plus list_targets).
 BUILTIN_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     # Read-only queries.
-    "list_targets": _read_only(),
+    "list_targets": _read_only(open_world=False),
     "get_nodes": _read_only(),
     "list_bridges": _read_only(),
     "get_node_status": _read_only(),
@@ -133,19 +133,22 @@ BUILTIN_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     "create_vm": _write(destructive=False),
     "clone_vm": _write(destructive=False),
     "import_cloud_image": _write(destructive=False),
-    "start_vm": _write(destructive=False),
     "create_container": _write(destructive=False),
-    "start_container": _write(destructive=False),
     "create_snapshot": _write(destructive=False),
     "download_iso": _write(destructive=False),
     "download_template": _write(destructive=False),
-    "create_backup": _write(destructive=False),
     # Operations that overwrite, interrupt, delete or run arbitrary commands.
+    # A start changes power state and starts guest workloads, not just inventory.
+    "start_vm": _write(destructive=True),
+    "start_container": _write(destructive=True),
+    # Backup mode=stop/suspend can interrupt a running guest.
+    "create_backup": _write(destructive=True),
     "set_vm_description": _write(destructive=True, idempotent=True),
     "update_vm_config": _write(destructive=True, idempotent=True),
     "configure_vm_serial_console": _write(destructive=True, idempotent=True),
     "set_container_description": _write(destructive=True, idempotent=True),
-    "update_container_resources": _write(destructive=True, idempotent=True),
+    # disk_gb is an increment (+NG), so repeating a call grows the disk again.
+    "update_container_resources": _write(destructive=True),
     "update_container_network": _write(destructive=True, idempotent=True),
     "update_container_ssh_keys": _write(destructive=True),
     "migrate_vm": _write(destructive=True),
