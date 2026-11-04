@@ -18,6 +18,13 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.9`
+
+- Updates Monty and its client/runtime packages to 1.4.0, including the universal runtime lock and hashes.
+- Allows mypy 2.x and updates the pinned GHCR login action to 4.7.0.
+- No configuration or database migration is required. Restart workers or recreate containers and reconnect clients.
+- See [v0.6.9 notes](../releases/v0.6.9.md) for upgrade and rollback steps.
+
 ### Version `0.6.8`
 
 - Advertises MCP annotations for all 65 built-in tools, with conservative hints for interrupting backup modes, guest power changes and incremental disk growth.
