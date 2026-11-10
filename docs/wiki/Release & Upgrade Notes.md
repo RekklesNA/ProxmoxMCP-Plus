@@ -20,6 +20,7 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ### Version `0.6.10`
 
+- Updates Monty, its client and runtime packages to 1.5.0, including the universal runtime lock and hashes.
 - Updates the pinned GHCR login action and aligns CodeQL init and analyze versions.
 - Groups future CodeQL action updates to prevent incompatible mixed versions.
 - No configuration or database migration is required. See [v0.6.10 notes](../releases/v0.6.10.md).
