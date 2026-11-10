@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="proxmox-mcp-plus",
-    version="0.6.9",
+    version="0.6.10",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.11",
@@ -26,7 +26,7 @@ setup(
         "mcpo>=0.0.17",
         "paramiko>=5.0.0,<6.0.0",
         "anyio>=4.0.0",
-        "pydantic-monty==1.4.0",
+        "pydantic-monty==1.5.0",
     ],
     extras_require={
         "dev": [
