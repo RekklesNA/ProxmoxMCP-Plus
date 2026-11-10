@@ -29,6 +29,8 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
+      codeql-action:
+        patterns: ["github/codeql-action*"]
       actions-compatible:
         patterns: ["*"]
         update-types: ["minor", "patch"]
