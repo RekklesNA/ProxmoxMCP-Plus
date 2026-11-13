@@ -49,9 +49,9 @@ async def test_protocol_hides_and_blocks_domain_tools(mode):
         execute = tool.name == "proxmox_code_execute"
         assert tool.annotations.readOnlyHint is (not execute)
         assert tool.annotations.openWorldHint is execute
+        assert tool.annotations.idempotentHint is (not execute)
         if execute:
             assert tool.annotations.destructiveHint is True
-            assert tool.annotations.idempotentHint is False
     result = await protocol_call(mode, "get_nodes", {})
     assert result.isError
     assert "Direct domain tool" in result.content[0].text

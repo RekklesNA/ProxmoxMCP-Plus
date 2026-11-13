@@ -56,7 +56,8 @@ replace Proxmox RBAC. See the [Operator Guide](Operator-Guide) for exact configu
 
 Every built-in tool advertises MCP tool annotations in `tools/list`. `readOnlyHint` is
 `true` exactly for the tools permitted on read-only targets, so MCP clients can tell
-lookups from operations that change state. Mutating tools also set `destructiveHint`,
+lookups from operations that change state. Read-only tools also set
+`idempotentHint=true` and `openWorldHint`. Mutating tools also set `destructiveHint`,
 `idempotentHint`, and `openWorldHint`. Annotations are hints for clients; they do not
 replace target, command, or approval policy.
 
