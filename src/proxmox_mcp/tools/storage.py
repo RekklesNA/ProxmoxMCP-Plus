@@ -62,7 +62,8 @@ class StorageTools(ProxmoxTool):
             restricted = []
 
         if restricted:
-            preferred = [node for node in node_names if node in set(restricted)]
+            allowed = set(restricted)
+            preferred = [node for node in node_names if node in allowed]
             return preferred or restricted
         return list(node_names)
 

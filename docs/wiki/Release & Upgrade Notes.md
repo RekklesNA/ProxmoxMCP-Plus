@@ -18,14 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
-### Version `0.6.11`
+### Version `0.7.0`
 
-- Requires OpenTelemetry API 1.45.2 or later and updates the container lock.
-- Persists task status when only the Proxmox task log is unavailable. The last observed progress is retained.
-- Corrects MCP annotations for target discovery, read-only tools and Code Mode lookups.
-- Keeps OpenAPI rate-limit windows stable across clock corrections and limits the files copied into the Docker image.
-- See [v0.6.11 notes](../releases/v0.6.11.md).
-
+- Requires 100% statement and branch coverage across every runtime module on Python 3.11 and 3.12.
+- Keeps stopped-container memory at zero instead of replacing it with historical RRD usage.
+- Includes the OpenTelemetry security update, task polling, tool annotations, OpenAPI rate-limit and image-build fixes.
+- See [v0.7.0 notes](../releases/v0.7.0.md).
 
 ### Version `0.6.10`
 

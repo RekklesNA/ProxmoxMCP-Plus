@@ -367,7 +367,7 @@ class ContainerTools(ProxmoxTool):
                         rrd_cpu, rrd_mem, rrd_maxmem = self._rrd_last(nname, vmid_int)
                         if cpu_pct == 0.0 and rrd_cpu is not None:
                             cpu_pct = rrd_cpu
-                        if mem_bytes == 0 and rrd_mem is not None:
+                        if status_str != "stopped" and mem_bytes == 0 and rrd_mem is not None:
                             mem_bytes = rrd_mem
                         if maxmem_bytes == 0 and rrd_maxmem:
                             maxmem_bytes = rrd_maxmem

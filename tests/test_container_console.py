@@ -317,23 +317,25 @@ def test_use_sudo_prefix(MockSSHClient, manager, ssh_cfg):
 
 
 @patch("proxmox_mcp.tools.console.container_manager.paramiko.SSHClient")
-def test_password_auth_used_when_no_key(MockSSHClient, manager, ssh_cfg):
-    """Falls back to password auth when key_file is None."""
+@pytest.mark.parametrize("password", ["fixture-password", None])
+def test_paramiko_uses_password_or_default_credentials(MockSSHClient, manager, ssh_cfg, password):
     ssh_cfg.key_file = None
-    ssh_cfg.password = "s3cr3t"
+    ssh_cfg.password = password
     mock_client = _make_ssh_client(stdout_data=b"ok\n", exit_code=0)
     MockSSHClient.return_value = mock_client
 
     manager.execute_command("pve1", "101", "echo ok")
 
     connect_kwargs = mock_client.connect.call_args[1]
-    assert connect_kwargs.get("password") == "s3cr3t"
+    assert connect_kwargs.get("password") == password
+    assert ("password" in connect_kwargs) is (password is not None)
     assert "key_filename" not in connect_kwargs
 
 
 @patch("proxmox_mcp.tools.console.container_manager.run_bounded")
 def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
     ssh_cfg.prefer_ssh_client = True
+    ssh_cfg.port = None
     ssh_cfg.host_overrides = {"pve1": "ahg1"}
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
 
@@ -341,6 +343,7 @@ def test_execute_command_via_system_ssh(mock_run, manager, ssh_cfg):
 
     assert result["success"] is True
     ssh_command = mock_run.call_args[0][0]
+    assert "-p" not in ssh_command
     assert ssh_command[-2] == "ahg1"
     assert "/usr/sbin/pct exec" in ssh_command[-1]
     # The argv must include "--" before the target so OpenSSH cannot reinterpret

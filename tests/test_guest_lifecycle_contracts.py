@@ -104,6 +104,70 @@ def test_container_selector_grammar_deduplicates_and_rejects_partial_inventory(l
         tools._resolve_targets('101')
 
 
+def test_container_selectors_skip_unmatched_nodes_and_entries_without_ids(lifecycle):
+    api, _ = lifecycle
+    tools = ContainerTools(api)
+    tools._list_ct_pairs = Mock(return_value=[
+        ('other', {'vmid': 202, 'name': 'other'}),
+        ('pve', {'vmid': 101, 'name': 'web'}),
+        ('pve', {'name': 'missing-id'}),
+    ])
+    assert tools._resolve_targets('pve:999,pve:101,pve/web,pve/missing-id,101,missing-id') == [
+        ('pve', 101, 'web'),
+    ]
+
+
+def test_container_creation_ignores_other_guest_ids(lifecycle):
+    api, _ = lifecycle
+    node = api.nodes.return_value
+    node.storage.get.return_value = [{'storage': 'local', 'content': 'rootdir', 'active': 1}]
+    node.lxc.create.return_value = 'UPID:pve:create'
+    ContainerTools(api).create_container('pve', '102', 'local:vztmpl/a.tar')
+    assert node.lxc.create.call_args.kwargs['vmid'] == 102
+
+
+def test_container_ipv4_primary_is_stable_with_multiple_addresses(lifecycle):
+    api, _ = lifecycle
+    guest = api.nodes.return_value.lxc.return_value
+    guest.config.get.return_value = {}
+    guest.interfaces.get.return_value = [
+        {'name': 'eth0', 'inet': '192.0.2.1/24'},
+        {'name': 'eth1', 'inet': '192.0.2.2/24', 'inet6': '2001:db8::1/64'},
+    ]
+    data = json.loads(ContainerTools(api).get_container_ip('pve', '101')[0].text)
+    assert data['primary_ip'] == '192.0.2.1'
+    assert 'inet6' not in data['interfaces'][0]
+    assert data['interfaces'][1]['inet6'] == '2001:db8::1/64'
+
+
+def test_container_stats_keep_live_cpu_and_memory_when_rrd_fills_only_capacity(lifecycle):
+    api, _ = lifecycle
+    tools = ContainerTools(api)
+    tools._list_ct_pairs = Mock(return_value=[('pve', {'vmid': 101}), ('pve', {'name': 'pending'})])
+    guest = api.nodes.return_value.lxc.return_value
+    guest.status.current.get.return_value = {'status': 'running', 'cpu': 0.25, 'mem': 256}
+    guest.config.get.return_value = {'memory': -1}
+    guest.rrddata.get.return_value = [{'cpu': 0.8, 'mem': 512, 'maxmem': 1024**3}]
+    data = json.loads(tools.get_containers(include_stats=True, format_style='json')[0].text)
+    assert data[0]['cpu_pct'] == 25
+    assert data[0]['mem_bytes'] == 256
+    assert data[0]['maxmem_bytes'] == 1024**3
+    assert 'raw_status' not in data[0]
+    assert data[1]['vmid'] is None
+
+
+@pytest.mark.parametrize("status, expected", [("running", 512), ("stopped", 0)])
+def test_historical_memory_fills_running_stats_only(lifecycle, status, expected):
+    api, _ = lifecycle
+    guest = api.nodes.return_value.lxc.return_value
+    guest.status.current.get.return_value = {"status": status, "mem": 0}
+    guest.config.get.return_value = {}
+    guest.rrddata.get.return_value = [{"cpu": 0.1, "mem": 512, "maxmem": 1024}]
+    rows = json.loads(ContainerTools(api).get_containers(include_stats=True, format_style="json")[0].text)
+    assert rows[0]["mem_bytes"] == expected
+    assert rows[0]["maxmem_bytes"] == 1024
+
+
 def test_container_shapes_and_inventory_fallback(lifecycle):
     api, _ = lifecycle
     assert _b2h('bad') == '0.00 B'

@@ -63,6 +63,11 @@ async def test_active_clients_cannot_be_evicted_to_make_capacity(oauth_database_
         await store.store_authorization_code(code='pending', client_id='active', expires_at=now + 600, payload='{}')
         with pytest.raises(OverflowError):
             await store.register_client(client_id='new', payload='{}', max_registered_clients=1, now=now)
+        await store.register_client(
+            client_id='active', payload='{"name": "updated"}', max_registered_clients=1, now=now,
+        )
+        assert '"updated"' in await store.get_client_payload('active')
+        assert await store.get_authorization_code_payload(client_id='active', code='pending', now=now)
 
 
 @pytest.mark.asyncio

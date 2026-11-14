@@ -61,6 +61,10 @@ def test_snapshot_listing_handles_optional_fields_and_bad_dates(backend):
     assert 'Created: bad' in result
     assert 'Parent: older' in result
     assert 'RAM State: Included' in result
+    guest.snapshot.get.return_value = [{'name': 'minimal'}]
+    minimal = tools.list_snapshots('pve', '100', vm_type='lxc')[0].text
+    assert 'minimal' in minimal
+    assert all(label not in minimal for label in ('Description:', 'Created:', 'RAM State:'))
     guest.snapshot.get.side_effect = RuntimeError('offline')
     with pytest.raises(RuntimeError):
         tools.list_snapshots('pve', '100', vm_type='lxc')
@@ -96,6 +100,8 @@ def test_iso_and_template_inventory_preserves_completeness(backend):
     for method in [tools.list_templates, tools.list_isos]:
         text = method('pve', 'local')[0].text
         assert 'No ' in text and 'pve' in text and 'local' in text
+        assert ' on node ' not in method(storage='local')[0].text
+        assert ' in storage ' not in method(node='pve')[0].text
     api.nodes.get.return_value = [{}, {'node': 'pve'}]
     api.nodes.return_value.storage.get.return_value = [{}, {'storage': 'other', 'content': 'iso'}, {'storage': 'local', 'content': 'backup'}]
     assert tools._get_storage_content('iso', storage='local') == []
@@ -111,6 +117,7 @@ def test_iso_and_template_inventory_preserves_completeness(backend):
 def test_storage_payload_helpers_unwrap_expected_shapes(module):
     assert module._as_list({'data': [1]}) == [1]
     assert module._as_list({'data': None}) == []
+    assert module._as_list(None) == []
     if hasattr(module, '_get'):
         assert module._get(None, 'x', 1) == 1
     if hasattr(module, '_b2h'):
@@ -126,6 +133,9 @@ def test_storage_status_selection_and_failure_contract(backend):
     assert tools._candidate_nodes_for_storage({'nodes': ['missing']}, ['pve']) == ['missing']
     assert tools._candidate_nodes_for_storage({'nodes': ' pve , other '}, ['pve']) == ['pve']
     assert tools._storage_status({}, ['pve']) is None
+    api.nodes.reset_mock()
+    assert tools._storage_status({'storage': 'local'}, []) is None
+    api.nodes.assert_not_called()
     api.storage.get.side_effect = RuntimeError('offline')
     tools._call_with_retry = lambda operation, call: call()
     with pytest.raises(RuntimeError):
@@ -148,3 +158,26 @@ def test_backup_inventory_and_action_errors(backend):
     with pytest.raises(RuntimeError):
         tools.restore_backup('pve', 'local:backup/vzdump-qemu-100.tar.zst', '100', 'local')
     assert json.loads(SnapshotTools(api)._json_fmt({'success': True})[0].text)['success'] is True
+
+
+def test_qemu_disk_only_snapshot_omits_optional_parameters(backend):
+    api, _ = backend
+    guest = api.nodes.return_value.qemu.return_value
+    guest.snapshot.post.return_value = 'UPID:pve:snapshot'
+    result = SnapshotTools(api).create_snapshot('pve', '100', 'base')
+    guest.snapshot.post.assert_called_once_with(snapname='base')
+    assert 'Description:' not in result[0].text
+    assert 'RAM State: Included' not in result[0].text
+
+
+def test_synchronous_backup_delete_omits_task_metadata(backend):
+    api, store = backend
+    endpoint = api.nodes.return_value.storage.return_value.content
+    volume = 'local:backup/vzdump-qemu-100.tar.zst'
+    endpoint.get.return_value = [{'volid': volume, 'content': 'backup'}]
+    endpoint.return_value.delete.return_value = None
+    result = BackupTools(api, job_store=store).delete_backup('pve', 'local', volume)
+    endpoint.assert_called_once_with(volume)
+    endpoint.return_value.delete.assert_called_once_with()
+    assert 'Task ID:' not in result[0].text
+    assert store.list_jobs() == []

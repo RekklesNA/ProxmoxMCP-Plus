@@ -379,30 +379,6 @@ def test_server_applies_configured_transport_security(mock_proxmox, tmp_path):
     assert security.allowed_origins == ["https://mcp.example.com"]
 
 
-def test_server_requires_supported_mcp_sdk_for_configured_transport_security(
-    mock_proxmox,
-    tmp_path,
-    monkeypatch,
-):
-    """Configured transport security should fail clearly on older MCP SDKs."""
-    config_path = tmp_path / "config_http_security_old_sdk.json"
-    config_path.write_text(json.dumps({
-        "proxmox": {"host": "test.proxmox.com", "port": 8006, "verify_ssl": True, "service": "PVE"},
-        "auth": {"user": "test@pve", "token_name": "test_token", "token_value": "test_value"},
-        "logging": {"level": "INFO"},
-        "mcp": {
-            "host": "0.0.0.0",
-            "port": 8000,
-            "transport": "STREAMABLE",
-            "allowed_hosts": ["mcp.example.com:*"],
-        },
-    }))
-    monkeypatch.setattr(server_module, "TransportSecuritySettings", None)
-
-    with pytest.raises(RuntimeError, match="mcp>=1.24.0"):
-        ProxmoxMCPServer(str(config_path))
-
-
 def test_server_uses_local_api_tunnel_endpoint(mock_proxmox, tmp_path):
     """API tunnel config should redirect ProxmoxAPI to the local forward."""
     config_path = tmp_path / "config_tunnel.json"

@@ -78,7 +78,7 @@ class PostgresOAuthStateStore:
                 command_timeout=self.command_timeout_seconds,
                 reset=_reset_pool_connection,
             )
-            if pool is None:  # pragma: no cover - asyncpg documents a Pool return
+            if pool is None:
                 raise RuntimeError("Failed to create OAuth PostgreSQL connection pool")
             try:
                 await self._initialize(pool)
