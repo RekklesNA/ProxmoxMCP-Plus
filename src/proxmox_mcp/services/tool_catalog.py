@@ -79,7 +79,7 @@ BUILTIN_TOOL_NAMES = frozenset(
 
 
 def _read_only(*, open_world: bool = True) -> ToolAnnotations:
-    return ToolAnnotations(readOnlyHint=True, openWorldHint=open_world)
+    return ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=open_world)
 
 
 def _write(

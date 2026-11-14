@@ -45,7 +45,9 @@ def test_mutating_tools_declare_destructive_hint():
     for name, value in BUILTIN_TOOL_ANNOTATIONS.items():
         assert value.readOnlyHint is not None, name
         assert value.openWorldHint is not None, name
-        if not value.readOnlyHint:
+        if value.readOnlyHint:
+            assert value.idempotentHint is True, name
+        else:
             assert value.destructiveHint is not None, name
             assert value.idempotentHint is not None, name
 

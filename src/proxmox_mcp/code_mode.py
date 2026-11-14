@@ -82,7 +82,8 @@ class CodeMode:
         mcp = self.server.mcp
 
         @mcp.tool(name="proxmox_code_search", description="Search Proxmox MCP tools by name or description.",
-                  annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+                  annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True,
+                                              openWorldHint=False))
         async def code_search(query: str, category: str | None = None, limit: int = 10) -> dict[str, Any]:
             query_l = query.lower().strip()
             limit = max(1, min(limit, 20))
@@ -99,7 +100,8 @@ class CodeMode:
             return {"success": True, "data": results[:limit]}
 
         @mcp.tool(name="proxmox_code_get_schema", description="Return exact input schemas for discovered Proxmox tools.",
-                  annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+                  annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True,
+                                              openWorldHint=False))
         async def code_get_schema(names: list[str]) -> dict[str, Any]:
             tools = self._runtime_tools()
             if not names or any(name not in tools for name in names):
