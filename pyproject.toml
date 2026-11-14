@@ -1,6 +1,6 @@
 [project]
 name = "proxmox-mcp-plus"
-version = "0.6.10"
+version = "0.6.11"
 description = "Enhanced Proxmox MCP Server"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.30.0,<2.0.0",
+    "opentelemetry-api>=1.45.2",
     "asyncpg>=0.30.0,<1.0.0",
     "proxmoxer>=2.0.1,<3.0.0",
     "requests>=2.31.0,<3.0.0",
@@ -92,6 +93,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: runs live Proxmox and OpenAPI end-to-end checks",
 ]

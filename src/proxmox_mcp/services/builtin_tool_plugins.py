@@ -99,7 +99,13 @@ class CoreToolsPlugin(RegistryPluginBase):
             try:
                 def discover(target: Any) -> dict[str, Any]:
                     probe = probes[target.name]
-                    nodes = probe._cached_read("health:nodes", lambda: probe.proxmox.nodes.get())
+                    def fetch_nodes() -> list[Any]:
+                        inventory = probe.proxmox.nodes.get()
+                        if not isinstance(inventory, list):
+                            raise ValueError("Invalid node inventory")
+                        return inventory
+
+                    nodes = probe._cached_read("health:nodes", fetch_nodes)
                     return {
                         "reachable": True,
                         "nodes": [

@@ -165,7 +165,7 @@ class ProxyMetricsMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Simple fixed-window in-memory rate limiter per client address."""
+    """In-memory sliding-window rate limiter per client address."""
 
     _SWEEP_INTERVAL = 256
 
@@ -187,7 +187,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_host = request.client.host if request.client else "unknown"
-        now = time.time()
+        now = time.monotonic()
         window_start = now - 60.0
         bucket = self._buckets.setdefault(client_host, deque())
         while bucket and bucket[0] < window_start:

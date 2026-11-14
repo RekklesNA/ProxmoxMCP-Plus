@@ -17,11 +17,11 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip check \
     && python -m pip uninstall --yes pip setuptools wheel
 
-COPY . .
+COPY proxmox-config/config.example.json proxmox-config/config.live.example.json ./proxmox-config/
 
 RUN useradd --create-home --shell /usr/sbin/nologin proxmoxmcp \
     && mkdir -p /app/data \
-    && chown -R proxmoxmcp:proxmoxmcp /app
+    && chown proxmoxmcp:proxmoxmcp /app /app/data
 
 USER proxmoxmcp
 

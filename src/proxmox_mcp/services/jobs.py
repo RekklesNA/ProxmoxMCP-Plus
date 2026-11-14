@@ -11,6 +11,8 @@ import weakref
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from proxmoxer import ResourceException
+from requests.exceptions import RequestException
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 from proxmox_mcp.security.resources import delete_volume, validate_segment, submit_snapshot_rollback
 from .job_models import (
@@ -211,9 +213,16 @@ class JobStore(JobPersistence):
             node = record.node
             observed_state = (record.status, record.updated_at, record.result)
 
-        status_payload = self.proxmox.nodes(node).tasks(upid).status.get()
-        log_payload = self.proxmox.nodes(node).tasks(upid).log.get()
-        progress = self._extract_progress(log_payload)
+        task = self.proxmox.nodes(node).tasks(upid)
+        status_payload = task.status.get()
+        progress_unavailable = False
+        try:
+            progress = self._extract_progress(task.log.get())
+        except (ResourceException, RequestException, ConnectionError, TimeoutError):
+            # The log is advisory. A successful status read still establishes
+            # the task outcome when the log is inaccessible or unavailable.
+            progress = None
+            progress_unavailable = True
         status, last_error, completed_at = self._normalize_status(status_payload)
 
         with self._write_transaction():
@@ -226,19 +235,21 @@ class JobStore(JobPersistence):
                 return record.as_dict()
             if record.status == "cancel_requested" and status == "running":
                 status = "cancel_requested"
-            record.progress = progress
+            if not progress_unavailable:
+                record.progress = progress
             record.status = status
             record.last_error = last_error
             record.completed_at = record.completed_at or completed_at
             record.result = status_payload if isinstance(status_payload, dict) else {"raw": status_payload}
             record.add_audit(
-                "polled",
+                "polled_without_log" if progress_unavailable else "polled",
                 status=status,
-                progress=progress,
+                progress=record.progress,
                 exitstatus=record.result.get("exitstatus") if record.result else None,
             )
             self._save_record(record)
-            self._polling.remember(record)
+            if not progress_unavailable:
+                self._polling.remember(record)
             return record.as_dict()
 
     def cancel_job(self, job_id: str) -> dict[str, Any]:

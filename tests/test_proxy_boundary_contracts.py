@@ -91,8 +91,28 @@ async def test_rate_limiter_expires_buckets_and_sweeps_without_client_identity()
     limiter.requests_per_minute = 10
     limiter._requests_seen = 255
     limiter._buckets = {'unknown': deque([0]), 'stale': deque([0])}
-    assert await limiter.dispatch(request, call) == 'response'
+    with patch.object(proxy.time, 'monotonic', return_value=61):
+        assert await limiter.dispatch(request, call) == 'response'
     assert 'stale' not in limiter._buckets
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_uses_elapsed_time_despite_wall_clock_rollback():
+    request = Request({'type': 'http', 'headers': [], 'client': ('127.0.0.1', 1234)})
+    downstream = AsyncMock(return_value='response')
+    limiter = proxy.RateLimitMiddleware(Mock(), requests_per_minute=1)
+    with patch.object(proxy.time, 'time', return_value=2000), patch.object(
+        proxy.time, 'monotonic', return_value=100
+    ):
+        assert await limiter.dispatch(request, downstream) == 'response'
+    with patch.object(proxy.time, 'time', return_value=1900), patch.object(
+        proxy.time, 'monotonic', return_value=120
+    ):
+        assert (await limiter.dispatch(request, downstream)).status_code == 429
+    with patch.object(proxy.time, 'time', return_value=1901), patch.object(
+        proxy.time, 'monotonic', return_value=161
+    ):
+        assert await limiter.dispatch(request, downstream) == 'response'
 
 
 @pytest.mark.parametrize('named', [False, True])

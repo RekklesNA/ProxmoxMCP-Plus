@@ -11,6 +11,7 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 import pytest
+from proxmoxer import ResourceException
 
 from proxmox_mcp.services.jobs import JobConflictError, JobStore
 from proxmox_mcp.server import ProxmoxMCPServer
@@ -85,6 +86,37 @@ def test_job_store_register_poll_and_progress(tmp_path: Path):
     assert polled["status"] == "completed"
     assert polled["progress"] == 45
     assert [event["event"] for event in polled["audit_log"]] == ["created", "polled"]
+
+
+def test_poll_keeps_status_when_task_log_is_unavailable(tmp_path: Path):
+    api = Mock()
+    task = api.nodes.return_value.tasks.return_value
+    task.status.get.side_effect = [
+        {"status": "running"}, {"status": "running"},
+        {"status": "running"}, {"status": "stopped", "exitstatus": "OK"},
+    ]
+    task.log.get.side_effect = [
+        [{"t": "45%"}], ResourceException(403, "Forbidden", ""),
+        [{"t": "75%"}], TimeoutError("Log unavailable"),
+    ]
+    path = str(tmp_path / "jobs.sqlite3")
+    with JobStore(api, path, poll_cache_ttl=60) as store:
+        job_id = store.register_task(
+            tool_name="download_iso", summary="Download ISO", node="pve", upid="UPID:test",
+        )["job_id"]
+        assert store.poll_job(job_id)["progress"] == 45
+        partial = store.poll_job(job_id, force=True)
+        assert partial["status"] == "running"
+        assert partial["progress"] == 45
+        assert partial["audit_log"][-1]["event"] == "polled_without_log"
+        # A missing log must not make a running job's progress cache look fresh.
+        assert store.poll_job(job_id)["progress"] == 75
+        assert store.poll_job(job_id, force=True)["status"] == "completed"
+    with JobStore(api, path) as reopened:
+        completed = reopened.get_job(job_id)
+        assert completed["status"] == "completed"
+        assert completed["progress"] == 75
+        assert completed["audit_log"][-1]["event"] == "polled_without_log"
 
 
 def test_job_store_retry_and_cancel(tmp_path: Path):

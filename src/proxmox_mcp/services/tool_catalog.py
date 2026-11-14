@@ -98,7 +98,7 @@ def _write(
 # the tools allowed on read-only targets (_READ_ONLY_TOOLS plus list_targets).
 BUILTIN_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     # Read-only queries.
-    "list_targets": _read_only(open_world=False),
+    "list_targets": _read_only(),
     "get_nodes": _read_only(),
     "list_bridges": _read_only(),
     "get_node_status": _read_only(),

@@ -18,6 +18,15 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.6.11`
+
+- Requires OpenTelemetry API 1.45.2 or later and updates the container lock.
+- Persists task status when only the Proxmox task log is unavailable. The last observed progress is retained.
+- Corrects MCP annotations for target discovery, read-only tools and Code Mode lookups.
+- Keeps OpenAPI rate-limit windows stable across clock corrections and limits the files copied into the Docker image.
+- See [v0.6.11 notes](../releases/v0.6.11.md).
+
+
 ### Version `0.6.10`
 
 - Updates Monty, its client and runtime packages to 1.5.0, including the universal runtime lock and hashes.
