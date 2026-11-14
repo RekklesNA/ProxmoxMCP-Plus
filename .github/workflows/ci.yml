@@ -15,7 +15,14 @@ jobs:
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     - name: Build the reviewed Dockerfile without publishing
-      run: docker build --tag proxmox-mcp-pr:smoke .
+      run: |
+        touch local-build-marker.txt
+        docker build --tag proxmox-mcp-pr:smoke .
+        docker run --rm --entrypoint sh proxmox-mcp-pr:smoke -ec '
+          test ! -e /app/local-build-marker.txt
+          test -r /app/proxmox-config/config.example.json
+          test ! -w /app/src
+        '
     - name: Verify AMD64 application health and runtime hardening
       shell: bash
       run: |

@@ -8,7 +8,7 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolRequest, ToolAnnotations
 
 from proxmox_mcp.server import ProxmoxMCPServer
 from proxmox_mcp.services.tool_catalog import BUILTIN_TOOL_ANNOTATIONS, BUILTIN_TOOL_NAMES
@@ -45,7 +45,9 @@ def test_mutating_tools_declare_destructive_hint():
     for name, value in BUILTIN_TOOL_ANNOTATIONS.items():
         assert value.readOnlyHint is not None, name
         assert value.openWorldHint is not None, name
-        if not value.readOnlyHint:
+        if value.readOnlyHint:
+            assert value.idempotentHint is True, name
+        else:
             assert value.destructiveHint is not None, name
             assert value.idempotentHint is not None, name
 
@@ -60,6 +62,30 @@ async def test_registered_tools_advertise_annotations(tmp_path):
             assert tool.annotations is not None, tool.name
             assert tool.annotations == BUILTIN_TOOL_ANNOTATIONS[tool.name], tool.name
             assert tool.annotations.readOnlyHint is not None, tool.name
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_target_discovery_advertises_network_access_and_recovers_from_invalid_inventory(tmp_path):
+    server = _create_server(tmp_path)
+    try:
+        nodes = server.proxmox_managers["default"].get_api().nodes
+        nodes.get.side_effect = [{"unexpected": "payload"}, [{"node": "pve1"}]]
+        tools = {tool.name: tool for tool in await server.mcp.list_tools()}
+        assert tools["list_targets"].annotations.openWorldHint is True
+        assert tools["list_targets"].annotations.idempotentHint is True
+
+        call_tool = server.mcp._mcp_server.request_handlers[CallToolRequest]
+        request = CallToolRequest(method="tools/call", params={"name": "list_targets", "arguments": {}})
+        first = (await call_tool(request)).root
+        second = (await call_tool(request)).root
+        assert not first.isError and not second.isError
+        assert json.loads(first.content[0].text)["reachable"] is False
+        recovered = json.loads(second.content[0].text)
+        assert recovered["reachable"] is True
+        assert recovered["nodes"] == ["pve1"]
+        assert nodes.get.call_count == 2
     finally:
         server.close()
 
