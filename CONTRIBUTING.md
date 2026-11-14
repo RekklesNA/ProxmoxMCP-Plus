@@ -62,12 +62,12 @@ With those prerequisites available, run the CI coverage checks:
 
 ```bash
 python -m pytest -q --cov=proxmox_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=0
-python scripts/check_coverage.py coverage.json --require-branches
+python scripts/check_coverage.py coverage.json
 ```
 
-The coverage script requires every runtime statement to be covered and full
-branch coverage in the critical modules listed in the script. A local run that
-skips PostgreSQL tests is not sufficient to establish that gate.
+The coverage script requires zero uncovered executable statements and branches
+in every runtime module. It checks exact counts and rejects reports without
+branch measurement. Use the disposable PostgreSQL service to cover OAuth storage.
 
 For runtime/dependency or packaging changes, also run:
 

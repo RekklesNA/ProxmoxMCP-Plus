@@ -42,6 +42,12 @@ def test_join_info_rejects_unexpected_shape():
         ClusterTools(api).get_cluster_join_info()
 
 
+def test_join_info_preserves_partial_public_metadata_without_inventing_nodes():
+    api = MagicMock()
+    api.cluster.config.join.get.return_value = {"fingerprint": "AA:BB", "secret": "private"}
+    assert json.loads(ClusterTools(api).get_cluster_join_info()[0].text) == {"fingerprint": "AA:BB"}
+
+
 def test_join_info_rejects_malformed_node_list():
     api = MagicMock()
     api.cluster.config.join.get.return_value = {"nodelist": {}}

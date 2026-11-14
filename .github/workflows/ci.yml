@@ -137,7 +137,7 @@ jobs:
       run: |
         docker compose version
         pytest -q --cov=proxmox_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=0
-        python scripts/check_coverage.py coverage.json --require-branches
+        python scripts/check_coverage.py coverage.json
 
     - name: Ruff
       run: |

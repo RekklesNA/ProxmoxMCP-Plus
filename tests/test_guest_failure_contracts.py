@@ -21,6 +21,10 @@ def test_vm_config_updates_validate_limits_and_preserve_scalar_options():
     api.nodes.return_value.qemu.return_value.config.get.return_value = {}
     with pytest.raises(ValueError):
         tool.update_vm_config('pve', '100', network_bridge='vmbr0')
+    guest = api.nodes.return_value.qemu.return_value
+    guest.config.get.return_value = {'net0': 'virtio=02:00:00:00:00:01,bridge=vmbr0'}
+    tool.update_vm_config('pve', '100', network_bridge='vmbr1')
+    assert guest.config.put.call_args.kwargs == {'net0': 'virtio=02:00:00:00:00:01,bridge=vmbr1'}
     assert _as_dict({'data': {'a': 1}}) == {'a': 1}
     assert _as_dict(None) == {}
     api.cluster.nextid.get.side_effect = RuntimeError('offline')
@@ -80,6 +84,9 @@ def test_vm_clone_destination_and_request_errors():
     result = tools.clone_vm('pve', '100', '200', name='copy', target_node='other', storage='local', pool='lab', snapname='base')
     assert guest.clone.post.call_args.kwargs == dict(newid=200, full=1, name='copy', target='other', storage='local', pool='lab', snapname='base')
     assert all(value in result[0].text for value in ['local', 'lab', 'base'])
+    unnamed = tools.clone_vm('pve', '100', '201')[0].text
+    assert 'Target Name:' not in unnamed
+    assert guest.clone.post.call_args.kwargs == dict(newid=201, full=1)
     guest.clone.post.side_effect = RuntimeError('offline')
     with pytest.raises(RuntimeError):
         tools.clone_vm('pve', '100', '200')
@@ -96,11 +103,22 @@ def test_vm_create_rejects_collisions_and_handles_raw_capability_storage():
     guest.create.return_value = 'UPID:pve:create'
     assert 'rbd' in tool.create_vm('pve', '100', 'guest', 1, 512, 10, network_bridge='vmbr2')[0].text
     assert api.nodes.return_value.qemu.create.call_args.kwargs['ide2'] == 'rbd:cloudinit'
+    tool.create_vm('pve', '100', 'guest', 1, 512, 10, ostype='win11', network_bridge='vmbr2')
+    assert api.nodes.return_value.qemu.create.call_args.kwargs['ostype'] == 'win11'
     with pytest.raises(ValueError):
         tool.create_vm('pve', '100', 'guest', 1, 512, 10, iso_volume='none')
     guest.config.get.side_effect = RuntimeError('offline')
     with pytest.raises(RuntimeError):
         tool.create_vm('pve', '100', 'guest', 1, 512, 10)
+
+
+@pytest.mark.asyncio
+async def test_direct_vm_command_returns_console_result_without_optional_policy():
+    tools = VMTools(Mock())
+    tools.console_manager.execute_command = AsyncMock(return_value={"success": True, "output": "fixture"})
+    result = await tools.execute_command('pve', '100', 'hostname')
+    tools.console_manager.execute_command.assert_awaited_once_with('pve', '100', 'hostname', guest_os='posix')
+    assert json.loads(result[-1].text) == {"success": True, "output": "fixture"}
 
 
 def test_container_creation_config_and_console_failures():

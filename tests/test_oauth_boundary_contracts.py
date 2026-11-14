@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from starlette.requests import Request
 from mcp.shared.auth import OAuthClientInformationFull
-from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
+from mcp.server.auth.provider import AccessToken, AuthorizeError, RefreshToken, RegistrationError, TokenError
 from proxmox_mcp.mcp_oauth_provider import MCPApiKeyOAuthProvider, _normalize_url, _normalize_issuer, _parse_bool_env, build_oauth_from_env
 from proxmox_mcp.mcp_oauth_store import PostgresOAuthStateStore
 
@@ -63,6 +63,45 @@ def test_oauth_issuer_and_environment_validation(monkeypatch):
 def signed_body(provider, body):
     signature = base64.urlsafe_b64encode(hmac.new(provider._signing_key, body.encode('ascii'), hashlib.sha256).digest()).decode().rstrip('=')
     return 'pmcpt2.' + body + '.' + signature
+
+
+@pytest.mark.parametrize("headers, expected", [
+    ([], "peer"),
+    ([(b"x-client-ip", b" , proxy")], "peer"),
+    ([(b"x-client-ip", b"192.0.2.1, proxy")], "192.0.2.1"),
+])
+def test_optional_forwarded_address_uses_peer_fallback(headers, expected):
+    provider = MCPApiKeyOAuthProvider(
+        api_key="fixture", issuer_url="https://pve.invalid",
+        database_url="postgresql://unused", client_ip_header=" X-Client-IP ",
+    )
+    assert provider.client_ip_header == "x-client-ip"
+    request = Request({"type": "http", "headers": headers, "client": ("peer", 1)})
+    assert provider._peer_ip(request) == expected
+
+
+def test_token_without_expiration_has_no_ttl():
+    access = AccessToken(token="access", client_id="client", scopes=["mcp"])
+    refresh = RefreshToken(token="refresh", client_id="client", scopes=["mcp"])
+    assert MCPApiKeyOAuthProvider._oauth_token(access, refresh).expires_in is None
+
+
+@pytest.mark.asyncio
+async def test_close_before_start_is_idempotent():
+    store = PostgresOAuthStateStore("postgresql://unused")
+    with patch("proxmox_mcp.mcp_oauth_store.asyncpg.create_pool") as create_pool:
+        await store.close()
+        await store.close()
+    create_pool.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_oauth_store_rejects_missing_pool():
+    store = PostgresOAuthStateStore("postgresql://unused")
+    with patch("proxmox_mcp.mcp_oauth_store.asyncpg.create_pool", AsyncMock(return_value=None)):
+        with pytest.raises(RuntimeError, match="Failed to create OAuth"):
+            await store.start()
+    assert store._pool is None
 
 
 def test_transaction_parser_rejects_malformed_and_expired_payloads(provider):

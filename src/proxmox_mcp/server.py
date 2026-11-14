@@ -17,6 +17,7 @@ from typing import Any, Literal, NoReturn, Optional, cast
 from types import SimpleNamespace
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from proxmox_mcp.config.loader import load_config
 from proxmox_mcp.core.logging import setup_logging
 from proxmox_mcp.core.proxmox import ProxmoxManager
@@ -53,13 +54,6 @@ from proxmox_mcp.tools.node import NodeTools
 from proxmox_mcp.tools.snapshots import SnapshotTools
 from proxmox_mcp.tools.storage import StorageTools
 from proxmox_mcp.tools.vm import VMTools
-
-TransportSecuritySettings: Any
-try:
-    from mcp.server.transport_security import TransportSecuritySettings
-except ImportError:  # pragma: no cover - exercised only with older MCP SDKs
-    TransportSecuritySettings = None
-
 
 def _log_safe(value: object, max_length: int = 200) -> str:
     text = str(value).replace("\r", "").replace("\n", "")
@@ -272,13 +266,6 @@ class ProxmoxMCPServer:
         )
         if not configured:
             return None
-        if TransportSecuritySettings is None:
-            raise RuntimeError(
-                "MCP transport security settings require mcp>=1.24.0. "
-                "Upgrade the mcp package or remove mcp.dns_rebinding_protection, "
-                "mcp.allowed_hosts, and mcp.allowed_origins from the config."
-            )
-
         enable_protection = mcp_config.dns_rebinding_protection
         if enable_protection is None:
             enable_protection = True

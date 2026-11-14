@@ -16,6 +16,7 @@ def test_create_table_handles_title_and_multiline_cells(monkeypatch):
     assert "Inventory" in table
     assert "line 1" in table
     assert "line 2" in table
+    assert "Inventory" not in ProxmoxComponents.create_table(["Name"], [["vm-100"]])
     assert "ct-101" in table
 
 

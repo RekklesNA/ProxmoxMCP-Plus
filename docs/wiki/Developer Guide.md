@@ -30,8 +30,8 @@ python -m pip_audit -r requirements/runtime.lock --require-hashes --disable-pip 
 python -m build
 ```
 
-Install `pip-audit` separately if needed. CI requires every runtime statement and
-all branches in its critical modules to be covered. It supplies a disposable
+Install `pip-audit` separately if needed. CI requires complete statement and branch
+coverage in every runtime module. It supplies a disposable
 PostgreSQL service and Docker/Compose; see [the contribution guide](../../CONTRIBUTING.md#validate-a-change)
 for equivalent commands and why local optional-environment skips do not establish
 the full coverage gate. Follow [Dependency updates](../dependency-updates.md) for

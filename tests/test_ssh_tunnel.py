@@ -161,7 +161,8 @@ def test_api_tunnel_close_kills_process_after_timeout() -> None:
     assert manager._process is None
 
 
-def test_api_tunnel_wait_fails_when_ssh_exits_early() -> None:
+@pytest.mark.parametrize("capture_stderr", [True, False])
+def test_api_tunnel_wait_fails_when_ssh_exits_early(capture_stderr) -> None:
     tunnel_config = SimpleNamespace(
         ssh_host="jump-host",
         local_host="127.0.0.1",
@@ -174,6 +175,8 @@ def test_api_tunnel_wait_fails_when_ssh_exits_early() -> None:
     process = Mock()
     process.poll.return_value = 255
     process.stderr.read.return_value = "bad\nkey"
+    if not capture_stderr:
+        process.stderr = None
     manager._process = process
 
     with pytest.raises(RuntimeError, match="Failed to establish SSH tunnel"):
