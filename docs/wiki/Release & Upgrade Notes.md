@@ -18,6 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.7.1`
+
+- Updates Monty, its Python client and the worker runtime to 1.6.0 in the hashed lock.
+- Updates both CodeQL Action steps to the same reviewed immutable revision.
+- See [v0.7.1 notes](../releases/v0.7.1.md).
+
 ### Version `0.7.0`
 
 - Requires 100% statement and branch coverage across every runtime module on Python 3.11 and 3.12.
