@@ -231,6 +231,44 @@ async def test_update_vm_config_enforces_selected_target_approval(provisioning_s
 
 
 @pytest.mark.asyncio
+async def test_firmware_tools_forward_arguments_and_enforce_target_policy(provisioning_server):
+    server, apis = provisioning_server
+    strict = apis["strict.invalid"]
+    vm = strict.nodes.return_value.qemu.return_value
+    args = {"node": "pve", "vmid": "105", "bios": "ovmf", "secure_boot": True,
+            "tpm": True, "storage": "local-lvm"}
+    with pytest.raises(ToolError, match="requires an approval token"):
+        await server.mcp.call_tool("update_vm_config", {**args, "target": "strict"})
+    strict.nodes.assert_not_called()
+    with pytest.raises(ToolError, match="read-only"):
+        await server.mcp.call_tool("update_vm_config", {
+            **args, "target": "readonly", "approval_token": "strict-approval",
+        })
+    apis["readonly.invalid"].nodes.assert_not_called()
+    vm.config.get.return_value = {"digest": "abc"}
+    result = _payload(await server.mcp.call_tool("update_vm_config", {
+        **args, "target": "strict", "approval_token": "strict-approval",
+    }))
+    expected = {"bios": "ovmf", "efidisk0": "local-lvm:1,efitype=4m,pre-enrolled-keys=1",
+                "tpmstate0": "local-lvm:1,version=v2.0"}
+    vm.config.put.assert_called_once_with(**expected, digest="abc")
+    assert result["applied"] == expected
+    tool = next(t for t in await server.mcp.list_tools() if t.name == "update_vm_config")
+    assert tool.annotations.idempotentHint is False
+    vm.config.get.side_effect = RuntimeError("VM does not exist")
+    strict.nodes.return_value.storage.get.return_value = [
+        {"storage": "local-lvm", "content": "images", "type": "lvmthin"},
+    ]
+    strict.nodes.return_value.qemu.create.return_value = "UPID:pve:create"
+    await server.mcp.call_tool("create_vm", {
+        **args, "target": "strict", "name": "uefi", "cpus": 2, "memory": 4096, "disk_size": 30,
+    })
+    payload = strict.nodes.return_value.qemu.create.call_args.kwargs
+    assert {key: payload[key] for key in expected} == expected
+    apis["default.invalid"].nodes.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_update_vm_config_default_policy_remains_usable_without_token(provisioning_server):
     server, apis = provisioning_server
     result = _payload(await server.mcp.call_tool(

@@ -144,7 +144,7 @@ BUILTIN_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
     # Backup mode=stop/suspend can interrupt a running guest.
     "create_backup": _write(destructive=True),
     "set_vm_description": _write(destructive=True, idempotent=True),
-    "update_vm_config": _write(destructive=True, idempotent=True),
+    "update_vm_config": _write(destructive=True),
     "configure_vm_serial_console": _write(destructive=True, idempotent=True),
     "set_container_description": _write(destructive=True, idempotent=True),
     # disk_gb is an increment (+NG), so repeating a call grows the disk again.

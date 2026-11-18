@@ -367,6 +367,11 @@ class VMToolsPlugin(RegistryPluginBase):
             cdrom_device: Annotated[str, Field(description="CD-ROM device; refuses to overwrite disks or cloud-init")] = "ide3",
             boot_order: Annotated[Optional[str], Field(description="Boot devices separated by semicolons, e.g. ide3;scsi0")] = None,
             network_bridge: Annotated[Optional[str], Field(description="Change net0 bridge while preserving other NIC settings")] = None,
+            bios: Annotated[Optional[Literal["seabios", "ovmf"]], Field(description="Firmware: 'seabios' or 'ovmf' (UEFI)")] = None,
+            efi_disk: Annotated[bool, Field(description="Add an EFI vars disk on storage (needs OVMF); never replaces efidisk0")] = False,
+            secure_boot: Annotated[bool, Field(description="Add the EFI disk with Microsoft Secure Boot keys pre-enrolled")] = False,
+            tpm: Annotated[bool, Field(description="Add TPM 2.0 state on storage; never replaces tpmstate0")] = False,
+            storage: Annotated[Optional[str], Field(description="Storage for a new EFI disk or TPM state (e.g. 'local-lvm')")] = None,
         ) -> Any:
             return self._wrap_sync(server, "update_vm_config", lambda ts: ts.vm_tools.update_vm_config, high_risk=True)(
                 node=node,
@@ -383,6 +388,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 tags=tags,
                 approval_token=approval_token,
                 iso_volume=iso_volume, cdrom_device=cdrom_device, boot_order=boot_order, network_bridge=network_bridge,
+                bios=bios, efi_disk=efi_disk, secure_boot=secure_boot, tpm=tpm, storage=storage,
                 target=target,
             )
 
@@ -414,6 +420,10 @@ class VMToolsPlugin(RegistryPluginBase):
             iso_volume: Annotated[Optional[str], Field(description="Existing ISO volume ID, e.g. local:iso/debian.iso")] = None,
             cdrom_device: Annotated[str, Field(description="Unused CD-ROM slot (default ide3)")] = "ide3",
             boot_order: Annotated[Optional[str], Field(description="Semicolon-separated boot devices; with ISO defaults to CD-ROM then disk")] = None,
+            bios: Annotated[Optional[Literal["seabios", "ovmf"]], Field(description="Firmware: 'seabios' (default) or 'ovmf' (UEFI)")] = None,
+            efi_disk: Annotated[bool, Field(description="Add an EFI vars disk on the selected storage (needs bios='ovmf')")] = False,
+            secure_boot: Annotated[bool, Field(description="Add the EFI disk with Microsoft Secure Boot keys pre-enrolled (needs bios='ovmf')")] = False,
+            tpm: Annotated[bool, Field(description="Add TPM 2.0 state on the selected storage")] = False,
         ) -> Any:
             return self._wrap_sync(server, "create_vm", lambda ts: ts.vm_tools.create_vm)(
                 node,
@@ -427,6 +437,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 network_bridge,
                 pool,
                 iso_volume=iso_volume, cdrom_device=cdrom_device, boot_order=boot_order,
+                bios=bios, efi_disk=efi_disk, secure_boot=secure_boot, tpm=tpm,
                 target=target,
             )
 

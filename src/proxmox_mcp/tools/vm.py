@@ -16,7 +16,7 @@ The tools implement fallback mechanisms for scenarios where
 detailed VM information might be temporarily unavailable.
 """
 from proxmox_mcp.tools.storage_selection import select_storage
-from proxmox_mcp.tools.guest_config import bridge_name, parse_device, vm_media
+from proxmox_mcp.tools.guest_config import bridge_name, parse_device, vm_firmware, vm_media
 import json
 import re
 import math
@@ -204,6 +204,11 @@ class VMTools(ProxmoxTool):
         cdrom_device: str = "ide3",
         boot_order: Optional[str] = None,
         network_bridge: Optional[str] = None,
+        bios: Optional[str] = None,
+        efi_disk: bool = False,
+        secure_boot: bool = False,
+        tpm: bool = False,
+        storage: Optional[str] = None,
     ) -> List[Content]:
         """Update sizing and cloud-init settings of an existing QEMU VM.
 
@@ -216,6 +221,11 @@ class VMTools(ProxmoxTool):
         API expects the *value* of that field to be percent-encoded on top of
         the form encoding of the request (the same quirk `qm set --sshkeys`
         hides), and a raw key is rejected with "invalid format".
+
+        ``efi_disk``, ``secure_boot`` and ``tpm`` add an EFI vars disk (with the
+        Microsoft keys pre-enrolled for Secure Boot) or TPM 2.0 state on
+        ``storage``. They never replace an existing efidisk0 or tpmstate0, and an
+        EFI disk needs OVMF, either already set or requested with ``bios``.
         """
         # Approval is enforced by the target-aware tool wrapper, not the PVE API.
         _ = approval_token
@@ -261,8 +271,23 @@ class VMTools(ProxmoxTool):
         media = vm_media(iso_volume, cdrom_device, boot_order)
         if network_bridge is not None:
             bridge_name(network_bridge)
-        if media or network_bridge is not None:
-            current = self.proxmox.nodes(node).qemu(vmid).config.get()
+        firmware = vm_firmware(bios, efi_disk, secure_boot, tpm, storage)
+        firmware_devices = firmware.keys() & {"efidisk0", "tpmstate0"}
+        vm_config = self.proxmox.nodes(node).qemu(vmid).config
+        if media or network_bridge is not None or firmware_devices:
+            current = vm_config.get()
+            if firmware_devices:
+                active = vm_config.get(current=1)
+                digest = current.get("digest") if isinstance(current, dict) else None
+                if not isinstance(digest, str) or not digest.strip():
+                    raise ValueError("VM config digest unavailable; no firmware disks were submitted")
+                if not isinstance(active, dict) or active.get("digest") != digest:
+                    raise ValueError("Current and pending VM configuration could not be matched")
+                occupied = firmware_devices & (active.keys() | current.keys())
+                if occupied:
+                    raise ValueError("Refusing to replace an existing EFI disk or TPM state: "
+                                     + ", ".join(sorted(occupied)))
+                firmware = vm_firmware(bios, efi_disk, secure_boot, tpm, storage, current)
             payload.update(vm_media(iso_volume, cdrom_device, boot_order, current))
             if network_bridge is not None:
                 if not current.get("net0"):
@@ -272,11 +297,12 @@ class VMTools(ProxmoxTool):
                 payload["net0"] = ",".join(f"{key}={value}" for key, value in network.items())
             if current.get("digest"):
                 payload["digest"] = current["digest"]
+        payload.update(firmware)
         if not payload:
             raise ValueError("update_vm_config needs at least one setting to change")
 
         try:
-            self.proxmox.nodes(node).qemu(vmid).config.put(**payload)
+            vm_config.put(**payload)
         except Exception as e:
             if "does not exist" in str(e).lower() or "not found" in str(e).lower():
                 raise ValueError(f"VM {vmid} not found on node {node}") from e
@@ -291,6 +317,8 @@ class VMTools(ProxmoxTool):
             notes.append("cloud-init settings are applied by the guest at its next boot")
         if {"memory", "cores", "sockets"} & payload.keys():
             notes.append("sizing changes on a running VM stay pending until it is restarted")
+        if {"bios", "efidisk0", "tpmstate0"} & payload.keys():
+            notes.append("firmware changes may remain pending until the VM is stopped and started; verify the guest firmware state before relying on Secure Boot")
         return self._json_fmt({"vmid": vmid, "node": node, "applied": applied, "notes": notes})
 
     def get_vm_ip_addresses(self, node: str, vmid: str) -> List[Content]:
@@ -454,6 +482,10 @@ class VMTools(ProxmoxTool):
         iso_volume: Optional[str] = None,
         cdrom_device: str = "ide3",
         boot_order: Optional[str] = None,
+        bios: Optional[str] = None,
+        efi_disk: bool = False,
+        secure_boot: bool = False,
+        tpm: bool = False,
     ) -> List[Content]:
         """Create a new virtual machine with specified configuration.
         
@@ -468,7 +500,11 @@ class VMTools(ProxmoxTool):
             ostype: OS type (e.g., 'l26' for Linux, 'win10' for Windows). Default: 'l26'
             network_bridge: Network bridge name (e.g., 'vmbr0'). If None, defaults to 'vmbr0'
             pool: Proxmox resource pool to create the VM in. If None, no pool is specified
-            
+            bios: 'seabios' or 'ovmf' (UEFI). If None, Proxmox's default (SeaBIOS) applies
+            efi_disk: Add an EFI vars disk on the selected storage (needs bios='ovmf')
+            secure_boot: Add the EFI disk with the Microsoft Secure Boot keys pre-enrolled
+            tpm: Add TPM 2.0 state on the selected storage
+
         Returns:
             List of Content objects containing creation result
             
@@ -479,6 +515,8 @@ class VMTools(ProxmoxTool):
         media = vm_media(iso_volume, cdrom_device, boot_order)
         if iso_volume == "none":
             raise ValueError("Use an ISO volume ID when creating a VM")
+        if (efi_disk or secure_boot) and bios != "ovmf":
+            raise ValueError("An EFI disk and Secure Boot need bios='ovmf'")
         if network_bridge is not None:
             bridge_name(network_bridge)
         try:
@@ -547,6 +585,8 @@ class VMTools(ProxmoxTool):
             # Never replace the disk or cloud-init drive created above.
             vm_media(iso_volume, cdrom_device, boot_order, vm_config)
             vm_config.update(media)
+            firmware = vm_firmware(bios, efi_disk, secure_boot, tpm, storage, {})
+            vm_config.update(firmware)
 
             if pool:
                 vm_config["pool"] = pool
@@ -565,7 +605,12 @@ class VMTools(ProxmoxTool):
             )
             
             cloudinit_note = ""
-            
+            firmware_parts = [firmware.get("bios", "seabios")]
+            if "efidisk0" in firmware:
+                firmware_parts.append("EFI disk with Secure Boot keys" if secure_boot else "EFI disk")
+            if "tpmstate0" in firmware:
+                firmware_parts.append("TPM 2.0")
+
             result_text = f"""VM {vmid} created successfully
 
 VM Configuration:
@@ -578,6 +623,7 @@ VM Configuration:
   - Storage Type: {storage_type}
   - OS Type: {ostype}
   - Network: virtio (bridge={network_bridge})
+  - Firmware: {", ".join(firmware_parts)}
   - QEMU Agent: Enabled{cloudinit_note}
 
 Task ID: {task_result}

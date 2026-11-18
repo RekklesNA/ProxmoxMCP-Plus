@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from proxmox_mcp.tools.containers import ContainerTools
-from proxmox_mcp.tools.guest_config import container_network, vm_media
+from proxmox_mcp.tools.guest_config import container_network, vm_firmware, vm_media
 from proxmox_mcp.tools.vm import VMTools
 
 
@@ -102,3 +102,129 @@ def test_create_container_retains_dhcp_default_and_supports_static(static):
 def test_ipv6_zone_ids_cannot_inject_network_options(kwargs):
     with pytest.raises(ValueError, match="zone IDs"):
         container_network(**kwargs)
+
+
+def _vm_api(current):
+    api = Mock()
+    config = api.nodes.return_value.qemu.return_value.config
+    config.get.return_value = current
+    return api, config
+
+
+def test_update_adds_secure_boot_efi_disk_and_tpm_with_digest():
+    api, config = _vm_api({"bios": "ovmf", "scsi0": "local-lvm:vm-101-disk-0", "digest": "abc"})
+    result = VMTools(api).update_vm_config("pve", "101", secure_boot=True, tpm=True, storage="local-lvm")
+    config.get.assert_any_call(current=1)
+    config.put.assert_called_once_with(
+        efidisk0="local-lvm:1,efitype=4m,pre-enrolled-keys=1",
+        tpmstate0="local-lvm:1,version=v2.0",
+        digest="abc",
+    )
+    body = json.loads(result[0].text)
+    assert body["applied"] == {"efidisk0": "local-lvm:1,efitype=4m,pre-enrolled-keys=1", "tpmstate0": "local-lvm:1,version=v2.0"}
+    assert any("firmware changes" in note for note in body["notes"])
+
+
+def test_update_switches_to_ovmf_and_adds_plain_efi_disk_in_one_call():
+    api, config = _vm_api({"digest": "abc"})
+    VMTools(api).update_vm_config("pve", "101", bios="ovmf", efi_disk=True, storage="local-lvm")
+    config.put.assert_called_once_with(bios="ovmf", efidisk0="local-lvm:1,efitype=4m", digest="abc")
+
+
+def test_update_bios_alone_does_not_read_the_config():
+    api, config = _vm_api({})
+    VMTools(api).update_vm_config("pve", "101", bios="seabios")
+    config.get.assert_not_called()
+    config.put.assert_called_once_with(bios="seabios")
+
+
+@pytest.mark.parametrize("current, kwargs, message", [
+    ({}, {"efi_disk": True}, "need bios='ovmf'"),
+    ({"bios": "seabios"}, {"secure_boot": True}, "need bios='ovmf'"),
+    ({"bios": "ovmf", "efidisk0": "local-lvm:vm-101-disk-1,efitype=4m"}, {"secure_boot": True}, "efidisk0"),
+    ({"tpmstate0": "local-lvm:vm-101-disk-2,version=v2.0"}, {"tpm": True}, "tpmstate0"),
+])
+def test_update_refuses_unsafe_firmware_changes(current, kwargs, message):
+    api, config = _vm_api({**current, "digest": "abc"})
+    with pytest.raises(ValueError, match=message):
+        VMTools(api).update_vm_config("pve", "101", storage="local-lvm", **kwargs)
+    config.put.assert_not_called()
+
+
+@pytest.mark.parametrize("key, options", [
+    ("efidisk0", {"efi_disk": True}),
+    ("tpmstate0", {"tpm": True}),
+])
+def test_update_refuses_to_allocate_over_current_device_hidden_by_pending_delete(key, options):
+    pending = {"bios": "ovmf", "digest": "abc"}
+    active = {**pending, key: "local-lvm:vm-101-disk-1"}
+    api, config = _vm_api(pending)
+    config.get.side_effect = [pending, active]
+    with pytest.raises(ValueError, match=key):
+        VMTools(api).update_vm_config("pve", "101", storage="local-lvm", **options)
+    config.put.assert_not_called()
+
+
+@pytest.mark.parametrize("pending, active, message", [
+    (None, {"digest": "abc"}, "digest unavailable"),
+    ({"digest": " "}, {"digest": " "}, "digest unavailable"),
+    ({"digest": "abc"}, None, "could not be matched"),
+    ({"digest": "abc"}, {"digest": "changed"}, "could not be matched"),
+])
+def test_update_allocations_require_two_matching_config_digests(pending, active, message):
+    api, config = _vm_api(pending)
+    config.get.side_effect = [pending, active]
+    with pytest.raises(ValueError, match=message):
+        VMTools(api).update_vm_config("pve", "101", tpm=True, storage="local-lvm")
+    config.put.assert_not_called()
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"bios": "uefi"}, "bios must be"),
+    ({"tpm": True}, "storage is required"),
+    ({"efi_disk": True, "storage": "local-lvm,size=4G"}, "Invalid resource path segment"),
+    ({"tpm": True, "storage": "local-lvm:volume"}, "storage ID"),
+])
+def test_invalid_firmware_options(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        vm_firmware(kwargs.get("bios"), kwargs.get("efi_disk", False), kwargs.get("secure_boot", False),
+                    kwargs.get("tpm", False), kwargs.get("storage"))
+
+
+def test_firmware_without_devices_needs_no_storage():
+    assert vm_firmware(None, False, False, False, None) == {}
+    assert vm_firmware("ovmf", False, False, False, None) == {"bios": "ovmf"}
+
+
+@pytest.mark.parametrize("options, occupied", [
+    ((True, False, False), "efidisk0"),
+    ((False, False, True), "tpmstate0"),
+])
+def test_firmware_builder_refuses_existing_slots(options, occupied):
+    with pytest.raises(ValueError, match=occupied):
+        vm_firmware("ovmf", *options, "local-lvm", {occupied: None})
+
+
+@pytest.mark.parametrize("kwargs, expected, summary", [
+    ({}, {}, "Firmware: seabios"),
+    ({"bios": "ovmf", "efi_disk": True}, {"bios": "ovmf", "efidisk0": "local:1,efitype=4m"}, "Firmware: ovmf, EFI disk"),
+    ({"bios": "ovmf", "secure_boot": True, "tpm": True},
+     {"bios": "ovmf", "efidisk0": "local:1,efitype=4m,pre-enrolled-keys=1", "tpmstate0": "local:1,version=v2.0"},
+     "Firmware: ovmf, EFI disk with Secure Boot keys, TPM 2.0"),
+])
+def test_vm_creation_adds_firmware_only_when_requested(kwargs, expected, summary):
+    api = Mock()
+    api.nodes.return_value.qemu.return_value.config.get.side_effect = Exception("does not exist")
+    api.nodes.return_value.storage.get.return_value = [{"storage": "local", "content": "images,iso", "type": "dir"}]
+    result = VMTools(api).create_vm("pve", "101", "test", 1, 1024, 10, **kwargs)
+    payload = api.nodes.return_value.qemu.create.call_args.kwargs
+    assert {key: payload[key] for key in ("bios", "efidisk0", "tpmstate0") if key in payload} == expected
+    assert summary in result[0].text
+
+
+@pytest.mark.parametrize("kwargs", [{"efi_disk": True}, {"secure_boot": True, "bios": "seabios"}])
+def test_vm_creation_rejects_efi_disk_without_ovmf_before_any_api_call(kwargs):
+    api = Mock()
+    with pytest.raises(ValueError, match="need bios='ovmf'"):
+        VMTools(api).create_vm("pve", "101", "test", 1, 1024, 10, **kwargs)
+    api.nodes.assert_not_called()

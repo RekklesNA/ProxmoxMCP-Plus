@@ -18,6 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.7.2`
+
+- Adds BIOS, EFI vars disk, Secure Boot key enrollment and TPM 2.0 options to VM creation and updates.
+- Refuses to allocate over an EFI or TPM disk referenced by the active or pending configuration.
+- See [v0.7.2 notes](../releases/v0.7.2.md).
+
 ### Version `0.7.1`
 
 - Updates Monty, its Python client and the worker runtime to 1.6.0 in the hashed lock.

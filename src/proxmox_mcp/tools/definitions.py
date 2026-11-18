@@ -87,10 +87,14 @@ target ID is one Proxmox itself considers unused.
 Example:
 {"vmid": "105"}"""
 
-UPDATE_VM_CONFIG_DESC = """Update sizing, cloud-init, ISO media, boot order and net0 bridge of an existing QEMU VM.
+UPDATE_VM_CONFIG_DESC = """Update sizing, cloud-init, ISO media, boot order, net0 bridge and firmware of an existing QEMU VM.
 iso_volume accepts a storage volume ID or none to eject. cdrom_device defaults to ide3;
 existing disks and cloud-init drives cannot be overwritten. boot_order uses semicolon-separated
-device names. network_bridge preserves the other net0 options.
+device names. network_bridge preserves the other net0 options. efi_disk, secure_boot and tpm
+add an EFI vars disk or TPM 2.0 state on storage; an existing efidisk0 or tpmstate0 is never
+replaced, and an EFI disk needs OVMF (already set, or requested with bios='ovmf').
+Allocation needs VM.Audit to compare current and pending configuration. After
+an error or timeout, inspect the VM config before resubmitting an allocation.
 
 Uses PUT /nodes/{node}/qemu/{vmid}/config with only the supplied fields. This is
 the step between clone_vm and start_vm that makes a fresh clone reachable:
@@ -109,16 +113,22 @@ ipconfig0    - cloud-init IP for net0, e.g. 'ip=dhcp' or 'ip=10.0.0.5/24,gw=10.0
 nameserver   - cloud-init DNS server(s)
 searchdomain - cloud-init DNS search domain
 tags         - Proxmox tags, semicolon-separated
+bios         - Firmware: 'seabios' or 'ovmf' (UEFI)
+efi_disk     - Add an EFI vars disk on storage (needs OVMF)
+secure_boot  - Add the EFI disk with the Microsoft Secure Boot keys pre-enrolled
+tpm          - Add TPM 2.0 state on storage
+storage      - Storage for a new EFI disk or TPM state (required with efi_disk, secure_boot or tpm)
 approval_token - Approval token when required by the target's high-risk policy
 
 This tool is classified as high risk, including SSH key changes, and follows
 the selected target's command_policy.high_risk_* settings.
 
-Cloud-init fields take effect at the guest's next boot; sizing changes on a
-running VM stay pending until it restarts.
+Cloud-init fields take effect at the guest's next boot. Firmware settings may
+remain pending until the VM is stopped and started.
 
-Example:
-update_vm_config node='pve' vmid='105' memory=4096 ciuser='hola' sshkeys='ssh-ed25519 AAAA... ci@host'"""
+Examples:
+update_vm_config node='pve' vmid='105' memory=4096 ciuser='hola' sshkeys='ssh-ed25519 AAAA... ci@host'
+update_vm_config node='pve' vmid='105' bios='ovmf' secure_boot=true tpm=true storage='local-lvm'"""
 
 GET_VM_IP_ADDRESSES_DESC = """Get a running VM's network interfaces and IP addresses via the QEMU guest agent.
 
@@ -149,10 +159,15 @@ storage - Storage name (optional, will auto-detect if not specified)
 ostype - OS type (optional, default: 'l26' for Linux)
 network_bridge - Network bridge name (optional, default: 'vmbr0')
 pool - Target Proxmox resource pool (optional)
+bios - Firmware: 'seabios' (default) or 'ovmf' (UEFI)
+efi_disk - Add an EFI vars disk on the selected storage (needs bios='ovmf')
+secure_boot - Add the EFI disk with the Microsoft Secure Boot keys pre-enrolled (needs bios='ovmf')
+tpm - Add TPM 2.0 state on the selected storage
 
 Examples:
 - Create VM with 1 CPU, 2GB RAM, 10GB disk: node='pve', vmid='200', name='test-vm', cpus=1, memory=2048, disk_size=10
-- Create VM with 2 CPUs, 4GB RAM, 20GB disk: node='pve', vmid='201', name='web-server', cpus=2, memory=4096, disk_size=20"""
+- Create VM with 2 CPUs, 4GB RAM, 20GB disk: node='pve', vmid='201', name='web-server', cpus=2, memory=4096, disk_size=20
+- Create a UEFI VM with Secure Boot and TPM 2.0: node='pve', vmid='202', name='win-srv', cpus=2, memory=4096, disk_size=60, ostype='win11', bios='ovmf', secure_boot=true, tpm=true"""
 
 CLONE_VM_DESC = """Clone an existing virtual machine.
 
