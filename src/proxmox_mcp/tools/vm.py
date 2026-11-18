@@ -272,11 +272,23 @@ class VMTools(ProxmoxTool):
         if network_bridge is not None:
             bridge_name(network_bridge)
         firmware = vm_firmware(bios, efi_disk, secure_boot, tpm, storage)
-        payload.update(firmware)
-        if media or network_bridge is not None or firmware.keys() - {"bios"}:
-            current = self.proxmox.nodes(node).qemu(vmid).config.get()
+        firmware_devices = firmware.keys() & {"efidisk0", "tpmstate0"}
+        vm_config = self.proxmox.nodes(node).qemu(vmid).config
+        if media or network_bridge is not None or firmware_devices:
+            current = vm_config.get()
+            if firmware_devices:
+                active = vm_config.get(current=1)
+                digest = current.get("digest") if isinstance(current, dict) else None
+                if not isinstance(digest, str) or not digest.strip():
+                    raise ValueError("VM config digest unavailable; no firmware disks were submitted")
+                if not isinstance(active, dict) or active.get("digest") != digest:
+                    raise ValueError("Current and pending VM configuration could not be matched")
+                occupied = firmware_devices & (active.keys() | current.keys())
+                if occupied:
+                    raise ValueError("Refusing to replace an existing EFI disk or TPM state: "
+                                     + ", ".join(sorted(occupied)))
+                firmware = vm_firmware(bios, efi_disk, secure_boot, tpm, storage, current)
             payload.update(vm_media(iso_volume, cdrom_device, boot_order, current))
-            payload.update(vm_firmware(bios, efi_disk, secure_boot, tpm, storage, current))
             if network_bridge is not None:
                 if not current.get("net0"):
                     raise ValueError("VM has no net0 interface to update")
@@ -285,11 +297,12 @@ class VMTools(ProxmoxTool):
                 payload["net0"] = ",".join(f"{key}={value}" for key, value in network.items())
             if current.get("digest"):
                 payload["digest"] = current["digest"]
+        payload.update(firmware)
         if not payload:
             raise ValueError("update_vm_config needs at least one setting to change")
 
         try:
-            self.proxmox.nodes(node).qemu(vmid).config.put(**payload)
+            vm_config.put(**payload)
         except Exception as e:
             if "does not exist" in str(e).lower() or "not found" in str(e).lower():
                 raise ValueError(f"VM {vmid} not found on node {node}") from e
@@ -305,7 +318,7 @@ class VMTools(ProxmoxTool):
         if {"memory", "cores", "sockets"} & payload.keys():
             notes.append("sizing changes on a running VM stay pending until it is restarted")
         if {"bios", "efidisk0", "tpmstate0"} & payload.keys():
-            notes.append("firmware changes (BIOS, EFI disk, TPM) on a running VM take effect when it is next started")
+            notes.append("firmware changes may remain pending until the VM is stopped and started; verify the guest firmware state before relying on Secure Boot")
         return self._json_fmt({"vmid": vmid, "node": node, "applied": applied, "notes": notes})
 
     def get_vm_ip_addresses(self, node: str, vmid: str) -> List[Content]:

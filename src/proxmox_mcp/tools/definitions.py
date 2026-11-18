@@ -93,6 +93,8 @@ existing disks and cloud-init drives cannot be overwritten. boot_order uses semi
 device names. network_bridge preserves the other net0 options. efi_disk, secure_boot and tpm
 add an EFI vars disk or TPM 2.0 state on storage; an existing efidisk0 or tpmstate0 is never
 replaced, and an EFI disk needs OVMF (already set, or requested with bios='ovmf').
+Allocation needs VM.Audit to compare current and pending configuration. After
+an error or timeout, inspect the VM config before resubmitting an allocation.
 
 Uses PUT /nodes/{node}/qemu/{vmid}/config with only the supplied fields. This is
 the step between clone_vm and start_vm that makes a fresh clone reachable:
@@ -121,8 +123,8 @@ approval_token - Approval token when required by the target's high-risk policy
 This tool is classified as high risk, including SSH key changes, and follows
 the selected target's command_policy.high_risk_* settings.
 
-Cloud-init fields take effect at the guest's next boot; sizing and firmware
-changes on a running VM stay pending until it restarts.
+Cloud-init fields take effect at the guest's next boot. Firmware settings may
+remain pending until the VM is stopped and started.
 
 Examples:
 update_vm_config node='pve' vmid='105' memory=4096 ciuser='hola' sshkeys='ssh-ed25519 AAAA... ci@host'

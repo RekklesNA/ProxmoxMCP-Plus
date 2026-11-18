@@ -101,16 +101,18 @@ def vm_firmware(bios: str | None, efi_disk: bool, secure_boot: bool, tpm: bool, 
     if storage is None:
         raise ValueError("storage is required to allocate an EFI disk or TPM state")
     validate_segment(storage)
+    if ":" in storage:
+        raise ValueError("Firmware storage must be a storage ID, not a volume ID")
     current = existing or {}
     if efi:
         if existing is not None and (bios or current.get("bios", "seabios")) != "ovmf":
             raise ValueError("An EFI disk and Secure Boot need bios='ovmf'")
-        if current.get("efidisk0"):
+        if "efidisk0" in current:
             raise ValueError("Refusing to replace the existing EFI disk (efidisk0)")
         # The size is ignored for EFI disks; Proxmox allocates the vars volume itself.
         payload["efidisk0"] = f"{storage}:1,efitype=4m" + (",pre-enrolled-keys=1" if secure_boot else "")
     if tpm:
-        if current.get("tpmstate0"):
+        if "tpmstate0" in current:
             raise ValueError("Refusing to replace the existing TPM state (tpmstate0)")
         payload["tpmstate0"] = f"{storage}:1,version=v2.0"
     return payload

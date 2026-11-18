@@ -114,6 +114,7 @@ def _vm_api(current):
 def test_update_adds_secure_boot_efi_disk_and_tpm_with_digest():
     api, config = _vm_api({"bios": "ovmf", "scsi0": "local-lvm:vm-101-disk-0", "digest": "abc"})
     result = VMTools(api).update_vm_config("pve", "101", secure_boot=True, tpm=True, storage="local-lvm")
+    config.get.assert_any_call(current=1)
     config.put.assert_called_once_with(
         efidisk0="local-lvm:1,efitype=4m,pre-enrolled-keys=1",
         tpmstate0="local-lvm:1,version=v2.0",
@@ -140,13 +141,41 @@ def test_update_bios_alone_does_not_read_the_config():
 @pytest.mark.parametrize("current, kwargs, message", [
     ({}, {"efi_disk": True}, "need bios='ovmf'"),
     ({"bios": "seabios"}, {"secure_boot": True}, "need bios='ovmf'"),
-    ({"bios": "ovmf", "efidisk0": "local-lvm:vm-101-disk-1,efitype=4m"}, {"secure_boot": True}, "existing EFI disk"),
-    ({"tpmstate0": "local-lvm:vm-101-disk-2,version=v2.0"}, {"tpm": True}, "existing TPM state"),
+    ({"bios": "ovmf", "efidisk0": "local-lvm:vm-101-disk-1,efitype=4m"}, {"secure_boot": True}, "efidisk0"),
+    ({"tpmstate0": "local-lvm:vm-101-disk-2,version=v2.0"}, {"tpm": True}, "tpmstate0"),
 ])
 def test_update_refuses_unsafe_firmware_changes(current, kwargs, message):
-    api, config = _vm_api(current)
+    api, config = _vm_api({**current, "digest": "abc"})
     with pytest.raises(ValueError, match=message):
         VMTools(api).update_vm_config("pve", "101", storage="local-lvm", **kwargs)
+    config.put.assert_not_called()
+
+
+@pytest.mark.parametrize("key, options", [
+    ("efidisk0", {"efi_disk": True}),
+    ("tpmstate0", {"tpm": True}),
+])
+def test_update_refuses_to_allocate_over_current_device_hidden_by_pending_delete(key, options):
+    pending = {"bios": "ovmf", "digest": "abc"}
+    active = {**pending, key: "local-lvm:vm-101-disk-1"}
+    api, config = _vm_api(pending)
+    config.get.side_effect = [pending, active]
+    with pytest.raises(ValueError, match=key):
+        VMTools(api).update_vm_config("pve", "101", storage="local-lvm", **options)
+    config.put.assert_not_called()
+
+
+@pytest.mark.parametrize("pending, active, message", [
+    (None, {"digest": "abc"}, "digest unavailable"),
+    ({"digest": " "}, {"digest": " "}, "digest unavailable"),
+    ({"digest": "abc"}, None, "could not be matched"),
+    ({"digest": "abc"}, {"digest": "changed"}, "could not be matched"),
+])
+def test_update_allocations_require_two_matching_config_digests(pending, active, message):
+    api, config = _vm_api(pending)
+    config.get.side_effect = [pending, active]
+    with pytest.raises(ValueError, match=message):
+        VMTools(api).update_vm_config("pve", "101", tpm=True, storage="local-lvm")
     config.put.assert_not_called()
 
 
@@ -154,6 +183,7 @@ def test_update_refuses_unsafe_firmware_changes(current, kwargs, message):
     ({"bios": "uefi"}, "bios must be"),
     ({"tpm": True}, "storage is required"),
     ({"efi_disk": True, "storage": "local-lvm,size=4G"}, "Invalid resource path segment"),
+    ({"tpm": True, "storage": "local-lvm:volume"}, "storage ID"),
 ])
 def test_invalid_firmware_options(kwargs, message):
     with pytest.raises(ValueError, match=message):
@@ -164,6 +194,15 @@ def test_invalid_firmware_options(kwargs, message):
 def test_firmware_without_devices_needs_no_storage():
     assert vm_firmware(None, False, False, False, None) == {}
     assert vm_firmware("ovmf", False, False, False, None) == {"bios": "ovmf"}
+
+
+@pytest.mark.parametrize("options, occupied", [
+    ((True, False, False), "efidisk0"),
+    ((False, False, True), "tpmstate0"),
+])
+def test_firmware_builder_refuses_existing_slots(options, occupied):
+    with pytest.raises(ValueError, match=occupied):
+        vm_firmware("ovmf", *options, "local-lvm", {occupied: None})
 
 
 @pytest.mark.parametrize("kwargs, expected, summary", [
