@@ -18,6 +18,12 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.7.3`
+
+- Updates CodeQL and Dependency Review to reviewed immutable Action revisions.
+- Preserves runtime dependencies, workflow permissions and security thresholds.
+- See [v0.7.3 notes](../releases/v0.7.3.md).
+
 ### Version `0.7.2`
 
 - Adds BIOS, EFI vars disk, Secure Boot key enrollment and TPM 2.0 options to VM creation and updates.
