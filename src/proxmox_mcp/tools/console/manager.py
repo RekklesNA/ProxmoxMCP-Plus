@@ -16,11 +16,14 @@ The module implements a robust command execution system with:
 
 import asyncio
 import logging
+import shlex
 from functools import partial
 import anyio
 from typing import Dict, Any
 
 from proxmox_mcp.security.sanitization import sanitize_string
+from proxmox_mcp.config.models import SSHConfig, VMSSHConfig
+from proxmox_mcp.tools.console.container_manager import ContainerConsoleManager
 
 
 def _log_safe(value: object, max_length: int = 200) -> str:
@@ -51,6 +54,39 @@ class VMConsoleManager:
         """
         self.proxmox = proxmox_api
         self.logger = logging.getLogger("proxmox-mcp.vm-console")
+
+    async def execute_ssh_command(
+        self, node: str, vmid: str, command: str, profile: VMSSHConfig
+    ) -> Dict[str, Any]:
+        """Run a bounded Linux command using the administrator's VM SSH profile."""
+        if not command.strip() or "\0" in command:
+            raise ValueError("Provide a nonempty command without NUL characters")
+        status = await anyio.to_thread.run_sync(self.proxmox.nodes(node).qemu(vmid).status.current.get)
+        if status.get("status") != "running":
+            raise ValueError(f"VM {vmid} on node {node} is not running")
+
+        ssh = ContainerConsoleManager(
+            self.proxmox,
+            SSHConfig(
+                user=profile.user, port=profile.port, key_file=profile.key_file,
+                known_hosts_file=profile.known_hosts_file, prefer_ssh_client=profile.prefer_ssh_client,
+            ),
+            explicit_identity=True,
+        )
+        remote_command = (
+            f"/usr/bin/timeout --signal=TERM --kill-after={ssh.KILL_GRACE}s "
+            f"{ssh.COMMAND_TIMEOUT}s /bin/sh -c {shlex.quote(command)}"
+        )
+        self.logger.info("Executing command via SSH on VM %s (node: %s)", _log_safe(vmid), _log_safe(node))
+        try:
+            result = await anyio.to_thread.run_sync(ssh._run_ssh, profile.host, remote_command)
+        except (OSError, RuntimeError):
+            result = {"success": False, "output": "", "error": "", "exit_code": -1, "output_truncated": False}
+        result["transport"] = "ssh"
+        if result["exit_code"] in (-1, 255):
+            result["code"] = "SSH_RESULT_UNKNOWN"
+            result["error"] = "SSH did not return a reliable exit status. Check the VM and SSH setup before retrying."
+        return result
 
     async def _wait_for_exec_status(
         self,

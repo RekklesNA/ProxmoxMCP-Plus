@@ -475,6 +475,7 @@ class VMToolsPlugin(RegistryPluginBase):
             approval_token: Annotated[Optional[str], Field(description="Optional approval token if command policy requires it", default=None)] = None,
             guest_os: Literal["posix", "windows"] = "posix",
             target: Annotated[Optional[str], Field(description="Configured target name; required when multiple targets exist", default=None)] = None,
+            transport: Literal["guest_agent", "ssh"] = "guest_agent",
         ) -> Any:
             return await self._wrap_async(server, "execute_vm_command", lambda ts: ts.vm_tools.execute_command)(
                 node,
@@ -482,6 +483,7 @@ class VMToolsPlugin(RegistryPluginBase):
                 command,
                 approval_token,
                 guest_os=guest_os,
+                transport=transport,
                 target=target,
             )
 

@@ -165,6 +165,7 @@ class ProxmoxMCPServer:
                     command_policy=self.target_command_policies[name],
                     metrics=self.metrics,
                     job_store=job_store,
+                    vm_ssh=target.vm_ssh,
                 ),
                 container_tools=ContainerTools(
                     api,

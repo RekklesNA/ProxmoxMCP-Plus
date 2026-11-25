@@ -185,12 +185,13 @@ snapname - Snapshot name to clone from (optional)
 Example:
 clone_vm node='pve' source_vmid='9000' target_vmid='201' name='web-201' full=true"""
 
-EXECUTE_VM_COMMAND_DESC = """Execute commands in a VM via QEMU guest agent.
+EXECUTE_VM_COMMAND_DESC = """Execute commands in a VM via QEMU guest agent or configured Linux guest SSH.
 
 Parameters:
 node* - Host node name (e.g. 'pve1')
 vmid* - VM ID number (e.g. '100')
 command* - Shell command to run (e.g. 'uname -a')
+transport - 'guest_agent' (default) or 'ssh' for an explicitly configured Linux guest
 
 Example:
 {"success": true, "output": "Linux vm1 5.4.0", "exit_code": 0}"""

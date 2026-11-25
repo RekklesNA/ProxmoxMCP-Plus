@@ -457,7 +457,7 @@ Start with read-only discovery, then move to mutating tools only after the targe
 | Create or manage a VM | `get_nodes`, `get_storage` | `create_vm`, `start_vm`, `stop_vm`, `delete_vm` | Long-running mutations return `job_id` and Proxmox `task_id` |
 | Manage LXCs | `get_containers`, `get_storage` | `create_container`, `start_container`, `stop_container`, `delete_container` | SSH-backed command tools require the optional `ssh` config |
 | Roll back risky changes | `list_snapshots` with `vm_type=qemu` or `vm_type=lxc` | `create_snapshot`, `rollback_snapshot`, `delete_snapshot` | Create a snapshot before destructive workflow tests |
-| Run commands inside guests | VM or container status tools | `execute_vm_command`, `execute_container_command` | VM path needs QEMU Guest Agent; LXC path needs SSH to the Proxmox node |
+| Run commands inside guests | VM or container status tools | `execute_vm_command`, `execute_container_command` | VM commands use QEMU Guest Agent or [configured Linux guest SSH](docs/vm-ssh.md). LXC commands use SSH to the Proxmox node. |
 | Track async work | mutation response with `job_id` | `poll_job`, `get_job`, `list_jobs`, `retry_job`, `cancel_job` | Use `job_id` for agent/user conversations and `task_id` for raw Proxmox traceability |
 | Inspect logs | `get_node_syslog`, `get_cluster_log` | `get_task_log`, `get_node_firewall_log`, `get_guest_firewall_log` | All log tools are read-only; `get_task_log` accepts any Proxmox `UPID` |
 | Automate from HTTP tools | `/openapi.json` | `/jobs`, `/health`, generated tool routes | Use bearer auth and keep CORS restricted outside local development |
