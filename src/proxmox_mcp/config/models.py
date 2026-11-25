@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from typing import Optional, Annotated, Literal, Dict, List
-from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, field_validator, model_validator
 
 _TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -77,6 +77,21 @@ class AuthConfig(BaseModel):
     token_value: str  # Required: API token secret
 
 
+class VMSSHConfig(BaseModel):
+    """Explicit SSH endpoint and identity for one Linux VM."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    host: str = Field(pattern=r"^[A-Za-z0-9:][A-Za-z0-9_.:-]*$")
+    user: str = Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+    port: int = Field(default=22, ge=1, le=65535)
+    key_file: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    known_hosts_file: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    prefer_ssh_client: StrictBool = False
+
+
+VMSSHProfiles = dict[Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{2,8}$")], VMSSHConfig]
+
+
 class TargetConfig(BaseModel):
     """Connection and authentication settings for one named target."""
     host: str
@@ -92,6 +107,7 @@ class TargetConfig(BaseModel):
     readonly: StrictBool = False
     api_tunnel: Optional[APITunnelConfig] = None
     ssh: Optional[SSHConfig] = None
+    vm_ssh: VMSSHProfiles = Field(default_factory=dict)
     command_policy: Optional[CommandPolicyConfig] = None
 
 
@@ -251,6 +267,7 @@ class Config(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     ssh: Optional[SSHConfig] = None
+    vm_ssh: VMSSHProfiles = Field(default_factory=dict)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     command_policy: CommandPolicyConfig = Field(default_factory=CommandPolicyConfig)
 
@@ -264,6 +281,8 @@ class Config(BaseModel):
             raise ValueError("At least one Proxmox target must be configured")
         if has_targets and self.ssh is not None:
             raise ValueError("Top-level ssh is only valid for legacy configuration; configure ssh inside each target")
+        if has_targets and self.vm_ssh:
+            raise ValueError("Top-level vm_ssh is only valid for legacy configuration; configure vm_ssh inside each target")
         if has_targets and self.api_tunnel is not None:
             raise ValueError("Top-level api_tunnel is only valid for legacy configuration; configure api_tunnel inside each target")
         if not has_targets and (self.proxmox is None or self.auth is None):

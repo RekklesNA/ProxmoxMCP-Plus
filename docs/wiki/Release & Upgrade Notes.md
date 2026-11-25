@@ -18,6 +18,11 @@ Use this page to track version-level behavior changes, upgrade steps, and rollba
 
 ## Release History
 
+### Version `0.7.4`
+
+- Adds optional direct SSH for Linux VM commands while retaining the Guest Agent default.
+- See [v0.7.4 notes](../releases/v0.7.4.md).
+
 ### Version `0.7.3`
 
 - Updates CodeQL and Dependency Review to reviewed immutable Action revisions.

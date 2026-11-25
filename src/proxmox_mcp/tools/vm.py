@@ -22,9 +22,10 @@ import re
 import math
 from decimal import Decimal
 import urllib.parse
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from mcp.types import TextContent as Content
 from proxmox_mcp.models import ToolResult
+from proxmox_mcp.config.models import VMSSHProfiles
 from proxmox_mcp.tools.base import ProxmoxTool, _log_safe, completeness_content
 from proxmox_mcp.tools.console.manager import VMConsoleManager
 from proxmox_mcp.security.resources import validate_segment
@@ -93,6 +94,7 @@ class VMTools(ProxmoxTool):
         command_policy: Optional[Any] = None,
         metrics: Optional[Any] = None,
         job_store: Optional[Any] = None,
+        vm_ssh: VMSSHProfiles | None = None,
     ):
         """Initialize VM tools.
 
@@ -102,6 +104,7 @@ class VMTools(ProxmoxTool):
         super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
         self.console_manager = VMConsoleManager(proxmox_api)
         self.command_policy = command_policy
+        self.vm_ssh = {} if vm_ssh is None else vm_ssh
 
     # ---------- error / output ----------
     def _json_fmt(self, data: Any) -> List[Content]:
@@ -1297,35 +1300,14 @@ Clone Configuration:
         command: str,
         approval_token: Optional[str] = None,
         guest_os: str = "posix",
+        transport: Literal["guest_agent", "ssh"] = "guest_agent",
     ) -> List[Content]:
-        """Execute a command in a VM via QEMU guest agent.
-
-        Uses the QEMU guest agent to execute commands within a running VM.
-        Requires:
-        - VM must be running
-        - QEMU guest agent must be installed and running in the VM
-        - Command execution permissions must be enabled
-
-        Args:
-            node: Host node name (e.g., 'pve1', 'proxmox-node2')
-            vmid: VM ID number (e.g., '100', '101')
-            command: Shell command to run (e.g., 'uname -a', 'systemctl status nginx')
-
-        Returns:
-            List of Content objects containing formatted command output:
-            {
-                "success": true/false,
-                "output": "command output",
-                "error": "error message if any"
-            }
-
-        Raises:
-            ValueError: If VM is not found, not running, or guest agent is not available
-            RuntimeError: If command execution fails due to permissions or other issues
-        """
+        """Execute a command in a running VM using the selected transport."""
         try:
             if self.command_policy is not None:
-                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                decision = self.command_policy.evaluate(
+                    command, approval_token=approval_token, full_match_allow_patterns=transport == "ssh"
+                )
                 if not decision.allowed:
                     policy_result = ToolResult(
                         success=False,
@@ -1340,7 +1322,17 @@ Clone Configuration:
                         )
                     ]
 
-            exec_result = await self.console_manager.execute_command(node, vmid, command, guest_os=guest_os)
+            if transport == "ssh":
+                if self.command_policy is None:
+                    raise PermissionError("VM SSH requires a configured command policy")
+                if guest_os != "posix":
+                    raise ValueError("VM SSH supports Linux guests only")
+                profile = self.vm_ssh.get(vmid)
+                if profile is None:
+                    raise ValueError(f"VM SSH is not configured for VM {vmid}")
+                exec_result = await self.console_manager.execute_ssh_command(node, vmid, command, profile)
+            else:
+                exec_result = await self.console_manager.execute_command(node, vmid, command, guest_os=guest_os)
             # Use the command output formatter from ProxmoxFormatters
             from proxmox_mcp.formatting import ProxmoxFormatters
             formatted = ProxmoxFormatters.format_command_output(

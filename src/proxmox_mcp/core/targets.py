@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Any
 
-from proxmox_mcp.config.models import Config, ProxmoxConfig, AuthConfig, TargetConfig
+from proxmox_mcp.config.models import Config, ProxmoxConfig, AuthConfig, TargetConfig, VMSSHProfiles
 from proxmox_mcp.security.sanitization import sanitize_string
 
 
@@ -20,6 +20,7 @@ class ResolvedTarget:
     api_tunnel: Any | None = None
     ssh: Any | None = None
     command_policy: Any | None = None
+    vm_ssh: VMSSHProfiles = field(default_factory=dict)
 
 
 class TargetRegistry:
@@ -41,7 +42,7 @@ class TargetRegistry:
                 name="default", config=config.proxmox, auth=config.auth,
                 kind="standalone", readonly=False,
                 api_tunnel=config.api_tunnel, ssh=config.ssh,
-                command_policy=config.command_policy,
+                command_policy=config.command_policy, vm_ssh=config.vm_ssh,
             )}
         else:
             raise ValueError("Proxmox configuration requires either targets or proxmox/auth")
@@ -58,7 +59,7 @@ class TargetRegistry:
         return ResolvedTarget(
             name=name, config=proxmox, auth=target.auth, kind=target.kind,
             readonly=target.readonly, api_tunnel=target.api_tunnel,
-            ssh=target.ssh, command_policy=target.command_policy,
+            ssh=target.ssh, command_policy=target.command_policy, vm_ssh=target.vm_ssh,
         )
 
     def resolve(self, requested: str | None = None) -> ResolvedTarget:

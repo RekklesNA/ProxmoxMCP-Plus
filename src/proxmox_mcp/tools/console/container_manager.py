@@ -83,9 +83,10 @@ class ContainerConsoleManager:
         finally:
             channel.close()
 
-    def __init__(self, proxmox_api: Any, ssh_config: Any) -> None:
+    def __init__(self, proxmox_api: Any, ssh_config: Any, *, explicit_identity: bool = False) -> None:
         self.proxmox = proxmox_api
         self.ssh_cfg = ssh_config
+        self._explicit_identity = explicit_identity
         self.logger = logging.getLogger("proxmox-mcp.ct-console")
 
     def _ssh_host(self, node: str) -> str:
@@ -96,6 +97,13 @@ class ContainerConsoleManager:
 
     def _execute_via_system_ssh(self, target: str, cmd: str) -> Dict[str, Any]:
         ssh_cmd = ["ssh"]
+        if self._explicit_identity:
+            ssh_cmd.extend([
+                "-F", "none",
+                "-o", "GlobalKnownHostsFile=none",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "IdentityAgent=none",
+            ])
         key_file = getattr(self.ssh_cfg, "key_file", None)
         if key_file:
             ssh_cmd.extend(["-i", os.path.expanduser(key_file)])
@@ -115,7 +123,10 @@ class ContainerConsoleManager:
             "-o", "StrictHostKeyChecking=" + ("yes" if self.ssh_cfg.strict_host_key_checking else "accept-new"),
         ])
         if self.ssh_cfg.known_hosts_file:
-            ssh_cmd.extend(["-o", "UserKnownHostsFile=" + os.path.expanduser(self.ssh_cfg.known_hosts_file)])
+            known_hosts = os.path.expanduser(self.ssh_cfg.known_hosts_file)
+            if self._explicit_identity:
+                known_hosts = '"' + known_hosts.replace("%", "%%").replace('"', '\\"') + '"'
+            ssh_cmd.extend(["-o", "UserKnownHostsFile=" + known_hosts])
         # `--` ends OpenSSH option processing so a target accidentally starting
         # with "-" (e.g. a misconfigured host_overrides value) cannot be
         # reinterpreted as a flag like -oProxyCommand=...
@@ -212,7 +223,8 @@ class ContainerConsoleManager:
 
         # 3. SSH to node and run command
         client = paramiko.SSHClient()
-        client.load_system_host_keys()
+        if not self._explicit_identity:
+            client.load_system_host_keys()
         if self.ssh_cfg.known_hosts_file:
             client.load_host_keys(os.path.expanduser(self.ssh_cfg.known_hosts_file))
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
@@ -232,6 +244,8 @@ class ContainerConsoleManager:
             auth_timeout=10,
             channel_timeout=10,
         )
+        if self._explicit_identity:
+            connect_kwargs.update(allow_agent=False, look_for_keys=False)
         if self.ssh_cfg.key_file:
             connect_kwargs["key_filename"] = os.path.expanduser(self.ssh_cfg.key_file)
         elif self.ssh_cfg.password:
